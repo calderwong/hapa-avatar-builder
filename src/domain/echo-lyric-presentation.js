@@ -5,7 +5,12 @@ import { echoProtectedCameraFrame } from "./echo-camera-framing.js";
  * independently. Functions remain self-contained for offline browser packaging. */
 export function echoLyricPresentation(contract = {}, profile = {}) {
   const width = Number(profile.width) || 1920, height = Number(profile.height) || 1080;
-  const singleWordFocus = contract.templateId === 'center-word-focus-v1';
+  const templateId = contract.templateId || 'scanline-phrase-ribbon-v1';
+  const singleWordFocus = templateId === 'center-word-focus-v1';
+  const squareMosaic = templateId === 'square-word-mosaic-v1';
+  const verticalPoster = templateId === 'vertical-poster-stack-v1';
+  const letterWave = templateId === 'letter-wave-v1';
+  const kineticTypewriter = templateId === 'kinetic-typewriter-v1';
   const palettes = {
     'neon-cyan': ['#e0faff','#22d3ee','#020617e8','monospace'],
     'magenta-glow': ['#ffe4f2','#f472b6','#180522e8','monospace'],
@@ -27,10 +32,15 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
   const validInset = (value, fallback) => typeof value === 'number' && Number.isFinite(value) ? Math.max(.02, Math.min(.35, value)) : fallback;
   const inset = validInset(contract.safeArea?.titleInset ?? profile.safeArea?.titleInset, .08);
   const bottom = validInset(contract.safeArea?.lyricBottom ?? profile.safeArea?.lyricBottom, .1);
-  const position = singleWordFocus ? 'center' : contract.position || 'bottom-center';
+  const position = singleWordFocus || squareMosaic ? 'center' : contract.position || 'bottom-center';
   const side = /left|right/.test(position), top = /top|upper/.test(position), center = position === 'center' || position === 'side-right';
-  const maxWidth = width * (singleWordFocus ? .84 : position === 'side-right' ? .5 : side ? .72 : 1-2*inset);
-  const fontSize = Math.round(Math.min(width,height)*(singleWordFocus ? .11 : .052)*fontScale);
+  const maxWidth = squareMosaic
+    ? Math.min(width, height) * .64
+    : verticalPoster
+      ? Math.min(width * .62, height * .68)
+      : width * (singleWordFocus ? .84 : position === 'side-right' ? .5 : side ? .72 : 1-2*inset);
+  const fontRatio = singleWordFocus ? .11 : squareMosaic ? .046 : verticalPoster ? .058 : letterWave ? .056 : kineticTypewriter ? .054 : .052;
+  const fontSize = Math.round(Math.min(width,height)*fontRatio*fontScale);
   const panel = { position:'absolute', boxSizing:'border-box', width:maxWidth+'px', padding:'18px 24px',
     font:`700 ${fontSize}px/1.4 ${fontFamily}`, color:text, background,
     border:`2px solid ${accent}88`, borderRadius:'8px', textAlign:side ? (/left/.test(position)?'left':'right'):'center',
@@ -45,9 +55,17 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
   if(contract.templateId==='stacked-hook-echo-v1')panel.textShadow=`3px 3px 0 ${accent}55,-3px -3px 0 #ec489944`;
   if(contract.templateId==='orbit-caption-v1')panel.borderRadius='40px';
   if(singleWordFocus)Object.assign(panel,{padding:'0',font:`800 ${fontSize}px/1.05 ${fontFamily}`,background:'transparent',backgroundImage:'none',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',overflowWrap:'normal',whiteSpace:'nowrap'});
-  return { width,height,fontSize,text,accent,background,fontFamily,fontWeight:singleWordFocus?800:700,
+  if(squareMosaic)Object.assign(panel,{padding:'28px',aspectRatio:'1 / 1',font:`800 ${fontSize}px/1.05 ${fontFamily}`,background:`linear-gradient(145deg,${background},#02061799)`,border:`3px solid ${accent}bb`,borderRadius:'22px',boxShadow:`0 0 0 8px ${accent}18,0 22px 70px #00000088`,overflow:'visible'});
+  if(verticalPoster)Object.assign(panel,{padding:'24px 30px',font:`900 ${fontSize}px/.98 ${fontFamily}`,background:'transparent',border:'0',borderLeft:`8px solid ${accent}`,borderRadius:'0',boxShadow:'none',textAlign:'left',overflow:'visible'});
+  if(letterWave)Object.assign(panel,{padding:'22px 30px',font:`800 ${fontSize}px/1.25 ${fontFamily}`,background:`linear-gradient(90deg,${background},#020617b8)`,border:`2px solid ${accent}88`,borderRadius:'999px',boxShadow:`0 14px 45px #00000077`,overflow:'visible'});
+  if(kineticTypewriter)Object.assign(panel,{padding:'20px 28px',font:`750 ${fontSize}px/1.3 ${fontFamily}`,background:'#020617b8',border:'0',borderTop:`2px solid ${accent}99`,borderBottom:`2px solid ${accent}99`,borderRadius:'0',boxShadow:`0 18px 55px #00000066`,textAlign:'left',overflow:'visible'});
+  const layoutMode = squareMosaic ? 'square-grid' : verticalPoster ? 'poster-stack' : 'flow';
+  const letterMotion = letterWave ? 'wave' : kineticTypewriter ? 'typewriter' : 'none';
+  const canvasBackground=verticalPoster?'transparent':kineticTypewriter?'#020617b8':background;
+  return { width,height,fontSize,text,accent,background,canvasBackground,fontFamily,fontWeight:singleWordFocus||squareMosaic||verticalPoster?800:700,
     lineHeight:singleWordFocus?1.05:1.4,panel,inset,bottom,fixedCenter:singleWordFocus,
-    paddingX:singleWordFocus?0:24,paddingY:singleWordFocus?0:18,borderWidth:singleWordFocus?0:2,
+    layoutMode,letterMotion,paddingX:singleWordFocus?0:squareMosaic?28:verticalPoster||letterWave?30:kineticTypewriter?28:24,paddingY:singleWordFocus?0:squareMosaic?28:verticalPoster?24:letterWave?22:kineticTypewriter?20:18,
+    borderWidth:singleWordFocus||verticalPoster||kineticTypewriter?0:parseFloat(panel.border)||2,
     borderRadius:singleWordFocus?0:parseFloat(panel.borderRadius)||0 };
 }
 
@@ -128,10 +146,34 @@ export function fitEchoLyricWordMotion(word, box, area) {
   return `translate(${motion.translateX}px, ${motion.translateY}px) rotate(${motion.rotation}deg) scale(${motion.scale})`;
 }
 
-export function echoLyricWordMeasurementStyle(word = {}, nextWord = null) {
-  return {display:'inline-block',boxSizing:'border-box',maxWidth:'100%',marginTop:'0',marginBottom:'0',
-    marginLeft:word.joinerBefore===false?'0':'.12em',marginRight:nextWord?.joinerBefore===false?'0':'.12em',padding:'0 2px',verticalAlign:'baseline',
+export function echoLyricWordMeasurementStyle(word = {}, nextWord = null, presentation = {}) {
+  const square=presentation.layoutMode==='square-grid',poster=presentation.layoutMode==='poster-stack';
+  return {display:square||poster?'flex':'inline-block',boxSizing:'border-box',maxWidth:'100%',marginTop:'0',marginBottom:'0',
+    marginLeft:square||poster||word.joinerBefore===false?'0':'.12em',marginRight:square||poster||nextWord?.joinerBefore===false?'0':'.12em',padding:square?'8px 6px':poster?'3px 2px':'0 2px',verticalAlign:'baseline',
+    alignItems:square?'center':'baseline',justifyContent:square?'center':'flex-start',textAlign:square?'center':poster?'left':'inherit',
     transformOrigin:'center',whiteSpace:'nowrap',overflowWrap:'normal',wordBreak:'keep-all',fontWeight:'700',overflow:'visible'};
+}
+
+export function echoLyricWordsLayoutStyle(presentation = {}, rowCount = 0) {
+  if(presentation.layoutMode==='square-grid'){
+    const columns=Math.max(1,Math.ceil(Math.sqrt(Math.max(1,rowCount))));
+    return {display:'grid',position:'relative',overflow:'visible',gridTemplateColumns:`repeat(${columns}, minmax(0, 1fr))`,gridAutoRows:'1fr',alignItems:'stretch',justifyItems:'stretch',width:'100%',aspectRatio:'1 / 1'};
+  }
+  if(presentation.layoutMode==='poster-stack')return {display:'grid',position:'relative',overflow:'visible',gridTemplateColumns:'minmax(0, 1fr)',alignItems:'start',width:'100%'};
+  return {display:'block',position:'relative',overflow:'visible',width:'auto'};
+}
+
+export function echoLyricGlyphMeasurementStyle() {
+  return {display:'inline-block',position:'relative',boxSizing:'border-box',whiteSpace:'pre',transformOrigin:'center',willChange:'transform, opacity'};
+}
+
+export function echoLyricGlyphMeasurementBox(glyph = {}, word = {}) {
+  return {
+    x:Number(glyph.offsetLeft||0)-Number(word.offsetLeft||0),
+    y:Number(glyph.offsetTop||0)-Number(word.offsetTop||0),
+    width:Number(glyph.offsetWidth||0),
+    height:Number(glyph.offsetHeight||0),
+  };
 }
 
 export function renderEchoLyricSurface(element, { contract = {}, frame = null, line = null, outputProfile = {}, protection = null } = {}) {
@@ -144,8 +186,9 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     Object.assign(words.style,{display:'block',position:'relative',overflow:'visible'});
     Object.assign(label.style,{font:'500 22px/1.3 system-ui, sans-serif',letterSpacing:'0',marginTop:'10px',opacity:'.8',textShadow:'none'});
     panel.append(words,label);stage.append(panel);element.replaceChildren(stage);
-    state={stage,panel,words,label,nodes:[],key:'',layouts:new Map(),layoutBuilds:0,layoutHits:0};element.__echoLyricSurface=state;
+    state={stage,panel,words,label,nodes:[],glyphNodes:[],key:'',layouts:new Map(),layoutBuilds:0,layoutHits:0};element.__echoLyricSurface=state;
   }
+  if(!Array.isArray(state.glyphNodes))state.glyphNodes=state.nodes.map(()=>[]);
   const visible=Boolean(line && frame?.visible && contract.enabled!==false);
   element.style.visibility=visible?'visible':'hidden';state.frame=visible?frame:null;state.line=visible?line:null;state.rows=[];
   if(!visible)return {visible:false};
@@ -162,12 +205,19 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   if(state.contentKey!==contentKey||state.protection!==protection){
     if(state.protection!==protection)state.layouts.clear();
     state.contentKey=contentKey;state.protection=protection;
-    while(state.nodes.length>rows.length)state.nodes.pop().remove();
-    while(state.nodes.length<rows.length){const node=element.ownerDocument.createElement('span');node.className='lyric-word';state.words.append(node);state.nodes.push(node);}
+    while(state.nodes.length>rows.length){state.nodes.pop().remove();state.glyphNodes.pop();}
+    while(state.nodes.length<rows.length){const node=element.ownerDocument.createElement('span');node.className='lyric-word';state.words.append(node);state.nodes.push(node);state.glyphNodes.push([]);}
     state.panel.removeAttribute('style');Object.assign(state.panel.style,presentation.panel);
+    state.words.removeAttribute('style');Object.assign(state.words.style,echoLyricWordsLayoutStyle(presentation,rows.length));
     Object.assign(state.stage.style,{width:presentation.width+'px',height:presentation.height+'px'});
     state.label.textContent=label;state.label.style.display=label?'block':'none';
-    state.nodes.forEach((node,index)=>{node.textContent=rows[index].displayText||'';node.dataset.wordIndex=String(rows[index].index);node.removeAttribute('style');Object.assign(node.style,echoLyricWordMeasurementStyle(rows[index],rows[index+1]));if(singleWordFocus)node.style.fontWeight='800';});
+    state.nodes.forEach((node,index)=>{
+      const row=rows[index],characters=Array.isArray(row.characters)?row.characters:[];
+      node.replaceChildren();state.glyphNodes[index]=[];
+      if(characters.length){for(const character of characters){const glyph=element.ownerDocument.createElement('span');glyph.textContent=character.text;glyph.dataset.lyricGlyph=String(character.index);Object.assign(glyph.style,echoLyricGlyphMeasurementStyle());node.append(glyph);state.glyphNodes[index].push(glyph);}}
+      else node.textContent=row.displayText||'';
+      node.dataset.wordIndex=String(row.index);node.removeAttribute('style');Object.assign(node.style,echoLyricWordMeasurementStyle(row,rows[index+1],presentation));if(singleWordFocus)node.style.fontWeight='800';
+    });
     const start=Number(line.start??line.startSeconds),end=Number(line.end??line.endSeconds);
     const relevant=(protection||[]).filter(p=>p.end>start&&p.start<end);
     const obstacles=relevant.flatMap(p=>p.rectangles);
@@ -181,8 +231,9 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
         fontSize=Math.max(minimumFontSize,fontSize-2);state.panel.style.fontSize=fontSize+'px';
       }
       const boxes=state.nodes.map(node=>({x:node.offsetLeft,y:node.offsetTop,width:node.offsetWidth,height:node.offsetHeight}));
+      const glyphBoxes=state.glyphNodes.map((glyphs,index)=>glyphs.map(glyph=>echoLyricGlyphMeasurementBox(glyph,state.nodes[index])));
       layout={boxes,height:state.words.offsetHeight,width:state.words.clientWidth,panelHeight:state.panel.offsetHeight,fontSize,
-        wordsOffsetX:state.words.offsetLeft,wordsOffsetY:state.words.offsetTop};state.layoutBuilds++;
+        wordsOffsetX:state.words.offsetLeft,wordsOffsetY:state.words.offsetTop,glyphBoxes};state.layoutBuilds++;
       if(state.layouts.size>=128)state.layouts.delete(state.layouts.keys().next().value);state.layouts.set(contentKey,layout);
     }else state.layoutHits++;
     state.layout=layout;state.panel.style.fontSize=layout.fontSize+'px';state.words.style.height=layout.height+'px';
@@ -200,6 +251,10 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     Object.assign(node.style,{color:word.active?presentation.accent:presentation.text,opacity:String(word.opacity??1),fontWeight:singleWordFocus?'800':'700',backgroundColor:'transparent',
       transform:fitEchoLyricWordMotion(word,state.layout.boxes[index],{x:-20,y:-14,width:state.layout.width+40,height:state.layout.height+28}),
       backgroundImage:singleWordFocus?'none':`linear-gradient(${presentation.accent},${presentation.accent})`,backgroundRepeat:'no-repeat',backgroundPosition:'left bottom',backgroundSize:singleWordFocus?'0 0':`${(word.underlineProgress||0)*100}% 3px`});
+    const glyphs=state.glyphNodes[index]||[],glyphBoxes=state.layout.glyphBoxes?.[index]||[];
+    for(let glyphIndex=0;glyphIndex<glyphs.length;glyphIndex+=1){const glyph=glyphs[glyphIndex],character=word.characters?.[glyphIndex],box=glyphBoxes[glyphIndex];if(!character||!box)continue;
+      glyph.style.opacity=String(character.opacity??1);glyph.style.transform=fitEchoLyricWordMotion(character,box,{x:0,y:0,width:state.layout.boxes[index].width,height:state.layout.boxes[index].height});
+    }
   }
   return {visible:true,wordCount:rows.length,fontSize:state.layout.fontSize,placement:state.placement,layoutBuilds:state.layoutBuilds};
 }
@@ -232,15 +287,23 @@ export function paintEchoLyricSurfaceToCanvas(context,element,{width,height}={})
   const panelX=Number(placement.x||0),panelY=Number(placement.y||0),panelWidth=parseFloat(presentation.panel.width)||Number(placement.width||0),panelHeight=Number(layout.panelHeight||0);
   const wordsX=panelX+Number(layout.wordsOffsetX??presentation.paddingX??0),wordsY=panelY+Number(layout.wordsOffsetY??presentation.paddingY??0);
   context.save();context.scale(scaleX,scaleY);
-  if(!presentation.fixedCenter&&panelWidth>0&&panelHeight>0){
+  const templateId=String(state.contract?.templateId||''),drawPanel=!presentation.fixedCenter&&templateId!=='vertical-poster-stack-v1';
+  if(drawPanel&&panelWidth>0&&panelHeight>0){
     echoLyricCanvasRoundRect(context,panelX,panelY,panelWidth,panelHeight,presentation.borderRadius||0);
-    context.fillStyle=presentation.background;context.fill();
+    let panelFill=presentation.canvasBackground||presentation.background;
+    if((templateId==='square-word-mosaic-v1'||templateId==='letter-wave-v1')&&typeof context.createLinearGradient==='function'){
+      const gradient=context.createLinearGradient(panelX,panelY,panelX+panelWidth,panelY+panelHeight);gradient.addColorStop(0,presentation.background);gradient.addColorStop(1,'#020617b8');panelFill=gradient;
+    }
+    context.fillStyle=panelFill;context.fill();
     if(presentation.borderWidth>0){context.strokeStyle=`${presentation.accent}88`;context.lineWidth=presentation.borderWidth;context.stroke();}
     if(state.contract?.templateId==='scanline-phrase-ribbon-v1'){
       context.save();context.globalAlpha=.08;context.fillStyle='#ffffff';
       for(let y=panelY+4;y<panelY+panelHeight;y+=4)context.fillRect(panelX,y,panelWidth,1);
       context.restore();
     }
+  }
+  if(templateId==='vertical-poster-stack-v1'){
+    context.fillStyle=presentation.accent;context.fillRect(panelX,panelY,8,panelHeight);
   }
   const area={x:-20,y:-14,width:Number(layout.width||panelWidth)+40,height:Number(layout.height||panelHeight)+28};
   context.textBaseline='top';context.textAlign='left';
@@ -254,7 +317,16 @@ export function paintEchoLyricSurfaceToCanvas(context,element,{width,height}={})
     context.font=`${presentation.fixedCenter?800:presentation.fontWeight} ${layout.fontSize}px ${presentation.fontFamily}`;
     context.fillStyle=row.active?presentation.accent:presentation.text;
     context.shadowColor=state.contract?.style==='paper-white'?'transparent':'#000000';context.shadowBlur=4;context.shadowOffsetY=2;
-    context.fillText(label,-box.width/2+2,-box.height/2);
+    const characters=Array.isArray(row.characters)?row.characters:[],glyphBoxes=layout.glyphBoxes?.[index]||[];
+    if(characters.length&&glyphBoxes.length===characters.length){
+      for(let glyphIndex=0;glyphIndex<characters.length;glyphIndex+=1){const character=characters[glyphIndex],glyphBox=glyphBoxes[glyphIndex];
+        const glyphMotion=echoLyricWordMotionValues(character,glyphBox,{x:0,y:0,width:box.width,height:box.height});
+        const glyphX=-box.width/2+glyphBox.x+glyphBox.width/2,glyphY=-box.height/2+glyphBox.y+glyphBox.height/2;
+        context.save();context.translate(glyphX+glyphMotion.translateX,glyphY+glyphMotion.translateY);context.rotate(glyphMotion.rotation*Math.PI/180);context.scale(glyphMotion.scale,glyphMotion.scale);
+        context.globalAlpha=(Number.isFinite(Number(row.opacity))?Number(row.opacity):1)*(Number.isFinite(Number(character.opacity))?Number(character.opacity):1);
+        context.fillText(String(character.text||''),-glyphBox.width/2,-glyphBox.height/2);context.restore();
+      }
+    }else context.fillText(label,-box.width/2+2,-box.height/2);
     const underline=Number(row.underlineProgress||0);
     if(!presentation.fixedCenter&&underline>0){context.shadowColor='transparent';context.fillStyle=presentation.accent;context.fillRect(-box.width/2,box.height/2-3,Math.max(0,Math.min(1,underline))*box.width,3);}
     context.restore();
@@ -273,5 +345,5 @@ export function paintEchoLyricSurfaceToCanvas(context,element,{width,height}={})
 }
 
 export function echoLyricPresentationBrowserSource() {
-  return [echoLyricPresentation,prepareEchoLyricObstacles,chooseEchoLyricPlacement,echoLyricWordMotionValues,fitEchoLyricWordMotion,echoLyricWordMeasurementStyle,renderEchoLyricSurface,sizeEchoLyricSurface].map(fn=>fn.toString()).join('\n');
+  return [echoLyricPresentation,prepareEchoLyricObstacles,chooseEchoLyricPlacement,echoLyricWordMotionValues,fitEchoLyricWordMotion,echoLyricWordMeasurementStyle,echoLyricWordsLayoutStyle,echoLyricGlyphMeasurementStyle,echoLyricGlyphMeasurementBox,renderEchoLyricSurface,sizeEchoLyricSurface].map(fn=>fn.toString()).join('\n');
 }

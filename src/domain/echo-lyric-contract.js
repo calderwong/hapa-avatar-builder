@@ -41,6 +41,30 @@ export const ECHO_LYRIC_TEMPLATES = Object.freeze([
     legacyVariant: "center-word-focus",
     motion: "single-active-word-center",
   }),
+  Object.freeze({
+    id: "square-word-mosaic-v1",
+    label: "Square Word Mosaic",
+    legacyVariant: "square-word-mosaic",
+    motion: "square-grid-word-pulse",
+  }),
+  Object.freeze({
+    id: "letter-wave-v1",
+    label: "Letter Wave",
+    legacyVariant: "letter-wave",
+    motion: "per-letter-sung-wave",
+  }),
+  Object.freeze({
+    id: "kinetic-typewriter-v1",
+    label: "Kinetic Typewriter",
+    legacyVariant: "kinetic-typewriter",
+    motion: "per-letter-progressive-reveal",
+  }),
+  Object.freeze({
+    id: "vertical-poster-stack-v1",
+    label: "Vertical Poster Stack",
+    legacyVariant: "vertical-poster-stack",
+    motion: "stacked-word-rise",
+  }),
 ]);
 
 const TEMPLATE_BY_ID = new Map(ECHO_LYRIC_TEMPLATES.map((template) => [template.id, template]));
@@ -51,6 +75,10 @@ const LEGACY_TEMPLATE_IDS = Object.freeze({
   "stacked-echo": "stacked-hook-echo-v1",
   "orbit-caption": "orbit-caption-v1",
   "center-word-focus": "center-word-focus-v1",
+  "square-word-mosaic": "square-word-mosaic-v1",
+  "letter-wave": "letter-wave-v1",
+  "kinetic-typewriter": "kinetic-typewriter-v1",
+  "vertical-poster-stack": "vertical-poster-stack-v1",
 });
 
 function text(value) {

@@ -76,6 +76,55 @@ export function echoLyricAuthoredWordSurfaces(line = {}) {
   return surfaces;
 }
 
+export function echoLyricCharacterFrames({
+  templateId = "",
+  text = "",
+  word = {},
+  reducedMotion = false,
+  motionIntensity = 1,
+} = {}) {
+  if (templateId !== "letter-wave-v1" && templateId !== "kinetic-typewriter-v1") return [];
+  const characters = Array.from(String(text || ""));
+  const intensity = lyricClamp01(motionIntensity);
+  const progress = lyricClamp01(word.progress);
+  const reveal = progress * Math.max(1, characters.length);
+  return characters.map((character, index) => {
+    const completed = Boolean(word.completed) || index + 0.15 <= reveal;
+    const active = Boolean(word.active);
+    if (reducedMotion) return {
+      index,
+      text: character,
+      opacity: 1,
+      scale: 1,
+      translateX: 0,
+      translateY: 0,
+      rotateDegrees: 0,
+    };
+    if (templateId === "letter-wave-v1") {
+      const wave = active ? Math.sin((index * 0.82) - (progress * Math.PI * 2.4)) : 0;
+      return {
+        index,
+        text: character,
+        opacity: lyricRound(active || word.completed ? 1 : 0.62),
+        scale: lyricRound(1 + Math.max(0, wave) * 0.08 * intensity),
+        translateX: 0,
+        translateY: lyricRound(wave * 9 * intensity),
+        rotateDegrees: lyricRound(wave * 2.5 * intensity),
+      };
+    }
+    const local = lyricClamp01(reveal - index);
+    return {
+      index,
+      text: character,
+      opacity: lyricRound(word.completed || completed ? 1 : 0.16 + local * 0.84),
+      scale: lyricRound(1 + (active ? (1 - local) * 0.13 * intensity : 0)),
+      translateX: lyricRound(active ? (1 - local) * 5 * intensity : 0),
+      translateY: lyricRound(active ? (1 - local) * 10 * intensity : 0),
+      rotateDegrees: lyricRound(active ? (1 - local) * -4 * intensity : 0),
+    };
+  });
+}
+
 export function echoLyricDisplayWindow({
   templateId = "scanline-phrase-ribbon-v1",
   words = [],
@@ -89,6 +138,10 @@ export function echoLyricDisplayWindow({
     "stacked-hook-echo-v1": 8,
     "orbit-caption-v1": 9,
     "center-word-focus-v1": 1,
+    "square-word-mosaic-v1": 9,
+    "letter-wave-v1": 7,
+    "kinetic-typewriter-v1": 7,
+    "vertical-poster-stack-v1": 5,
   };
   const rows = Array.isArray(words) ? words : [];
   const limit = limits[templateId] || 10;
@@ -312,17 +365,50 @@ export function echoLyricTemplateFrameState({
           rotateDegrees: lyricRound(spread * 4),
         };
       }
+      if (templateId === "square-word-mosaic-v1") {
+        return {
+          ...base,
+          scale: lyricRound(active ? 1.06 + 0.08 * onsetImpulse : completed ? 1 : 0.92 + entryProgress * 0.08),
+          translateY: lyricRound((1 - entryProgress) * ((index % 3) - 1) * 8),
+          rotateDegrees: lyricRound(active ? spread * 2.5 * onsetImpulse : 0),
+        };
+      }
+      if (templateId === "vertical-poster-stack-v1") {
+        return {
+          ...base,
+          scale: lyricRound(active ? 1.03 + 0.07 * onsetImpulse : 1),
+          translateX: lyricRound((index % 2 ? 1 : -1) * (1 - entryProgress) * 18),
+          translateY: lyricRound((1 - entryProgress) * 6),
+        };
+      }
+      if (templateId === "letter-wave-v1") {
+        return {
+          ...base,
+          scale: lyricRound(active ? 1.02 + 0.03 * onsetImpulse : 1),
+        };
+      }
+      if (templateId === "kinetic-typewriter-v1") return base;
       return {
         ...base,
         scale: lyricRound(active ? 1.01 + 0.05 * onsetImpulse : 1),
         translateX: lyricRound((1 - entryProgress) * -8),
       };
-    }).map(word => ({ ...word,
-      scale: lyricRound(1 + (word.scale - 1) * lyricClamp01(motionIntensity)),
-      translateX: lyricRound(word.translateX * lyricClamp01(motionIntensity)),
-      translateY: lyricRound(word.translateY * lyricClamp01(motionIntensity)),
-      rotateDegrees: lyricRound(word.rotateDegrees * lyricClamp01(motionIntensity)),
-    })),
+    }).map(word => {
+      const animatedWord = { ...word,
+        scale: lyricRound(1 + (word.scale - 1) * lyricClamp01(motionIntensity)),
+        translateX: lyricRound(word.translateX * lyricClamp01(motionIntensity)),
+        translateY: lyricRound(word.translateY * lyricClamp01(motionIntensity)),
+        rotateDegrees: lyricRound(word.rotateDegrees * lyricClamp01(motionIntensity)),
+      };
+      animatedWord.characters = echoLyricCharacterFrames({
+        templateId,
+        text: animatedWord.displayText,
+        word: animatedWord,
+        reducedMotion,
+        motionIntensity,
+      });
+      return animatedWord;
+    }),
   };
   if (templateId === "center-word-focus-v1") {
     const activeWord = frame.words.find((word) => word.active);
@@ -354,6 +440,7 @@ export function echoLyricTemplateRuntimeBrowserSource() {
     echoLyricJoinDisplayTokens.toString(),
     echoLyricComparableToken.toString(),
     echoLyricAuthoredWordSurfaces.toString(),
+    echoLyricCharacterFrames.toString(),
     echoLyricFrameTime.toString(),
     echoLyricDisplayToken.toString(),
     echoLyricDisplayWindow.toString(),

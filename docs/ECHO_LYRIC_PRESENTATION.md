@@ -12,6 +12,31 @@ Current status and evidence: [lyric layout postmortem](postmortems/2026-09-08-ec
 
 Caption text uses`text-rendering: geometricPrecision` in Preview as well as final output, matching the compiler-injected typography. Current evidence and limits: [encoded typography](postmortems/2026-09-08-echo-encoded-typography.md).
 
+## Stylized lyric templates
+
+Four additional templates extend the same source-timed lyric contract rather
+than creating a second animation clock:
+
+- **Square Word Mosaic** (`square-word-mosaic-v1`) arranges the active lyric
+  window into a centered square grid. Words pulse within stable cells, so a
+  scale or rotation does not reflow adjacent words.
+- **Letter Wave** (`letter-wave-v1`) applies a bounded traveling wave to each
+  glyph of the active word. The phase comes from that word's measured progress.
+- **Kinetic Typewriter** (`kinetic-typewriter-v1`) reveals each glyph across the
+  word's measured interval, with a small rise and settle instead of an invented
+  character clock.
+- **Vertical Poster Stack** (`vertical-poster-stack-v1`) turns the lyric window
+  into a compact editorial stack with alternating word entrances and a colored
+  accent rail.
+
+All four are available in the existing per-cut **Lyric template** selector and
+honor the same Font, Size, Color, safe-area, source-confidence, reduced-motion,
+Preview, recording, and HyperFrames export behavior as the original templates.
+Letter animation uses cached word-local glyph boxes; after the lyric window is
+prepared, animation does not read layout geometry on every frame. Reduced
+motion removes glyph transforms and progressive opacity while preserving the
+words and layout.
+
 ## Center Word Focus
 
 `center-word-focus-v1` is the large, one-word performance mode. It forces the

@@ -36,13 +36,17 @@ test("lyric template time is frame-quantized and repeatable", () => {
   assert.deepEqual(resolveEchoLyricTemplateFrame(input), resolveEchoLyricTemplateFrame(input));
 });
 
-test("all five templates preserve spoken-word activation intervals", () => {
+test("all nine templates preserve spoken-word activation intervals", () => {
   for (const templateId of [
     "kinetic-word-burst-v1",
     "scanline-phrase-ribbon-v1",
     "stacked-hook-echo-v1",
     "orbit-caption-v1",
     "center-word-focus-v1",
+    "square-word-mosaic-v1",
+    "letter-wave-v1",
+    "kinetic-typewriter-v1",
+    "vertical-poster-stack-v1",
   ]) {
     const frame = resolveEchoLyricTemplateFrame({
       project: { lyrics: { enabled: true, templateId } },
@@ -54,6 +58,44 @@ test("all five templates preserve spoken-word activation intervals", () => {
     assert.deepEqual(frame.words.map((word) => word.active), [false, true, false]);
     assert.ok(frame.words.every((word) => Number.isFinite(word.scale)));
   }
+});
+
+test("letter templates animate individual glyphs from the measured word interval", () => {
+  const wave = resolveEchoLyricTemplateFrame({
+    project: { lyrics: { enabled: true, templateId: "letter-wave-v1" } },
+    line,
+    timeSeconds: 1.72,
+    fps: 30,
+  });
+  const activeWave = wave.words.find((word) => word.active);
+  assert.equal(activeWave.displayText, "every");
+  assert.equal(activeWave.characters.length, 5);
+  assert.ok(activeWave.characters.some((character) => character.translateY !== 0));
+  assert.deepEqual(wave, resolveEchoLyricTemplateFrame({
+    project: { lyrics: { enabled: true, templateId: "letter-wave-v1" } },
+    line,
+    timeSeconds: 1.72,
+    fps: 30,
+  }));
+
+  const typewriter = resolveEchoLyricTemplateFrame({
+    project: { lyrics: { enabled: true, templateId: "kinetic-typewriter-v1" } },
+    line,
+    timeSeconds: 1.72,
+    fps: 30,
+  });
+  const activeType = typewriter.words.find((word) => word.active);
+  assert.equal(activeType.characters.length, 5);
+  assert.ok(activeType.characters.some((character) => character.opacity < 1));
+  assert.ok(activeType.characters.some((character) => character.opacity === 1));
+
+  const reduced = resolveEchoLyricTemplateFrame({
+    project: { lyrics: { enabled: true, templateId: "letter-wave-v1", reducedMotion: true } },
+    line,
+    timeSeconds: 1.72,
+    fps: 30,
+  });
+  assert.ok(reduced.words.flatMap((word) => word.characters).every((character) => character.opacity === 1 && character.translateY === 0 && character.rotateDegrees === 0));
 });
 
 test("center word focus shows exactly the active measured word and stays blank without one", () => {

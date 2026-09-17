@@ -218,3 +218,20 @@ See [the postmortem](postmortems/2026-09-08-echo-lyric-layout.md) and [presentat
 The shared caption owner now uses geometric precision, matching actual HyperFrames-injected CSS.429 native observations across39 cases pass; prepared animation still has zero geometry reads and synchronous p95<=0.1ms. Reusing15 unchanged MP4s, strict ICC-normalized comparison improves35/60 to55/60 with unchanged thresholds; minimum bright-glyph retention rises88.60%→99.98%. Five full-frame color differences remain. Six affected checks/build and55 protected/12 authoring hashes pass. The actual isolated short Song Card plan is accepted, but render-start correctly rejects its8s duration against the258.44s master and old unreadable stem references; no managed output or mint occurred.14 owned stages are terminal/absent; two profiles removed. No new requirement acceptance: nine done/nine in progress.
 
 See [the encoded typography postmortem](postmortems/2026-09-08-echo-encoded-typography.md). Next: use the current prepared full-song project for actual managed Song Card output, retain the five color failures and finish the original ECHO-06 criteria. No private HyperFrames patch was shipped; workflow effectiveness remains unevaluated.
+
+## September 16 — stylized lyric presentation templates
+
+The shared Preview/recording/HyperFrames lyric owner now exposes four new
+per-cut modes: Square Word Mosaic, Letter Wave, Kinetic Typewriter, and Vertical
+Poster Stack. Square and poster modes use stable prepared word geometry; wave
+and typewriter modes animate cached word-local glyph geometry from authoritative
+word progress. Font, size, color, safe-area placement, reduced motion, source
+confidence, and phrase fallback continue to use the existing lyric contract.
+
+The affected lyric/director/recording checks and production build pass. A live
+Gnow Her Builder check exposed and corrected a container-relative glyph offset;
+the square mode then presented a 3-column, six-word square and both letter modes
+created per-glyph spans with bounded onset transforms. The current local Gnow
+Her audio route still reports `not_found`, so this checkpoint does not claim a
+human-timed playback review or managed encoded-output acceptance. No workflow
+requirement changes status.

@@ -538,6 +538,24 @@ test("recording lyric painter follows the Preview surface visibility and authore
   const element = { style: { visibility: "visible" }, __echoLyricSurface: state };
   assert.deepEqual(paintEchoLyricSurfaceToCanvas(context, element, { width: 1920, height: 1080 }), { drawn: true, wordCount: 1, templateId: "center-word-focus-v1" });
   assert.ok(calls.some((entry) => Array.isArray(entry) && entry[0] === "text" && entry[1] === "Gnow"));
+  calls.length = 0;
+  state.contract.templateId = "letter-wave-v1";
+  state.presentation.fixedCenter = false;
+  state.presentation.canvasBackground = "#020617";
+  state.presentation.borderWidth = 2;
+  state.layout.glyphBoxes = [[
+    { x: 0, y: 0, width: 45, height: 120 },
+    { x: 45, y: 0, width: 45, height: 120 },
+  ]];
+  state.rows = [{
+    index: 0, displayText: "Go", active: true, opacity: 1, scale: 1,
+    characters: [
+      { index: 0, text: "G", opacity: 1, scale: 1, translateY: -4 },
+      { index: 1, text: "o", opacity: .7, scale: 1.05, translateY: 4 },
+    ],
+  }];
+  assert.deepEqual(paintEchoLyricSurfaceToCanvas(context, element, { width: 1920, height: 1080 }), { drawn: true, wordCount: 1, templateId: "letter-wave-v1" });
+  assert.deepEqual(calls.filter((entry) => Array.isArray(entry) && entry[0] === "text").map((entry) => entry[1]), ["G", "o"]);
   element.style.visibility = "hidden";
   assert.deepEqual(paintEchoLyricSurfaceToCanvas(context, element, { width: 1920, height: 1080 }), { drawn: false, reason: "lyrics-not-visible" });
 });
