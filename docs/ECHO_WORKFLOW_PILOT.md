@@ -273,3 +273,20 @@ fallback. Gnow Her is in the latter group because its six new card images have
 no completed loops yet. Human cut review and final renders remain pending; no
 requirement changes status. See the [runbook](ECHO_LYRIC_VISUAL_FUSION_DIRECTOR.md)
 and [postmortem](postmortems/2026-09-16-echo-lyric-visual-fusion-director.md).
+
+## September 17 — Reference-loop fork save repair
+
+The first human edit of a lyric/visual fusion cut exposed a save-only route
+gap: playback and preflight resolved immutable Reference-loop API routes, but
+the fork-save byte validator interpreted `/api/echos/reference-media/...` as a
+literal filesystem path. A Name on the Horizon therefore rejected all 33
+Reference shots as `missing-source-bytes` even though the loop files existed;
+its 32 Human-accepted shots passed.
+
+Save preparation now resolves Reference image/loop routes through their local
+run manifests and still requires a fresh file stat. The exact 65-shot cut passes
+with 44 unique sources and no pending evidence. Fifty-six focused checks plus
+the production build and receipt check pass. This restores append-only cut
+creation without relaxing source custody; decode, aesthetic review, final
+render, and broader requirement status are unchanged. See the
+[repair postmortem](postmortems/2026-09-17-echo-reference-fork-save.md).

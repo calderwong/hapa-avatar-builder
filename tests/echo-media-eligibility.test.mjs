@@ -114,6 +114,31 @@ test("fork server checks actual bytes, ignores forged availability and bounds wo
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
+test("fork save resolves Reference Media API routes through immutable local run bindings", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "echo-reference-fork-save-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const outputPath = path.join(root, "reference-runs", "loop-run", "outputs", "loop.mp4");
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, "completed-reference-loop-bytes");
+  const calls = [];
+  const receipt = await validateEchoForkMedia([{
+    media_id: "reference:loop-run:loop:job-one",
+    media_uri: "/api/echos/reference-media/assets/loop/loop-run/loop%3Ajob-one",
+    media_source_group: "reference",
+  }], {}, {
+    root,
+    resolveReferenceAsset: async (kind, runId, jobId) => {
+      calls.push({ kind, runId, jobId });
+      return { filePath: outputPath, mimeType: "video/mp4" };
+    },
+  });
+  assert.deepEqual(calls, [{ kind: "loop", runId: "loop-run", jobId: "loop:job-one" }]);
+  assert.equal(receipt.sourcesChecked, 1);
+  assert.equal(receipt.byteAvailabilityVerified, true);
+  assert.equal(receipt.preparedTimeline[0].availability.exists, true);
+  assert.equal(receipt.preparedTimeline[0].availability.bytes, 30);
+});
+
 test('generated, removed and absent media cannot claim required characters or scenes from old metadata', async () => {
   const constraints={requiredCharacterIds:['red'],requiredSceneIds:['garden'],pins:['none']};
   for(const shot of [

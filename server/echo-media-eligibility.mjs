@@ -2,7 +2,9 @@ import { hydrateEchoMediaEvidence, echoEvidenceStamp } from "./echo-media-eviden
 import { hydrateEchoObservedContent } from "./echo-catalog-observation-reader.mjs";
 import { hasExcludedEchoDirectorOrigin } from "../src/domain/echo-media-source-policy.js";
 import { stat } from "node:fs/promises";
+import path from "node:path";
 import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
+import { resolveEchoReferenceMediaAsset } from "./echo-reference-media-library.mjs";
 import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError } from "../src/domain/echo-media-eligibility.js";
 import { echoDirectionVariantFingerprint, echoDirectionVariantId } from "../src/domain/echo-direction-variants.js";
 import { isEchoMediaEvidenceProjectionCurrent } from "../src/domain/unified-media-catalog.js";
@@ -21,6 +23,24 @@ export function rebindEchoMediaEvidenceAfterMetadata(before, after) {
   })};
 }
 
+async function resolveEchoForkMediaSourceUri(uri, paths = {}) {
+  const value = String(uri || "").trim();
+  try {
+    const pathname = new URL(value, "http://hapa.local").pathname;
+    const match = pathname.match(/^\/api\/echos\/reference-media\/assets\/(image|loop)\/([^/]+)\/([^/]+)$/u);
+    if (match) {
+      const resolver = paths.resolveReferenceAsset || resolveEchoReferenceMediaAsset;
+      const asset = await resolver(match[1], decodeURIComponent(match[2]), decodeURIComponent(match[3])).catch(() => null);
+      return asset?.filePath
+        ? { ok: true, reason: null, uri: value, route: "echo-reference-media-api", resolvedPath: path.resolve(asset.filePath) }
+        : { ok: false, reason: "echo-reference-media-runtime-route-unresolved", uri: value, resolvedPath: null };
+    }
+  } catch {
+    return { ok: false, reason: "echo-fork-runtime-uri-invalid", uri: value, resolvedPath: null };
+  }
+  return resolveEchoRuntimeMediaUri(value, paths);
+}
+
 /** Validate current local bytes without trusting request-supplied availability.
  * No decode or analysis is performed; final render preflight still owns those.
  * Single flight by URI, at most four stat operations active per request. */
@@ -33,7 +53,7 @@ export async function prepareEchoTimelineMediaEvidence(timeline, paths = {}) {
   const resolved = new Map();
   const proof = async uri => {
     if (!resolved.has(uri)) resolved.set(uri, (async () => {
-      const route = resolveEchoRuntimeMediaUri(uri, paths);
+      const route = await resolveEchoForkMediaSourceUri(uri, paths);
       if (!route.ok) return { exists: null, bytes: null, reason: route.reason };
       try {
         const info = await stat(route.resolvedPath);
