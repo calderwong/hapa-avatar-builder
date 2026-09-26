@@ -1,4 +1,5 @@
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AvatarWorkBoardPanel from './components/AvatarWorkBoardPanel.jsx';
 import {
   Archive,
   BadgeCheck,
@@ -4025,6 +4026,7 @@ export default function App({ overcardAdapter }) {
 
         {activeView === "kanban" && selectedAvatar && (
           <section className="kanban-view">
+            <AvatarWorkBoardPanel avatar={selectedAvatar} />
             <HealingQueuePanel queue={healingQueue} onCopyPrompt={copyHealingPrompt} />
             <Board title="Build Board" lanes={board.lanes || BUILD_BOARD} />
             <Board title={`${selectedAvatar.primaryName} Healing Board`} lanes={avatarBoard} />
