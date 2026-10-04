@@ -138,3 +138,23 @@ connection is not identity adoption, source-class promotion, or permission to
 start unrelated workers. This is a Flow-explainer and Decision Card candidate,
 derived from the character-sync task; it does not replace raw conversation
 provenance.
+
+### Additional live UI proof — current status
+
+The later live check supersedes the initial outer-renderer **unverified**
+status above, which is retained as the history of that acceptance attempt.
+After several minutes of the existing full-library hydration, the delayed
+native **Open shared layers** click completed in the actual Builder at
+`8797/?view=builder`. Its panel changed to **Close shared layers**, and the
+embedded Red dossier loaded the current global memory head at revision 4,
+with the owner revision and editable Canon field visible. The real Builder
+panel’s open-and-read workflow is therefore verified. The save proof remains
+the separate real-origin fixture test recorded above; this later check did
+not perform another save.
+
+Evidence: `builder-character-panel.jpg`, SHA-256
+`dab27151536cb35696f92e5a727302fdbc602461db907a9674423a25f47a86a3`,
+retained with the coordinated Writer’s Room verification receipt. The long
+legacy hydration delay and high renderer memory use remain material usability
+limits. This additional proof changes the acceptance evidence, not the native
+loading implementation or the scope of the completed test suites.
