@@ -266,7 +266,13 @@ export function createWriterCharactersHandler({getAvatars, writerRoomIndexPath, 
         send(res,201,{ok:true,contract:WRITER_CHARACTER_CONTRACT,expiresInSeconds:TTL/1000});return true;
       }
       const assetMatch=pathname.match(/^\/v1\/writer-characters\/([^/]+)\/assets\/([^/]+)$/);
-      if(!authorized(req,{asset:Boolean(assetMatch)})) {send(res,401,{error:'writer_session_required',preDispatch:true,message:'A fresh connected-room session is required.'});return true;}
+      const echoAudioMatch=pathname.match(/^\/v1\/writer-characters\/echo\/songs\/([^/]+)\/audio$/);
+      let echoAudio=false;
+      if (echoAudioMatch) {try {echoAudio=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(decodeURIComponent(echoAudioMatch[1]));} catch { /* Invalid IDs never receive media authentication. */ }}
+      // Media elements cannot attach the intent header; only exact GET media
+      // routes may use the existing same-origin cookie + referrer checks.
+      const mediaRequest=req.method==='GET' && (Boolean(assetMatch)||echoAudio);
+      if(!authorized(req,{asset:mediaRequest})) {send(res,401,{error:'writer_session_required',preDispatch:true,message:'A fresh connected-room session is required.'});return true;}
       const actor={actorId:adminToken && equal(req.headers.authorization, `Bearer ${adminToken}`)?'api-client':'local-operator',instanceId};
       if(pathname===`${BASE}/capabilities` && req.method==='GET') {send(res,200,{ok:true,contract:WRITER_CHARACTER_CONTRACT,owner:OWNER,memoryOwner:'hapa-second-brain',features:['list','read','save','history','historical-read','as-of-read','append-only-restore','verify','checkpoints','sync','owner-media'],layers:LAYERS,layerLengthLimit:null,transferLimits:{requestBytes:requestLimitBytes,outputBytes:outputLimitBytes,policy:'Configured transfer resource budgets; no authoring limit and no truncation.'},limits:{list:100,historyPage:100,sources:128},identity:'Exact Builder avatarId and explicit project/branch/scene scope; no name joins.',stage:'prototype'});return true;}
       if (handleExtension && await handleExtension(req,res,{url,actor,instanceId,signal:controller.signal})) return true;

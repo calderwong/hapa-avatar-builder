@@ -8,7 +8,7 @@ const audit={sources:[{owner:'local-author',id:'fixture-notes',revision:'unversi
 const empty={canon:'',memory:'',development:'',lore:''};
 const avatar={id:'story-person',primaryName:'Example',updatedAt:'2026-01-01',mind:{selfKnowledge:[{id:'f1',classification:'rumor',value:'A reported account.'}]},assets:[{id:'portrait',type:'image',uri:'/media/portrait.png'}]};
 function response(){const r=new EventEmitter();r.headers={};r.setHeader=(k,v)=>r.headers[k]=v;r.writeHead=(s,h)=>{r.status=s;Object.assign(r.headers,h);r.headersSent=true;};r.end=b=>{r.body=b?JSON.parse(b):null;r.writableEnded=true;};return r;}
-function request(method,path,{cookie,body,origin='http://127.0.0.1:8795',site='same-origin',intent='writers-room',host='127.0.0.1:8795',peer='127.0.0.1',bearer}={}){const req=new PassThrough();req.method=method;req.url=path;req.socket={remoteAddress:peer};req.headers={host,origin,'sec-fetch-site':site,'x-hapa-first-party':intent,...(cookie?{cookie}:{}),...(bearer?{authorization:`Bearer ${bearer}`}:{})};if(body!==undefined)req.end(JSON.stringify(body));else req.end();return req;}
+function request(method,path,{cookie,body,origin='http://127.0.0.1:8795',site='same-origin',intent='writers-room',host='127.0.0.1:8795',peer='127.0.0.1',bearer,referer}={}){const req=new PassThrough();req.method=method;req.url=path;req.socket={remoteAddress:peer};req.headers={host,origin,'sec-fetch-site':site,'x-hapa-first-party':intent,...(cookie?{cookie}:{}),...(referer?{referer}:{}),...(bearer?{authorization:`Bearer ${bearer}`}:{})};if(body!==undefined)req.end(JSON.stringify(body));else req.end();return req;}
 function harness(extra={}){let revision=0, layers={...empty}, saves=0;const memory=async(command,input)=>{if(command==='save'){saves++;if(input.expectedRevision!==revision)throw Object.assign(new Error('Changed'),{code:'memory_revision_conflict',statusCode:409,current:{revision}});if(!extra.dry)revision++;layers=input.layers;}return {ok:true,status:command==='save'?'saved':revision?'current':'uninitialized',character:{owner:'hapa-avatar-builder',avatarId:input.avatarId,scope:input.scope,revision,digest:revision?'a'.repeat(64):null,layers}};};const handler=createWriterCharactersHandler({getAvatars:async()=>[avatar],host:'127.0.0.1',port:8795,memoryClient:memory,...extra});return {handler,saves:()=>saves};}
 async function call(h,method,path,options){const req=request(method,path,options),res=response();await h(req,res,new URL(path,'http://127.0.0.1:8795'));return res;}
 async function session(h){const r=await call(h,'POST','/v1/writer-characters/session');assert.equal(r.status,201);return r.headers['Set-Cookie'].split(';')[0];}
@@ -97,4 +97,18 @@ test('owner child gets configurable budgets and typed historical, conflict and t
   const promise=client(command,{});const check=assert.rejects(promise,error=>error.code===expected&&error.statusCode===status);child.stdout.write(JSON.stringify({ok:false,error:{code}}));child.emit('close',1);await check;
  }
  assert.equal(args[args.indexOf('--request-limit-bytes')+1],'4096');assert.equal(args[args.indexOf('--output-limit-bytes')+1],'8192');await client.close();
+});
+
+
+test('Echo audio elements use a narrow authenticated GET route with exact same-origin evidence',async()=>{
+ let dispatched=0;
+ const handler=harness({handleExtension:async(req,res)=>{dispatched++;res.writeHead(200,{});res.end(JSON.stringify({ok:true}));return true;}}).handler;
+ const cookie=await session(handler),audio='/v1/writer-characters/echo/songs/echo%3Asong-1/audio';
+ const media={cookie,origin:'',intent:'',referer:'http://127.0.0.1:8795/writers-room/'};
+ assert.equal((await call(handler,'GET',audio,media)).status,200);assert.equal(dispatched,1);
+ for(const override of [{referer:''},{referer:'http://evil.test/writers-room/'},{site:'cross-site'},{host:'localhost:8795'},{peer:'192.168.1.3'},{cookie:''},{origin:'http://evil.test'}]){
+  const result=await call(handler,'GET',audio,{...media,...override});assert.equal(result.status,401);assert.equal(result.body.preDispatch,true);
+ }
+ for(const path of ['/v1/writer-characters/echo/songs/echo%3Asong-1','/v1/writer-characters/echo/songs/echo%3Asong-1/references','/v1/writer-characters/echo/songs/invalid%2Fid/audio','/v1/writer-characters/echo/songs/echo%3Asong-1/audio/extra'])assert.equal((await call(handler,'GET',path,media)).status,401);
+ assert.equal((await call(handler,'POST',audio,media)).status,401);assert.equal(dispatched,1);
 });
