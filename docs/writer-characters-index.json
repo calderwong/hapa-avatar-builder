@@ -1,0 +1,11 @@
+{
+  "contract": "hapa.protocol-index/v1",
+  "owner": "hapa-avatar-builder",
+  "documents": [
+    {
+      "slug": "hapa-avatar-builder-writer-characters",
+      "title": "Avatar Builder shared character layer adapter",
+      "path": "docs/WRITER_CHARACTERS.md"
+    }
+  ]
+}

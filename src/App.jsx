@@ -1,5 +1,6 @@
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AvatarWorkBoardPanel from './components/AvatarWorkBoardPanel.jsx';
+import WriterCharacterPanel from './components/WriterCharacterPanel.jsx';
 import {
   Archive,
   BadgeCheck,
@@ -3668,6 +3669,7 @@ export default function App({ overcardAdapter }) {
 
         {activeView === "builder" && selectedAvatar && audit && (
           <section className="builder-view">
+            <WriterCharacterPanel avatarId={selectedAvatar.id} label={selectedAvatar.primaryName} />
             <div className="panel hapa-panel intake-panel" data-variant="resting">
               <div className="section-head hapa-panel-head">
                 <span><Upload size={15} /> Media Intake</span>
@@ -9522,6 +9524,7 @@ function AvatarMindView({ avatar, avatars, mindPack, onPatch }) {
 
   return (
     <section className="mind-view">
+      <WriterCharacterPanel avatarId={avatar.id} label={avatar.primaryName} />
       <div className="mind-command-header panel hapa-panel" data-variant="hot">
         <div>
           <p className="eyebrow">Avatar Mind And Relationships</p>

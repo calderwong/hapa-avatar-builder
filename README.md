@@ -314,6 +314,13 @@ npm test
 npm run build
 ```
 
+## Shared character layers
+
+The Builder and Avatar Mind views include **Open shared layers** for Canon, Memory,
+Development, and Lore, using the same Second Brain revision history as the
+connected Writer’s Room. See [Shared character layers](docs/WRITER_CHARACTERS.md)
+for ownership, scope, API/CLI, conflict handling, and the focused local service.
+
 ## Shared Hand
 
 The Shared Hand is docked inside the persistent Header. Use **Manage** for Hand/Deck/Set and Library management, **Detach** for the cross-view floating widget, and **Dock** to return it. Connection state is intentionally compact; open the adjacent status control for reconnect and pending/conflict recovery. Shared mutations are disabled while offline and are never presented as committed. See `docs/OVERCARD.md` and `docs/API_CLI_UI_PARITY.md`.
