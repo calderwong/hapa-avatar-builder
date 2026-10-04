@@ -3,12 +3,13 @@ import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 
-export const WRITER_CHARACTER_CONTRACT = 'hapa.writer-characters/v1';
+export const WRITER_CHARACTER_CONTRACT = 'hapa.writer-characters/v2';
+export const WRITER_TRANSFER_DEFAULTS = Object.freeze({requestLimitBytes:32*1024*1024,outputLimitBytes:64*1024*1024});
 const BASE = '/v1/writer-characters';
 const OWNER = 'hapa-avatar-builder';
 const LAYERS = ['canon', 'memory', 'development', 'lore'];
-const INPUT_LIMIT = 256 * 1024;
-const OUTPUT_LIMIT = 2 * 1024 * 1024;
+const transferLimit = value => { if (!Number.isSafeInteger(value) || value < 1) throw new Error('Transfer limits must be positive safe integer byte counts.'); return value; };
+const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const fail = (code, message, statusCode = 400, extra = {}) => Object.assign(new Error(message), { code, statusCode, ...extra });
 const equal = (a, b) => {
   const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || ''));
@@ -31,13 +32,52 @@ export function writerScope(input = {}) {
 }
 export function validateWriterLayers(layers) {
   if (!plain(layers) || Object.keys(layers).length !== 4 || LAYERS.some(k => typeof layers[k] !== 'string')) throw fail('invalid_layers', 'Supply exactly Canon, Memory, Development and Lore as text.');
-  let bytes = 0;
-  for (const k of LAYERS) {
-    const size = Buffer.byteLength(layers[k]); bytes += size;
-    if (size > 16384) throw fail('layer_too_large', `${k} exceeds 16,384 UTF-8 bytes.`);
-  }
-  if (bytes > 65536) throw fail('layers_too_large', 'Character layers exceed 65,536 UTF-8 bytes.');
   return Object.fromEntries(LAYERS.map(k => [k, layers[k]]));
+}
+
+
+export function validateWriterSources(sources, maximum = 127) {
+  if (!Array.isArray(sources) || !sources.length || sources.length > maximum) throw fail('invalid_sources', `Supply 1–${maximum} structured source references.`);
+  return sources.map(source => {
+    if (!plain(source) || Object.keys(source).some(k=>!['owner','id','revision','digest','kind','uri'].includes(k))) throw fail('invalid_sources','Use owner, id, revision and optional digest, kind or uri for each source.');
+    for (const k of ['owner','id','revision']) if (typeof source[k] !== 'string' || !source[k].trim() || source[k].length > 240) throw fail('invalid_sources',`Source ${k} must be a nonblank string of at most 240 characters.`);
+    if (source.digest !== undefined && !hash(source.digest)) throw fail('invalid_sources','Source digest must be SHA-256.');
+    if (source.kind !== undefined && (typeof source.kind !== 'string' || !source.kind.trim() || source.kind.length > 240)) throw fail('invalid_sources','Source kind must be nonblank text of at most 240 characters.');
+    if (source.uri !== undefined && (typeof source.uri !== 'string' || !source.uri.trim() || source.uri.length > 4096)) throw fail('invalid_sources','Source URI must be nonblank text of at most 4096 characters.');
+    return {...source};
+  });
+}
+export function validateWriterProvenance(value, checkpoint = false) {
+  if (!plain(value) || Object.keys(value).some(k=>!['changeType','reason','restoreFrom'].includes(k)) || ![checkpoint?'checkpoint':'edit','restore'].includes(value.changeType) || typeof value.reason !== 'string' || !value.reason.trim() || value.reason.length > 16000) throw fail('invalid_provenance','Supply the change type and a nonblank reason (up to 16000 metadata characters).');
+  if (value.changeType === 'restore') {
+    if (!plain(value.restoreFrom) || Object.keys(value.restoreFrom).some(k=>!['revision','digest'].includes(k)) || !Number.isSafeInteger(value.restoreFrom.revision) || value.restoreFrom.revision < 1 || !hash(value.restoreFrom.digest)) throw fail('invalid_provenance','Restoring requires an exact historical revision and SHA-256 digest.');
+  } else if (value.restoreFrom !== undefined) throw fail('invalid_provenance','Only a restore may name restoreFrom.');
+  return {...value};
+}
+function expectedRevision(revision, value) {
+  if (!Number.isSafeInteger(revision) || revision < 0 || (revision===0 ? value!==null : !hash(value))) throw fail('invalid_revision','Supply the exact current revision and digest (zero/null only for an uninitialized scope).');
+}
+function positiveParameter(value, name, maximum = Number.MAX_SAFE_INTEGER) {
+  if (!/^[1-9][0-9]*$/.test(String(value)) || !Number.isSafeInteger(Number(value)) || Number(value)>maximum) throw fail('invalid_revision',`${name} must be a positive integer${maximum<Number.MAX_SAFE_INTEGER?` up to ${maximum}`:''}.`);
+  return Number(value);
+}
+function historicalQuery(params, revision) {
+  const result={};
+  if (revision !== undefined) result.revision=positiveParameter(revision,'revision');
+  if (params.has('asOf')) {
+    if (revision!==undefined) throw fail('invalid_revision','Choose either an exact revision or an as-of timestamp.');
+    const value=params.get('asOf');
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(value) || !Number.isFinite(Date.parse(value))) throw fail('invalid_timestamp','asOf must be an explicit UTC ISO timestamp.');
+    result.asOf=value;
+  }
+  return result;
+}
+function historyQuery(params) {
+  return {...(params.has('beforeRevision')?{beforeRevision:positiveParameter(params.get('beforeRevision'),'beforeRevision')}:{}),limit:params.has('limit')?positiveParameter(params.get('limit'),'limit',100):20};
+}
+function scopeQuery(params) {return writerScope(Object.fromEntries(['projectId','branchId','sceneId'].filter(k=>params.has(k)).map(k=>[k,params.get(k)])));}
+function checkpointKey(input) {
+  return {owner:'hapa-writers-room',projectId:identifier(input.projectId,'projectId'),branchId:input.branchId==null?null:identifier(input.branchId,'branchId')};
 }
 
 // The display projection deliberately excludes paths, embedded media and generated
@@ -90,21 +130,22 @@ export function projectWriterCharacter(avatar, { assetsEnabled = false } = {}) {
 
 // One finite Python owner invocation at a time. No shell, inherited preload,
 // model process, daemon, retry loop or background queue exists on this path.
-export function createCharacterMemoryClient({ python, script, accessFile, timeoutMs = 15000, spawnImpl = spawn, env = {} }) {
+export function createCharacterMemoryClient({ python, script, accessFile, timeoutMs = 15000, requestLimitBytes = WRITER_TRANSFER_DEFAULTS.requestLimitBytes, outputLimitBytes = WRITER_TRANSFER_DEFAULTS.outputLimitBytes, spawnImpl = spawn, env = {} }) {
   if (![python, script, accessFile].every(p => typeof p === 'string' && p.startsWith('/'))) throw new Error('Character memory paths must be explicit absolute paths.');
+  transferLimit(requestLimitBytes); transferLimit(outputLimitBytes);
   let active = false, stopping = false, stopActive = null, activeClosed = Promise.resolve();
   const memory = async function memory(command, request, { signal, apply = false } = {}) {
-    if (!['read','save','history'].includes(command)) throw fail('invalid_command', 'Unsupported character memory command.');
+    if (!['read','save','history','verify','checkpoint-read','checkpoint-save','checkpoint-history','checkpoint-verify'].includes(command)) throw fail('invalid_command', 'Unsupported character memory command.');
     if (active) throw fail('memory_busy', 'Another character memory operation is finishing. Retry after it completes.', 503);
     if (stopping) throw fail('memory_unavailable','Character service is stopping.',503);
     if (signal?.aborted) throw fail('request_aborted', 'Request cancelled.', 499);
     const payload = JSON.stringify(request);
-    if (Buffer.byteLength(payload) > INPUT_LIMIT) throw fail('request_too_large', 'Character memory request is too large.', 413);
+    if (Buffer.byteLength(payload) > requestLimitBytes) throw fail('request_transport_limit', `This transfer exceeds the configured ${requestLimitBytes}-byte request budget. No text was truncated or saved.`, 413);
     active = true;
     let markClosed; activeClosed = new Promise(resolve => { markClosed=resolve; });
     try {
       return await new Promise((resolve, reject) => {
-        const args = ['-E', '-s', '-B', script, command, '--access-file', accessFile, '--request', '-', ...(apply ? ['--apply'] : [])];
+        const args = ['-E', '-s', '-B', script, command, '--access-file', accessFile, '--request', '-', '--request-limit-bytes', String(requestLimitBytes), '--output-limit-bytes', String(outputLimitBytes), ...(apply ? ['--apply'] : [])];
         const child = spawnImpl(python, args, { shell:false, detached:false, stdio:['pipe','pipe','pipe'], env:{ PATH:'/usr/bin:/bin:/usr/sbin:/sbin', LANG:'en_US.UTF-8', HAPA_CHARACTER_MEMORY_WORKER:'1', ...Object.fromEntries(Object.entries(env).filter(([k])=>['HOME','TMPDIR'].includes(k))) } });
         let output = '', outputBytes = 0, stderrBytes = 0, issue = null, killTimer;
         const decoder = new StringDecoder('utf8');
@@ -117,7 +158,7 @@ export function createCharacterMemoryClient({ python, script, accessFile, timeou
         const timer = setTimeout(() => terminate(fail('memory_timeout', 'Second Brain did not finish in time. Refresh before retrying a save.', 504)), timeoutMs);
         const abort = () => terminate(fail('request_aborted', 'Request cancelled. Refresh before retrying a save.', 499));
         signal?.addEventListener('abort', abort, { once:true });
-        child.stdout.on('data', chunk => { outputBytes += chunk.length; if (outputBytes > OUTPUT_LIMIT) terminate(fail('memory_response_too_large','Second Brain response exceeded its limit.',502)); else output += decoder.write(chunk); });
+        child.stdout.on('data', chunk => { outputBytes += chunk.length; if (outputBytes > outputLimitBytes) terminate(fail('output_transport_limit','Second Brain response exceeded its configured transfer budget. Refresh before retrying a save.',413)); else output += decoder.write(chunk); });
         child.stderr.on('data', chunk => { stderrBytes += chunk.length; if (stderrBytes > 65536) terminate(fail('memory_error_too_large','Second Brain diagnostics exceeded their limit.',502)); });
         child.stdin.on('error', () => {});
         child.on('error', () => { issue ||= fail('memory_unavailable','Second Brain could not be started.',503); });
@@ -126,8 +167,12 @@ export function createCharacterMemoryClient({ python, script, accessFile, timeou
           if (issue) { reject(issue); return; }
           let result; try { result = JSON.parse(output + decoder.end()); } catch { reject(fail('memory_invalid_response','Second Brain returned an invalid response.',502)); return; }
           if (code !== 0 || result.ok !== true) {
-            const conflict = result.error?.code === 'revision_conflict';
-            reject(fail(conflict ? 'memory_revision_conflict' : (result.error?.code || 'memory_unavailable'), conflict ? 'Character memory changed. Refresh and compare your draft.' : 'Second Brain could not complete this operation.', conflict ? 409 : 503, {current:result.error?.current})); return;
+            const sourceCode=result.error?.code || 'memory_unavailable';
+            const conflict=sourceCode==='revision_conflict';
+            const mapped=conflict ? (command.startsWith('checkpoint-')?'checkpoint_revision_conflict':'memory_revision_conflict') : sourceCode;
+            const invalid=sourceCode.startsWith('invalid_') || ['restore_reference_mismatch','character_reference_mismatch','song_excerpt_digest_mismatch','nonempty_structured_sources_required','reference_envelope_limit','duplicate_character_reference','snapshot_json_string_required','exclusive_revision_or_asof_required'].includes(sourceCode);
+            const status=conflict || sourceCode==='operation_id_conflict' ? 409 : sourceCode==='revision_not_found'?404 : ['request_transport_limit','output_transport_limit','json_nesting_transport_limit'].includes(sourceCode)?413 : invalid?400 : ['access_denied','project_access_denied','actor_not_granted'].includes(sourceCode)?403:503;
+            reject(fail(mapped, conflict ? 'Saved history changed. Refresh and compare your draft.' : status===413?'The configured transfer budget was exceeded. No text was truncated.':'Second Brain could not complete this operation.', status, {current:result.error?.current})); return;
           }
           resolve(result);
         });
@@ -143,17 +188,18 @@ function send(res, status, body) {
   res.writeHead(status, {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
   res.end(JSON.stringify(body));
 }
-async function body(req) {
+async function body(req, limit) {
   let size=0; const chunks=[];
-  for await (const chunk of req) { size+=chunk.length; if (size>INPUT_LIMIT) throw fail('request_too_large','Character request exceeds 256 KiB.',413); chunks.push(chunk); }
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw fail('invalid_json','Expected a JSON request.'); }
+  for await (const chunk of req) { size+=chunk.length; if (size>limit) throw fail('request_transport_limit',`This transfer exceeds the configured ${limit}-byte request budget. No text was truncated or saved.`,413); chunks.push(chunk); }
+  try { return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks))); } catch { throw fail('invalid_json','Expected a JSON request.'); }
 }
 const loopbackHost = host => ['127.0.0.1','[::1]','::1'].includes(String(host).toLowerCase());
 const localPeer = peer => ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(peer);
 
-export function createWriterCharactersHandler({getAvatars, writerRoomIndexPath, port, host, adminToken='', secondBrain, memoryClient, serveAsset, instanceId=`instance:avatar-builder:${randomBytes(12).toString('hex')}`, now=Date.now}) {
+export function createWriterCharactersHandler({getAvatars, writerRoomIndexPath, port, host, adminToken='', secondBrain, memoryClient, serveAsset, handleExtension, requestLimitBytes=secondBrain?.requestLimitBytes??WRITER_TRANSFER_DEFAULTS.requestLimitBytes, outputLimitBytes=secondBrain?.outputLimitBytes??WRITER_TRANSFER_DEFAULTS.outputLimitBytes, instanceId=`instance:avatar-builder:${randomBytes(12).toString('hex')}`, now=Date.now}) {
   if (typeof getAvatars !== 'function') throw new Error('getAvatars owner reader required.');
-  const memory = memoryClient || createCharacterMemoryClient(secondBrain);
+  transferLimit(requestLimitBytes); transferLimit(outputLimitBytes);
+  const memory = memoryClient || createCharacterMemoryClient({...secondBrain,requestLimitBytes,outputLimitBytes});
   const cookieName = `hapa_writer_character_${port}`;
   const sessions = new Map();
   const TTL = 20 * 60 * 1000;
@@ -175,20 +221,29 @@ export function createWriterCharactersHandler({getAvatars, writerRoomIndexPath, 
     if (!expires || expires <= now()) { if(value) sessions.delete(value); return false; }
     return true;
   }
-  async function getCharacter(id, scope, signal) {
-    const avatars = await getAvatars();
-    const matches = avatars.filter(a=>a.id===id && !a.isExternalProjection && !a.projection?.readOnly);
+  async function getOwnerView(id) {
+    const avatars=await getAvatars();
+    const matches=avatars.filter(a=>a.id===id && !a.isExternalProjection && !a.projection?.readOnly);
     if (!matches.length) throw fail('avatar_not_found','Avatar not found in the canonical Builder.',404);
-    if (matches.length !== 1) throw fail('ambiguous_avatar','Duplicate stable Avatar ID requires owner repair.',409);
-    const view = projectWriterCharacter(matches[0],{assetsEnabled:Boolean(serveAsset)});
+    if (matches.length!==1) throw fail('ambiguous_avatar','Duplicate stable Avatar ID requires owner repair.',409);
+    return projectWriterCharacter(matches[0],{assetsEnabled:Boolean(serveAsset)});
+  }
+  function characterIdentity(character,id,scope) {
+    if (!plain(character) || character.owner!==OWNER || character.avatarId!==id || stable(character.scope)!==stable(scope)) throw fail('memory_identity_mismatch','Second Brain returned a different character identity.',502);
+  }
+  async function getCharacter(id, scope, signal, selection={}) {
+    const view=await getOwnerView(id);
     try {
-      const result = await memory('read',{owner:OWNER,avatarId:id,scope},{signal});
-      if (!plain(result.character) || result.character.owner !== OWNER || result.character.avatarId !== id || stable(result.character.scope)!==stable(scope)) throw fail('memory_identity_mismatch','Second Brain returned a different character identity.',502);
-      return {...view,scope,memoryStatus:'available',memory:result.character};
+      const result=await memory('read',{owner:OWNER,avatarId:id,scope,...selection},{signal});
+      characterIdentity(result.character,id,scope);
+      return {...view,scope,memoryStatus:'available',memory:result.character,historical:Boolean(result.historical || selection.revision || selection.asOf),currentMemoryHead:result.currentHead||{revision:result.character.revision,digest:result.character.digest},sourceContextState:'current-owner-projection'};
     } catch(error) {
-      if (signal?.aborted) throw error;
-      return {...view,scope,memoryStatus:'unavailable',memory:null,memoryError:{code:error.code||'memory_unavailable',message:error.message}};
+      if (signal?.aborted || error.code==='revision_not_found' || error.code==='memory_identity_mismatch' || error.statusCode===413) throw error;
+      return {...view,scope,memoryStatus:'unavailable',memory:null,memoryError:{code:error.code||'memory_unavailable',message:error.message},sourceContextState:'current-owner-projection'};
     }
+  }
+  function checkpointIdentity(result,key,required=true) {
+    if ((required && !plain(result.checkpoint)) || (result.checkpoint && stable(result.checkpoint.key)!==stable(key))) throw fail('memory_identity_mismatch','Second Brain returned a different checkpoint identity.',502);
   }
   const handle = async function handle(req,res,url) {
     const pathname = url.pathname;
@@ -212,7 +267,31 @@ export function createWriterCharactersHandler({getAvatars, writerRoomIndexPath, 
       }
       const assetMatch=pathname.match(/^\/v1\/writer-characters\/([^/]+)\/assets\/([^/]+)$/);
       if(!authorized(req,{asset:Boolean(assetMatch)})) {send(res,401,{error:'writer_session_required',preDispatch:true,message:'A fresh connected-room session is required.'});return true;}
-      if(pathname===`${BASE}/capabilities` && req.method==='GET') {send(res,200,{ok:true,contract:WRITER_CHARACTER_CONTRACT,owner:OWNER,memoryOwner:'hapa-second-brain',features:['list','read','save','history','sync','owner-media'],layers:LAYERS,limits:{layerBytes:16384,totalLayerBytes:65536,list:100,requestBytes:INPUT_LIMIT},identity:'Exact Builder avatarId and explicit project/branch/scene scope; no name joins.',stage:'prototype'});return true;}
+      const actor={actorId:adminToken && equal(req.headers.authorization, `Bearer ${adminToken}`)?'api-client':'local-operator',instanceId};
+      if(pathname===`${BASE}/capabilities` && req.method==='GET') {send(res,200,{ok:true,contract:WRITER_CHARACTER_CONTRACT,owner:OWNER,memoryOwner:'hapa-second-brain',features:['list','read','save','history','historical-read','as-of-read','append-only-restore','verify','checkpoints','sync','owner-media'],layers:LAYERS,layerLengthLimit:null,transferLimits:{requestBytes:requestLimitBytes,outputBytes:outputLimitBytes,policy:'Configured transfer resource budgets; no authoring limit and no truncation.'},limits:{list:100,historyPage:100,sources:128},identity:'Exact Builder avatarId and explicit project/branch/scene scope; no name joins.',stage:'prototype'});return true;}
+      if (handleExtension && await handleExtension(req,res,{url,actor,instanceId,signal:controller.signal})) return true;
+      const checkpointMatch=pathname.match(/^\/v1\/writer-characters\/checkpoints(?:\/(current|[1-9][0-9]*))?$/);
+      if (checkpointMatch) {
+        if (req.method==='GET') {
+          const key=checkpointKey({projectId:url.searchParams.get('projectId'),branchId:url.searchParams.get('branchId')});
+          const command=checkpointMatch[1]?'checkpoint-read':'checkpoint-history';
+          const query=checkpointMatch[1]?historicalQuery(url.searchParams,checkpointMatch[1]==='current'?undefined:checkpointMatch[1]):historyQuery(url.searchParams);
+          const result=await memory(command,{...key,...query},{signal:controller.signal});
+          checkpointIdentity(result,key,command!=='checkpoint-history'); send(res,200,result); return true;
+        }
+        if (req.method==='POST' && !checkpointMatch[1]) {
+          const input=await body(req,requestLimitBytes);
+          if (!plain(input)) throw fail('invalid_request','Expected a checkpoint request object.');
+          const key=checkpointKey(input);
+          const operationId=identifier(input.operationId,'operationId'); expectedRevision(input.expectedRevision,input.expectedDigest);
+          if (typeof input.snapshotJson!=='string' || !Array.isArray(input.characterRefs) || !Array.isArray(input.songRefs)) throw fail('invalid_checkpoint','Supply the exact project JSON string and explicit character/song reference arrays.');
+          try {if(!plain(JSON.parse(input.snapshotJson)))throw new Error();} catch {throw fail('invalid_checkpoint','snapshotJson must preserve a valid JSON object.');}
+          const sources=validateWriterSources(input.sources,128),provenance=validateWriterProvenance(input.provenance,true);
+          const result=await memory('checkpoint-save',{...key,operationId,actor,expectedRevision:input.expectedRevision,expectedDigest:input.expectedDigest,snapshotJson:input.snapshotJson,characterRefs:input.characterRefs,songRefs:input.songRefs,sources,provenance},{signal:controller.signal,apply:input.dryRun!==true});
+          checkpointIdentity(result,key);send(res,200,{...result,saved:input.dryRun!==true});return true;
+        }
+        throw fail('method_not_allowed','Unsupported checkpoint operation.',405);
+      }
       if(assetMatch && req.method==='GET') {
         const id=decodeURIComponent(assetMatch[1]), assetId=decodeURIComponent(assetMatch[2]);
         const avatar=(await getAvatars()).find(a=>a.id===id && !a.isExternalProjection && !a.projection?.readOnly);
@@ -228,33 +307,32 @@ export function createWriterCharactersHandler({getAvatars, writerRoomIndexPath, 
         const characters=matching.slice(offset,offset+limit).map(a=>{const p=projectWriterCharacter(a,{assetsEnabled:Boolean(serveAsset)});return {avatarId:p.avatarId,label:p.label,ownerRevision:p.ownerRevision,thumbnailUrl:p.thumbnailUrl};});
         send(res,200,{contract:WRITER_CHARACTER_CONTRACT,owner:OWNER,total:matching.length,offset,limit,hasMore:offset+limit<matching.length,characters});return true;
       }
-      const match=pathname.match(/^\/v1\/writer-characters\/([^/]+)(?:\/(sync|history))?$/);
+      const match=pathname.match(/^\/v1\/writer-characters\/([^/]+)(?:\/(sync|history|verify)|\/revisions\/([1-9][0-9]*))?$/);
       if(!match)throw fail('not_found','Unknown character route.',404);
       const id=identifier(decodeURIComponent(match[1]),'avatarId');
       if(req.method==='GET') {
-        const scope=writerScope(Object.fromEntries(['projectId','branchId','sceneId'].filter(k=>url.searchParams.has(k)).map(k=>[k,url.searchParams.get(k)])));
-        if(match[2]==='history') {
-          await getCharacter(id,scope,controller.signal);
-          const result=await memory('history',{owner:OWNER,avatarId:id,scope,limit:20},{signal:controller.signal});send(res,200,result);
-        } else if(!match[2])send(res,200,await getCharacter(id,scope,controller.signal));
+        const scope=scopeQuery(url.searchParams);
+        if(['history','verify'].includes(match[2])) {
+          await getOwnerView(id);
+          const result=await memory(match[2],{owner:OWNER,avatarId:id,scope,...historyQuery(url.searchParams)},{signal:controller.signal});send(res,200,result);
+        } else if(!match[2])send(res,200,await getCharacter(id,scope,controller.signal,historicalQuery(url.searchParams,match[3])));
         else throw fail('method_not_allowed','Use POST to refresh character context.',405);
         return true;
       }
-      if((req.method==='PUT'&&!match[2])||(req.method==='POST'&&match[2]==='sync')) {
-        const input=await body(req);
+      if((req.method==='PUT'&&!match[2]&&!match[3])||(req.method==='POST'&&match[2]==='sync')) {
+        const input=await body(req,requestLimitBytes);
         if(!plain(input))throw fail('invalid_request','Expected a character request object.');
         const scope=writerScope(input.scope||{});
-        const current=await getCharacter(id,scope,controller.signal);
-        if(match[2]==='sync') {send(res,200,current);return true;}
+        if(match[2]==='sync') {send(res,200,await getCharacter(id,scope,controller.signal));return true;}
+        const current=await getOwnerView(id);
         if(input.expectedOwnerRevision!==current.ownerRevision)throw fail('owner_revision_conflict','Avatar Builder changed. Refresh and compare your draft.',409,{current:{ownerRevision:current.ownerRevision}});
-        if(current.memoryStatus!=='available')throw fail('memory_unavailable','Second Brain is unavailable; your draft was not saved.',503);
-        const layers=validateWriterLayers(input.layers);
-        const operationId=identifier(input.operationId,'operationId');
-        if(!Number.isSafeInteger(input.expectedMemoryRevision)||input.expectedMemoryRevision<0 || !(input.expectedMemoryDigest===null||/^[a-f0-9]{64}$/.test(input.expectedMemoryDigest||'')))throw fail('invalid_revision','Supply the exact memory revision and digest.');
-        const bearer = adminToken && equal(req.headers.authorization, `Bearer ${adminToken}`);
-        const result=await memory('save',{owner:OWNER,avatarId:id,scope,operationId,actor:{actorId:bearer?'api-client':'local-operator',instanceId},expectedRevision:input.expectedMemoryRevision,expectedDigest:input.expectedMemoryDigest,layers,sources:[{owner:OWNER,avatarId:id,revision:current.ownerRevision}]},{signal:controller.signal,apply:input.dryRun!==true});
-        if(result.character?.owner!==OWNER || result.character?.avatarId!==id || stable(result.character?.scope)!==stable(scope)) throw fail('memory_identity_mismatch','Second Brain returned a different character identity.',502);
-        const character=result.currentHead && result.currentHead.revision!==result.character.revision ? await getCharacter(id,scope,controller.signal) : {...current,memoryStatus:'available',memory:result.character};
+        const layers=validateWriterLayers(input.layers),operationId=identifier(input.operationId,'operationId');
+        expectedRevision(input.expectedMemoryRevision,input.expectedMemoryDigest);
+        const sources=validateWriterSources(input.sources),provenance=validateWriterProvenance(input.provenance);
+        sources.push({owner:OWNER,id,revision:current.ownerRevision,digest:current.ownerRevision,kind:'builder-projection'});
+        const result=await memory('save',{owner:OWNER,avatarId:id,scope,operationId,actor,expectedRevision:input.expectedMemoryRevision,expectedDigest:input.expectedMemoryDigest,layers,sources,provenance},{signal:controller.signal,apply:input.dryRun!==true});
+        characterIdentity(result.character,id,scope);
+        const character=result.currentHead && result.currentHead.revision!==result.character.revision ? await getCharacter(id,scope,controller.signal) : {...current,scope,memoryStatus:'available',memory:result.character,historical:false,currentMemoryHead:result.currentHead||{revision:result.character.revision,digest:result.character.digest},sourceContextState:'current-owner-projection'};
         send(res,200,{saved:input.dryRun!==true,status:result.status,character});return true;
       }
       throw fail('method_not_allowed','Unsupported character operation.',405);
