@@ -9,6 +9,7 @@ import {createReadStream} from 'node:fs';
 import {pipeline} from 'node:stream/promises';
 import {createWriterCharactersHandler} from './writer-characters.mjs';
 import {readWriterPrivateFile} from './writer-room-credentials.mjs';
+import {createWriterEchoExtension} from './writer-echo.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.HAPA_WRITER_ROOM_PORT || 8795);
@@ -56,7 +57,8 @@ async function serveAsset({req,res,asset,variant}) {
   res.writeHead(200, {'Content-Type':mime[path.extname(file).toLowerCase()],'Content-Length':info.size,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"});
   await pipeline(createReadStream(file),res); return true;
 }
-const handler = createWriterCharactersHandler({getAvatars,writerRoomIndexPath,port:PORT,host:HOST,adminToken,secondBrain:config.secondBrain,serveAsset});
+const handleExtension = createWriterEchoExtension({root:ROOT});
+const handler = createWriterCharactersHandler({getAvatars,writerRoomIndexPath,port:PORT,host:HOST,adminToken,secondBrain:config.secondBrain,serveAsset,handleExtension});
 const server = http.createServer(async (req,res) => {
   try {
     if (req.headers.host !== `${HOST}:${PORT}` || !['127.0.0.1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) { res.writeHead(403); res.end(); return; }

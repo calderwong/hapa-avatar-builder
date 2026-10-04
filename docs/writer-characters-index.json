@@ -6,6 +6,11 @@
       "slug": "hapa-avatar-builder-writer-characters",
       "title": "Avatar Builder shared character layer adapter",
       "path": "docs/WRITER_CHARACTERS.md"
+    },
+    {
+      "slug": "hapa-avatar-builder-writer-echo",
+      "title": "Echo songs, lyrics and references in Writers Room",
+      "path": "docs/WRITER_ECHO.md"
     }
   ]
 }
