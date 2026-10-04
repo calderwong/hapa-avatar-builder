@@ -113,9 +113,13 @@ The installed Builder’s existing full-library hydration stalled its outer
 renderer during the live acceptance attempt, including native clicks. The new
 panel was visible before that workload, but an end-to-end click through that
 outer renderer remains unverified. The connected room is independently
-usable. The cross-port iframe boundary can be verified through a temporary,
-clearly labeled test fixture on Builder’s real origin without loading the
-legacy application; that is transport evidence, not a replacement product UI.
+usable. The cross-port iframe boundary passed a browser proof through a
+temporary, clearly labeled fixture on Builder’s real origin (8797), loading
+the installed editor on 8795. It read the exact Red global head at revision 3,
+then saved the unchanged empty layers as revision 4. The screenshot is retained
+with the coordinated Writer’s Room verification receipt. The temporary fixture
+was removed after capture. This proves the iframe transport and editing
+boundary; it does not replace verification of the outer legacy product UI.
 The unrelated hydration behavior was not changed in this task. Full legacy
 `npm test` and the expanded Echo/Tarot Electron smoke were not run because
 their native-store and process isolation was not established for this scoped
