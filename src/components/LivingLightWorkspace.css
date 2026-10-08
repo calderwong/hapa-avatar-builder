@@ -1,0 +1,40 @@
+.living-light-workspace{color:var(--hapa-text,#e2e8f0);padding:16px;border:1px solid var(--hapa-border,#334155);border-radius:8px;background:#07101b;min-width:0}.living-light-workspace header,.living-light-controls,.living-light-library-heading{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}.living-light-workspace h3,.living-light-workspace h4,.living-light-workspace h5{margin:0 0 8px}.living-light-workspace p{font-size:13px;line-height:1.5}.living-light-workspace button,.living-light-workspace select{font:inherit;color:#e2e8f0;background:#172539;border:1px solid #477086;border-radius:4px;padding:7px}.living-light-workspace button:focus-visible,.living-light-workspace select:focus-visible{outline:2px solid #67e8f9;outline-offset:2px}.living-light-controls{justify-content:flex-start;margin:12px 0}.living-light-controls label{display:flex;gap:8px;align-items:center;font-size:13px}.living-light-truth{color:#c9b680}.living-light-workspace canvas{display:block;width:100%;aspect-ratio:16/9;max-height:720px;background:#02050a;border-radius:6px}.living-light-library{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.living-light-card{padding:14px;background:#101c2b;border:1px solid #2e4657;border-radius:7px}.living-light-card small{color:#90b6c3}.living-light-card code,.living-light-workspace header code{font-size:10px;overflow-wrap:anywhere}.living-light-card h5{font-size:16px;margin-top:10px}.living-light-workspace details{font-size:12px;margin:10px 0}.living-light-workspace pre{overflow:auto;max-height:220px;white-space:pre-wrap}.living-light-library-heading{margin-top:20px}
+
+.living-light-workspace input[type=search],.living-light-workspace textarea{font:inherit;background:#071420;color:#e4edf2;border:1px solid #477086;border-radius:5px;padding:9px;max-width:100%;box-sizing:border-box}.living-light-workspace input:focus-visible,.living-light-workspace textarea:focus-visible{outline:2px solid #67e8f9;outline-offset:2px}.living-light-library-heading label{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.living-light-library-filters,.living-light-card-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}.living-light-library-filters [aria-pressed=true]{border-color:#67e8f9;background:#194452}.living-light-card.selected{border-color:#67e8f9;box-shadow:0 0 0 1px #67e8f9}.living-light-card-still{height:108px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:#091723;border:1px solid #263c4b;border-radius:5px;margin-bottom:12px}.living-light-card-still span{font-size:30px;color:#89c6d4}.living-light-card-still.location span{color:#c5b9f2}.living-light-card-still small{font-size:10px}.living-light-thing-inspector{padding:18px;margin-top:16px;border:1px solid #578894;border-radius:8px;background:#0c1a28}.living-light-note{padding:12px;border-left:2px solid #518799;background:#112030;margin-bottom:10px}.living-light-note p,.living-light-thing-inspector details p{white-space:pre-wrap;overflow-wrap:anywhere}.living-light-note small{color:#90b6c3}.living-light-note-editor{display:flex;flex-direction:column;gap:8px;margin:12px 0}.living-light-workspace button:disabled{opacity:.5;cursor:default}@media(max-width:480px){.living-light-workspace{padding:10px}.living-light-library{grid-template-columns:1fr}.living-light-thing-inspector{padding:12px}.living-light-card-actions button{min-height:42px}.living-light-library-heading input{width:100%}}
+
+/* Native recipe draft authoring shares the existing Echo workbench. */
+.living-light-journey-editor {border:1px solid #44526d;border-radius:14px;padding:16px;margin:16px 0;background:#111724;min-width:0;}
+.living-light-saved-journeys {display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:12px 0;}
+.living-light-journey-draft,.living-light-instance-editor,.living-light-add-instance {display:flex;flex-direction:column;gap:10px;min-width:0;}
+.living-light-journey-editor label {display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.living-light-journey-editor input,.living-light-journey-editor select {max-width:100%;min-width:0;flex:1;padding:8px;color:#e8ecfa;background:#172131;border:1px solid #52617b;border-radius:6px;}
+.living-light-journey-strip {display:flex;flex-wrap:wrap;gap:8px;padding-left:20px;}
+.living-light-journey-strip button {white-space:normal;max-width:100%;text-align:left;}
+.living-light-instance-editor,.living-light-journey-comparison {border:1px solid #546886;padding:12px;border-radius:8px;}
+@media(max-width:500px){.living-light-journey-editor{padding:10px}.living-light-saved-journeys{grid-template-columns:1fr}.living-light-journey-editor label{align-items:stretch;flex-direction:column}.living-light-journey-strip{display:block}.living-light-journey-strip li{margin-bottom:8px}}
+
+/* Discussion keeps a generous text field inside the recipe inspector. */
+.living-light-journey-editor .living-light-note-editor{align-items:stretch;flex-direction:column;}
+.living-light-note-editor textarea{width:100%;box-sizing:border-box;}
+.living-light-discussion code{overflow-wrap:anywhere;}
+
+/* Fork comparisons use the same responsive authoring surface. */
+.living-light-fork-panel{border-top:1px solid #31424a;margin-top:1rem;padding-top:1rem;min-width:0}
+.living-light-fork-panel label{align-items:stretch;width:100%;max-width:42rem}
+.living-light-fork-panel input,.living-light-fork-panel select{width:100%;min-width:0;box-sizing:border-box}
+.living-light-fork-comparison li{overflow-wrap:anywhere;margin-block:.35rem}
+
+.living-light-preset-panel { margin-block: 1rem; padding: .8rem; border: 1px solid #627982; border-radius: .6rem; min-width: 0; }
+.living-light-preset-panel label { display: flex; flex-direction: column; gap: .3rem; margin-block: .5rem; min-width: 0; }
+.living-light-preset-panel input, .living-light-preset-panel textarea { width: 100%; box-sizing: border-box; min-width: 0; }
+.living-light-preset-panel textarea { min-height: 5rem; }
+.living-light-preset-panel code { overflow-wrap: anywhere; }
+
+.living-light-thing-history, .living-light-visibility-controls { padding-block: .8rem; border-top: 1px solid #627982; min-width: 0; }
+.living-light-stem-audition{min-width:0;margin:12px 0;border:1px solid #477086;border-radius:6px;padding:12px}.living-light-stem-audition label{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.living-light-stem-audition select,.living-light-stem-audition input{max-width:100%;min-width:0;box-sizing:border-box}.living-light-stem-audition select{width:100%}.living-light-stem-audition input[type=range]{flex:1}.living-light-stem-audition p{overflow-wrap:anywhere}
+.living-light-thing-history li { padding-block: .6rem; overflow-wrap: anywhere; }
+.living-light-thing-inspector code { overflow-wrap: anywhere; }
+
+.living-light-portable {padding:12px 0;border-top:1px solid #27465a;overflow-wrap:anywhere;min-width:0}
+.living-light-portable textarea {display:block;box-sizing:border-box;width:100%;min-height:130px;max-height:400px;resize:vertical}
+.living-light-portable code {overflow-wrap:anywhere;white-space:pre-wrap}
