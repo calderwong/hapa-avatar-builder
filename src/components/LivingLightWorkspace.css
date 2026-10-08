@@ -50,3 +50,5 @@
 .living-light-card-source{color:#90b6c3;overflow-wrap:anywhere}
 .living-light-card,.living-light-thing-inspector{min-width:0;overflow-wrap:anywhere}
 .living-light-card-still.journey span{color:#b9dcae}
+
+.living-light-card-still:has(img){height:auto;min-height:108px;overflow:hidden;gap:0}.living-light-card-still img{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover}.living-light-card-still small{padding:5px;text-align:center;overflow-wrap:anywhere}

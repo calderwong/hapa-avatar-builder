@@ -10,11 +10,12 @@ import {validateJourney, validateParameterValue} from '../domain/living-light-co
 import {createLivingLightRegistry} from './registry.js';
 /** Native host. Authored routes and limited master response are explicit.
  * Builder owns the audible element, clock, RAF and view visibility. */
-export function createLivingLightRuntime({canvas,registry=createLivingLightRegistry(),nativeFactory=createNativeNamespace}={}) {
+export function createLivingLightRuntime({canvas,registry=createLivingLightRegistry(),nativeFactory=createNativeNamespace,stillCanvasFactory=()=>globalThis.document.createElement('canvas')}={}) {
  if(!canvas)throw Error('Living Light needs a host canvas');
  const native=nativeFactory();let renderer=null,graphicsLease=null,state=null,cache=null,disposed=false,suspended=false,generation=-1,heldVisualUs=null,lastSourceUs=0,prepared=null,masterBank=null,featureLease=null,signalRouter=null;
+ let lastPaint=null;
  const assertLive=()=>{if(disposed)throw Error('Living Light runtime disposed');};
- const dropRenderer=()=>{try{renderer?.dispose();}finally{renderer=null;graphicsLease?.dispose();graphicsLease=null;}};
+ const dropRenderer=()=>{lastPaint=null;try{renderer?.dispose();}finally{renderer=null;graphicsLease?.dispose();graphicsLease=null;}};
  const drop=()=>{dropRenderer();masterBank?.dispose();masterBank=null;featureLease?.release();featureLease=null;signalRouter=null;if(cache)native.HapaArticulation.invalidate(cache);};
  const makeRenderer=()=>{graphicsLease=createLivingLightGraphicsLease(canvas);try{renderer=new native.HapaRenderer(graphicsLease.canvas,cache.score,cache,state);native.HapaPassageRenderer(renderer);native.HapaGeometryDanceVisuals(renderer);native.HapaJourneyVisuals(renderer);}catch(error){dropRenderer();throw error;}};
  const masterFrame=time=>featureLease?.sample('master','energy',time)||masterBank?.sample(time)||null;
@@ -86,11 +87,26 @@ export function createLivingLightRuntime({canvas,registry=createLivingLightRegis
   const frame=prepared.tourEvidence?native.HapaCurrents.route(cache,state,visualUs/1e6):native.HapaJourney.evaluate(cache,state,visualUs/1e6);
   return {schemaVersion:'hapa.living-light.frame.v1',generation,timelineUs,visualUs,playing,reducedMotion,quality,frame,basicMasterFrame:measured,signalRouting:signalRouter?.evaluate(visualUs)||null,signalState:signalRouter?'exact-asset-port-response':featureLease?'exact-assets-master-response':masterBank?'basic-master-rms':'unavailable',motionBasis:'authored-resting-source-time',signalBasis:signalRouter?'explicit exact-source normalized energy/onset offsets; unresolved timing remains unavailable':(masterBank||featureLease)?'source-bound RMS offsets; no stem/event substitution':'neutral'};
  }
- function render(packet){assertLive();if(!packet||suspended)return false;if(packet.generation!==generation)throw Error('Stale frame');if(signalRouter?.evaluate(packet.visualUs).blocked)return false;masterFrame(packet.visualUs);renderer.render(packet.visualUs/1e6);return true;}
- function resize({width,height}){assertLive();if(!Number.isFinite(width)||!Number.isFinite(height)||width<1||height<1||width>3840||height>3840)throw Error('Invalid viewport');renderer?.resize(width,height);}
- function suspend(){assertLive();suspended=true;}
+ function render(packet){assertLive();lastPaint=null;if(!packet||suspended)return false;if(packet.generation!==generation)throw Error('Stale frame');if(signalRouter?.evaluate(packet.visualUs).blocked)return false;masterFrame(packet.visualUs);renderer.render(packet.visualUs/1e6);lastPaint=structuredClone(packet);return true;}
+ function resize({width,height}){assertLive();if(!Number.isFinite(width)||!Number.isFinite(height)||width<1||height<1||width>3840||height>3840)throw Error('Invalid viewport');lastPaint=null;renderer?.resize(width,height);}
+ function captureStill(){
+  assertLive();if(!renderer||suspended||!lastPaint||lastPaint.generation!==generation)throw Error('Paint a current available frame before capturing.');
+  const output=stillCanvasFactory();output.width=320;output.height=180;
+  try{
+   const context=output.getContext('2d');if(!context)throw Error('Still capture is unavailable.');
+   context.drawImage(canvas,0,0,320,180);
+   const dataUrl=output.toDataURL('image/png');if(dataUrl.length>256*1024)throw Error('Captured image exceeds the small-preview limit.');
+   return {dataUrl,receipt:{schemaVersion:'hapa.living-light.still.v1',width:320,height:180,runtime:'ll109-native-host',generation,source:structuredClone(prepared.sourceBinding),recipe:structuredClone(prepared.journeyRevision),timelineUs:lastPaint.timelineUs,visualUs:lastPaint.visualUs,quality:lastPaint.quality,signalState:lastPaint.signalState,reducedMotion:lastPaint.reducedMotion,environment:structuredClone(renderer.environment||null),qualification:'captured-preview-only',finalEncoding:'unsupported'}};
+  }finally{output.width=0;output.height=0;}
+ }
+ function captureReferenceStill({timelineUs,quality='balanced'}={}){
+  const previousHeld=heldVisualUs,previousSource=lastSourceUs;
+  try{const packet=evaluate({timelineUs,quality,reducedMotion:false,viewport:{width:640,height:360}});if(!render(packet))throw Error('The reference frame is unavailable.');return captureStill();}
+  finally{heldVisualUs=previousHeld;lastSourceUs=previousSource;}
+ }
+ function suspend(){assertLive();lastPaint=null;suspended=true;}
  function restore(){assertLive();if(!prepared)throw Error('Nothing to restore');dropRenderer();generation++;suspended=false;try{makeRenderer();}catch(error){drop();prepared=null;throw error;}return diagnostics();}
  function diagnostics(){return {prepared:!!renderer,disposed,suspended,generation,canvasCount:renderer?1:0,ownedAudioContexts:0,ownedAnimationLoops:0,features:signalRouter?'exact-asset-port-response':featureLease?'exact-assets-master-response':masterBank?'basic-master-rms':'unavailable',featureEvidence:featureLease?.identity||masterBank?.identity||null,assetEvidence:featureLease?.assets()||null,signalRouting:signalRouter?.evaluate(heldVisualUs??lastSourceUs)||null,tourEvidence:prepared?.tourEvidence||null,environment:renderer?.environment||null,graphicsLease:graphicsLease?.diagnostics()||null,resources:renderer?{programs:Object.keys(renderer.programs).length,buffers:renderer.buffers.length,vaos:renderer.vaos.length,targets:renderer.targets.length}:null,route:renderer?.routeTelemetry||null};}
  function dispose(){if(disposed)return;drop();state=null;cache=null;prepared=null;disposed=true;}
- return {prepare,evaluate,render,resize,suspend,restore,dispose,diagnostics};
+ return {prepare,evaluate,render,resize,captureStill,captureReferenceStill,suspend,restore,dispose,diagnostics};
 }
