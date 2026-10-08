@@ -45,3 +45,8 @@
 .living-light-signal-sources input[type=checkbox]{flex:0 0 auto;width:18px;height:18px}
 .living-light-signal-sources small{display:block;color:#90b6c3}
 .living-light-signal-sources input[type=number]{max-width:100px}
+.living-light-library-filters label{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.living-light-library-filters select{max-width:100%;min-width:0}
+.living-light-card-source{color:#90b6c3;overflow-wrap:anywhere}
+.living-light-card,.living-light-thing-inspector{min-width:0;overflow-wrap:anywhere}
+.living-light-card-still.journey span{color:#b9dcae}

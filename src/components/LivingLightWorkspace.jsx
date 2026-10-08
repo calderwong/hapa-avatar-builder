@@ -14,6 +14,8 @@ function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerforma
  const {registry,archivedThings}=useLivingLightRegistry(),canvasRef=useRef(null),runtimeRef=useRef(null),driverRef=useRef(null),generationRef=useRef(0);
  const [family,setFamily]=useState('fractal'),[quality,setQuality]=useState('balanced'),[signalMode,setSignalMode]=useState('neutral'),[reduced,setReduced]=useState(()=>globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches||false),[status,setStatus]=useState('Preparing neutral study…'),[diagnostic,setDiagnostic]=useState(null),[studyRecipe,setStudyRecipe]=useState(null),[addRequest,setAddRequest]=useState(null);
  const [exactPerformance,setExactPerformance]=useState(null),featureCacheRef=useRef(null);
+ const [journeyRefreshToken,setJourneyRefreshToken]=useState(0),[openJourneyRequest,setOpenJourneyRequest]=useState(null);
+ const journeySaved=useCallback(()=>setJourneyRefreshToken(value=>value+1),[]);
  const acceptPerformance=useCallback(value=>setExactPerformance(value),[]);
  const selectedPerformance=exactPerformance?.songId===songId?exactPerformance:preparedPerformance;
  useEffect(()=>()=>{featureCacheRef.current?.dispose();featureCacheRef.current=null;},[]);
@@ -55,8 +57,8 @@ function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerforma
   <canvas ref={canvasRef} aria-label="Native Living Light Journey study" data-testid="living-light-canvas"/>
   <p role="status" data-testid="living-light-status">{status}</p>
   {diagnostic&&<details><summary>Preview evidence</summary><p>{diagnostic.environment?.backend||'Native WebGL2'} · {diagnostic.canvasCount} canvas · {diagnostic.ownedAudioContexts} view-owned audio contexts · features {diagnostic.features}</p><pre>{JSON.stringify(diagnostic,null,2)}</pre></details>}
-  <LivingLightJourneyEditor songId={songId} title={title} durationUs={Math.round(Number(audioReceipt?.durationSeconds||duration)*1e6)||0} registry={registry} addRequest={addRequest} performance={selectedPerformance?.sourcePolicy==='living-light-assets-v1'?selectedPerformance:null} onPreview={recipe=>setStudyRecipe(recipe)}/>
-  <LivingLightLibrary registry={registry} onAdd={thing=>setAddRequest({thing,nonce:crypto.randomUUID()})} onUse={thing=>{setStudyRecipe(null);setFamily(thing.thingId);}}/>
+  <LivingLightJourneyEditor songId={songId} title={title} durationUs={Math.round(Number(audioReceipt?.durationSeconds||duration)*1e6)||0} registry={registry} showSavedCards={false} openRequest={openJourneyRequest} onSaved={journeySaved} addRequest={addRequest} performance={selectedPerformance?.sourcePolicy==='living-light-assets-v1'?selectedPerformance:null} onPreview={recipe=>setStudyRecipe(recipe)}/>
+  <LivingLightLibrary registry={registry} songId={songId} journeyRefreshToken={journeyRefreshToken} onOpenJourney={row=>setOpenJourneyRequest({row,nonce:crypto.randomUUID()})} onAdd={thing=>setAddRequest({thing,nonce:crypto.randomUUID()})} onUse={thing=>{setStudyRecipe(null);setFamily(thing.thingId);}}/>
  </section>;
 }
 
