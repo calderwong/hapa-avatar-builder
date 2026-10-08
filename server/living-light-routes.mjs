@@ -30,7 +30,7 @@ export async function handleLivingLight({req,res,url,service,authorize,bootstrap
    else if(suffix==='/performance/prepare'&&req.method==='DELETE')value=performance.cancel(params);
    else throw Object.assign(Error('Method not allowed'),{code:'method_not_allowed',statusCode:405});
   }
-  else if(suffix==='/capabilities'&&req.method==='GET')value=service.capabilities();
+  else if(suffix==='/capabilities'&&req.method==='GET')value={...service.capabilities(),preparedSignals:performance?.capabilities?.()||{state:'owner-unavailable'}};
   else if(suffix==='/export'&&req.method==='GET'){
    if(params.includeNotes!==undefined&&!['true','false'].includes(params.includeNotes))throw Object.assign(Error('includeNotes must be true or false'),{code:'invalid_filter',statusCode:422});
    value=service.exportPackage({kind:params.kind,id:params.id,revision:params.revision,includeNotes:params.includeNotes==='true'});

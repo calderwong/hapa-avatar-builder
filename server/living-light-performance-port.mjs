@@ -13,6 +13,7 @@ export function createLivingLightPerformancePort({readSongStore,resolveOptions,p
  };
  const inputs=async songId=>livingLightPerformanceInputs({songId:song(songId),songStore:await readSongStore(),resolveOptions});
  return {
+  capabilities:()=>({state:'source-implemented',sourcePolicy:LIVING_LIGHT_SOURCE_POLICY,operations:['read','prepare','status','cancel'],assetLimit:32,sourcePaths:'owner-resolved',alignment:'no proposal applied',stemVisualization:'unqualified'}),
   async read({songId}){const input=await inputs(songId),result=await preparedStore.load({masterPath:input.masterPath,stems:input.graph.stems.items,lyrics:{},sourcePolicy:LIVING_LIGHT_SOURCE_POLICY,songId});for(const bus of result.performance.buses)bus.provenance=(bus.provenance||[]).map(row=>({id:row.id}));return {...result,songId,sourcePolicy:LIVING_LIGHT_SOURCE_POLICY,audioUri:`hapa-master:${encodeURIComponent(songId)}`};},
   async prepare({songId,requestId}){request(requestId);const old=selectedJob({songId,requestId});if(old)return old;const input=await inputs(songId);const raced=selectedJob({songId,requestId});if(raced)return raced;return preparation.start({kind:'performance',songId,requestId,variantId:LIVING_LIGHT_SOURCE_POLICY,masterPath:input.masterPath,graph:input.graph});},
   status(params){return selectedJob(params)||{status:'idle'};},
