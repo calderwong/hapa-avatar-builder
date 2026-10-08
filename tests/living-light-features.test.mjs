@@ -71,3 +71,28 @@ test('cancelled preparation and 20 source switches retain bounded arrays with no
  cache.dispose();assert.equal(closed,20);assert.equal(cache.diagnostics().leases,0);
  const c=new AbortController(),one=createLivingLightFeatureCache({maxBytes:1});assert.throws(()=>one.acquire({key:'late',signal:c.signal,create(){c.abort();return {identity:{bytes:1},sample(){},dispose(){closed++;}};}}),{code:'feature_preparation_cancelled'});one.dispose();assert.equal(closed,21);
 });
+
+import {livingLightPreparedBinding,livingLightFeatureBytes,livingLightFeatureKey} from '../src/domain/living-light-prepared-binding.js';
+import {createLivingLightRuntime} from '../src/living-light/runtime.js';
+import {createNativeNamespace} from '../src/living-light/native.generated.js';
+import {createLivingLightRegistry} from '../src/living-light/registry.js';
+test('host adopts a shared source bank, drives measured master offsets and preserves unverified stem state',()=>{
+ const input=fixture(32),binding=livingLightPreparedBinding(input),owner=createLivingLightFeatureCache(),registry=createLivingLightRegistry(),n={...createNativeNamespace()};let painted,baseline,closed=0;
+ assert(JSON.stringify(binding).length>4096);const key=livingLightFeatureKey({...input,sourceBinding:binding});assert.equal(key.length,77);
+ assert.equal(livingLightFeatureKey({...input,sourceBinding:structuredClone(binding)}),key);
+ const changed=structuredClone(binding);changed.stems[31].declaredRole='changed';assert.notEqual(livingLightFeatureKey({...input,sourceBinding:changed}),key);
+ assert.notEqual(livingLightFeatureKey({...input,sourceBinding:binding,playbackReceipt:{...input.playbackReceipt,sampleRate:44100}}),key);
+ assert(binding.stems.every(s=>s.timeMap===null&&s.alignmentState==='alignment-unverified'));
+ const nativeEvaluate=n.HapaCore.evaluate;
+ n.HapaRenderer=class {constructor(canvas,score,cache,state){Object.assign(this,{cache,state,programs:{},buffers:[],vaos:[],targets:[]});}render(t){baseline=nativeEvaluate(this.cache,this.state,t);painted=n.HapaCore.evaluate(this.cache,this.state,t);}resize(){}dispose(){closed++;}};
+ n.HapaPassageRenderer=n.HapaGeometryDanceVisuals=n.HapaJourneyVisuals=()=>{};
+ const thing=registry.entries.find(t=>t.variantKind==='continuous-profile'),runtime=createLivingLightRuntime({canvas:{},registry,nativeFactory:()=>n});
+ const recipe={schemaVersion:'hapa.living-light.journey.v1',journeyId:'fixture:journey',revisionId:'fixture:r1',parentRevisionId:null,title:'Fixture',songId:input.songId,sourceBindingRef:null,state:'draft-unresolved',mode:'continuous',seed:109,instances:[{instanceId:'use',thingRef:{thingId:thing.thingId,revisionId:thing.revisionId},parameters:{},bindings:{}}],schedule:[{instanceId:'use',startUs:0,endUs:2000000}],actorTreatment:'none',mediaSlots:[]};
+ const prepare={journeyRevision:recipe,sourceBinding:{songId:input.songId,durationUs:2000000,sourceHash:input.playbackReceipt.sourceHash},generation:1,featureInput:{...input,sourceBinding:binding,cache:owner,requiredBytes:livingLightFeatureBytes(input.performance)}};
+ assert.equal(prepare.featureInput.requiredBytes,16180);assert.equal(runtime.prepare(prepare).features,'exact-assets-master-response');assert.equal(owner.diagnostics().leases,1);assert.equal(runtime.diagnostics().assetEvidence.length,32);
+ const packet=runtime.evaluate({timelineUs:750000});runtime.render(packet);assert.equal(packet.basicMasterFrame.value,.5);assert(Math.abs(painted.values['material.emission']-baseline.values['material.emission']-.2)<1e-9);
+ assert.equal(runtime.diagnostics().assetEvidence[0].state,'alignment-unverified');assert.equal(runtime.diagnostics().ownedAudioContexts,0);
+ runtime.suspend();runtime.restore();assert.equal(owner.diagnostics().leases,1);
+ runtime.prepare({...prepare,generation:3});assert.equal(owner.diagnostics().leases,1);assert.equal(owner.diagnostics().residentBytes,16180);
+ runtime.dispose();assert.equal(owner.diagnostics().leases,0);assert.equal(owner.diagnostics().inactiveEntries,1);owner.dispose();assert.equal(owner.diagnostics().residentBytes,0);assert.equal(closed,3);
+});

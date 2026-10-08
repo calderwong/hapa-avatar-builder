@@ -9,7 +9,7 @@ export function livingLightBrowserContext(req,{allowedOrigins,loopbackAddress,se
  if(!origin||!loopbackAddress(req.socket?.remoteAddress)||req.headers['sec-fetch-site']!=='same-origin'||req.headers['x-hapa-first-party-intent']!=='living-light')return false;
  try{const url=new URL(origin),protocol=req.socket?.encrypted?'https:':'http:';return literalLoopback(url.hostname)&&url.protocol===protocol&&origin===`${protocol}//${req.headers.host}`&&allowedOrigins.has(origin);}catch{return false;}
 }
-export async function handleLivingLight({req,res,url,service,authorize,bootstrap,readBody,sendJson,sourceEvidence}){
+export async function handleLivingLight({req,res,url,service,authorize,bootstrap,readBody,sendJson,sourceEvidence,performance}){
  if(!url.pathname.startsWith(prefix+'/'))return false;
  const suffix=url.pathname.slice(prefix.length);
  if(suffix==='/session'&&req.method==='POST'){await bootstrap(req,res);return true;}
@@ -20,7 +20,17 @@ export async function handleLivingLight({req,res,url,service,authorize,bootstrap
   let value,status=200;
   const journey=suffix.match(/^\/journeys\/([^/]+)(?:\/(revisions)\/([^/]+)|\/(history|revisions))?$/),fork=suffix.match(/^\/journeys\/([^/]+)\/fork(?:\/(preview))?$/);
   const thing=suffix.match(/^\/things\/([^/]+)(?:\/revisions\/([^/]+)|\/(materialize|history|revisions|archive|restore|visibility-history))?$/),note=suffix.match(/^\/notes\/([^/]+)\/(history|revisions|retract)$/);
-  if(suffix==='/capabilities'&&req.method==='GET')value=service.capabilities();
+  if(['/performance','/performance/prepare'].includes(suffix)){
+   if(!performance)throw Object.assign(Error('Prepared signal owner unavailable'),{code:'signal_owner_unavailable',statusCode:503});
+   const allowed=suffix==='/performance'?['songId']:['songId','requestId','jobId'];
+   for(const key of Object.keys(params))if(!allowed.includes(key))throw Object.assign(Error('Unknown preparation field'),{code:'unknown_field',statusCode:422});
+   if(suffix==='/performance'&&req.method==='GET')value=await performance.read(params);
+   else if(suffix==='/performance/prepare'&&req.method==='POST'){if(params.jobId)throw Object.assign(Error('Use a fresh request ID to prepare'),{code:'invalid_preparation',statusCode:422});const body=await readBody(req,1024);if(body&&(typeof body!=='object'||Array.isArray(body)||Object.keys(body).length))throw Object.assign(Error('Preparation takes no source paths or body fields'),{code:'unknown_field',statusCode:422});value=await performance.prepare(params);status=202;}
+   else if(suffix==='/performance/prepare'&&req.method==='GET')value=performance.status(params);
+   else if(suffix==='/performance/prepare'&&req.method==='DELETE')value=performance.cancel(params);
+   else throw Object.assign(Error('Method not allowed'),{code:'method_not_allowed',statusCode:405});
+  }
+  else if(suffix==='/capabilities'&&req.method==='GET')value=service.capabilities();
   else if(suffix==='/export'&&req.method==='GET'){
    if(params.includeNotes!==undefined&&!['true','false'].includes(params.includeNotes))throw Object.assign(Error('includeNotes must be true or false'),{code:'invalid_filter',statusCode:422});
    value=service.exportPackage({kind:params.kind,id:params.id,revision:params.revision,includeNotes:params.includeNotes==='true'});
