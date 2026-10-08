@@ -33,3 +33,6 @@ data/scene-store.json
 data/media-library.json
 data/tarot-store.json
 data/kanban.json
+
+# Generated private native namespace; retained vendor sources are canonical.
+src/living-light/native.generated.js

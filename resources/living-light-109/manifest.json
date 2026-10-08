@@ -1,0 +1,552 @@
+{
+  "schemaVersion": "hapa.living-light.source-import.v1",
+  "sourceArchiveSha256": "e90fc6c66fd8c3ddd60b06770c5ed2ab3f69feb284c06202d44a516dfbf28c60",
+  "sourceHash": "dfbc9421a96f970931b6accbaf9d5d5ddcdf4b1cb94dec4edf4b5417974b3dbb",
+  "playableSha256": "1a2da9781933d35298973d2af316785b209c3e08461977b12f2fdc09f58d2582",
+  "modules": [
+    {
+      "path": "embedded-sources.js",
+      "sha256": "01b90e98413211af536f41574cf951bb5d19d9802fad293a31511b7d883c8caa"
+    },
+    {
+      "path": "isf-bridge.js",
+      "sha256": "59dc19cef1ec3c8e3517484c926d739925b4251aed2a802bf292161d98e9d0fc"
+    },
+    {
+      "path": "core.js",
+      "sha256": "1e9cff908c11c0b0b0946d9418ca2a8eadf189b687c413485c86390e047dd0ed"
+    },
+    {
+      "path": "director.js",
+      "sha256": "ed56b2c07ade5c71257d85af9555f19f289d114ab14fd06139e952a8211d0c1d"
+    },
+    {
+      "path": "editorial.js",
+      "sha256": "1df8b75305dacebd1a48c21753a1fb76fe3f8311db4190d85a89c909edd4e47d"
+    },
+    {
+      "path": "passages.js",
+      "sha256": "3df755ca08a757446ba08d229cdaeb99f5825b67bf742e63a78b23420d07ac71"
+    },
+    {
+      "path": "math.js",
+      "sha256": "0bc52f1d696177e06dcdbed84a2f2f27b91da74cfa7c1a7fdf1380832259c315"
+    },
+    {
+      "path": "geometry-dance-glsl.js",
+      "sha256": "202d1a097dfd0c9df0353f76759ad5901de3b096b2c3054b91f13c1212c8b38a"
+    },
+    {
+      "path": "shaders.js",
+      "sha256": "8c74e9fe9fe617ac29a6b33fbe78d974e85b2d2a32cceffa61cb1e955407a6ad"
+    },
+    {
+      "path": "media-shaders.js",
+      "sha256": "897298404ec42d7589a5a7d024a5b520fc64d36403b3e32061c5856489c43579"
+    },
+    {
+      "path": "renderer.js",
+      "sha256": "63815a3c2dd091da6cd2377195784f5b0f305214a4f154cb3372b2a0ff0df827"
+    },
+    {
+      "path": "passage-renderer.js",
+      "sha256": "d1673d36d445d4a9b297bdf00f88bc59badd2d8ae426937e94556da25899e2d7"
+    },
+    {
+      "path": "transport.js",
+      "sha256": "0ca22ed0aa960fcc1b5d2cf36b79e91cc11c7b9f704159ab50825189f477baac"
+    },
+    {
+      "path": "media.js",
+      "sha256": "231b406b6558f213ed19191ff67692da746d3895dfe1a71a9535b93c97aabd1a"
+    },
+    {
+      "path": "hash.js",
+      "sha256": "e4556ddc8d691aab239c333b0c11d3ccfb9f412b4e37b773556374e885d6f36d"
+    },
+    {
+      "path": "cut-ui.js",
+      "sha256": "b7bc372cfafea87581d83641fccc77c641b3e190561d41a39c70070746f885a2"
+    },
+    {
+      "path": "passage-ui.js",
+      "sha256": "69d81c5e05cf7edd638009a9aa76ffdaf9a1ff02786cb64e91b3ed8b45e0e5f3"
+    },
+    {
+      "path": "human.js",
+      "sha256": "cf8ca13257df6b6cafeceb835c04f84d1f03bf95b7af67d98615c7dd88f00352"
+    },
+    {
+      "path": "flow-visuals.js",
+      "sha256": "c1829ed7c610442f1aa7df7865aa29292f2c169c7b1736c1397b980048adb915"
+    },
+    {
+      "path": "horizons.js",
+      "sha256": "ad2225e32c62627271a69662b5e8a5879f6e3d893a07d07aad9096219e2701df"
+    },
+    {
+      "path": "horizon-shaders.js",
+      "sha256": "f2be5dad85747035d7a703915083235310a440780b5bb2c3520cae1b0b2b670a"
+    },
+    {
+      "path": "horizon-visuals.js",
+      "sha256": "7b9ddb826e72cca4a5d81484090a2b513b099a6c5405b62dbcb208af32523c6e"
+    },
+    {
+      "path": "horizon-ui.js",
+      "sha256": "087a83c5b50f178f3184e0822e6fbf8da90c275e497ba9d65767d7c4eee1314a"
+    },
+    {
+      "path": "articulation.js",
+      "sha256": "3c0f7b435bfa10a03740d4d2df46c3fe516d87685f08951ca92ec98feed24d50"
+    },
+    {
+      "path": "currents.js",
+      "sha256": "3e0a6d4c92a1dd964a3e46703ec43adbbfb0a9a3ec6fc25c80dd6c7c9052df47"
+    },
+    {
+      "path": "loom.js",
+      "sha256": "82e855cdb3f310a6b5ecd13b45655ae5481317c55aa5d75c3c48eda6c40f43ce"
+    },
+    {
+      "path": "realms.js",
+      "sha256": "8d63e063a6545805ced78de74280fd4e27e4e5ea0aa749196bb72a7f2f557c03"
+    },
+    {
+      "path": "geometry-dance.js",
+      "sha256": "2c518db25c3f322872847e589224d1452e6ff8f1958fe7da93e97d666351a53d"
+    },
+    {
+      "path": "element-response.js",
+      "sha256": "391b99e89ce28cf0fb2db85b2d84cb79be29967795c038f14e2a5110bb6e8535"
+    },
+    {
+      "path": "element-style.js",
+      "sha256": "f37e7b5bb5f0dd226ef6e8f7937bf36664da0d4bf36980ee50159d678e604d4f"
+    },
+    {
+      "path": "contour.js",
+      "sha256": "8723dcbf1fc6b716ea5fa171eeaedb8bf5f84dbaf6ed883ae995c56bf53ffaf6"
+    },
+    {
+      "path": "water.js",
+      "sha256": "560e8038faf9c6383ddf3dfa799c11079f368e2e2eceb5a167fe6e567bb58271"
+    },
+    {
+      "path": "fire-kernel.js",
+      "sha256": "41a854ecf6544a5c6662a52ec21388c6c68f18e01dad8c839db589d60fa8ba24"
+    },
+    {
+      "path": "fire.js",
+      "sha256": "1c1c1b1c084e5b6e595697ce2f1c4908dd26f54db680d6a1a82e5ee406c649b5"
+    },
+    {
+      "path": "wind-kernel.js",
+      "sha256": "60e6b927595e613b8f7c033f830ee69843108783b9530f8a4f9e8fa0179b69a5"
+    },
+    {
+      "path": "wind.js",
+      "sha256": "da24ef3a9b5d30f4f0feda8a23503f7505d28391b249b7cb0d2d401e375e45d7"
+    },
+    {
+      "path": "octave.js",
+      "sha256": "1620d4c110bd6951e1c64373e6b224ec411ea9efd9a4cd1fb227a82be22c5033"
+    },
+    {
+      "path": "dynamics-kernel.js",
+      "sha256": "ec79d802da440870b9d024cd93b97544f5496da9a1c70182d07bcff051143320"
+    },
+    {
+      "path": "dynamics.js",
+      "sha256": "e0457a8a6cea1f7e2fbf88784a7b0f86b21812c5286e4b4478cbb545b4cc1e00"
+    },
+    {
+      "path": "electric-kernel.js",
+      "sha256": "438dd5130a0f45cb63346508114b824cc238f87c77af1b29458af23d21c4304f"
+    },
+    {
+      "path": "electricity.js",
+      "sha256": "335bc478653684666bf0e50248830b3b2deb60f59ca41868ccf08190c82f5027"
+    },
+    {
+      "path": "lumen.js",
+      "sha256": "d754e1dae10e8ff23fd10b0b2b52fa68b90654c9ddb8a24d4337fcb7b853ae7d"
+    },
+    {
+      "path": "reliquary.js",
+      "sha256": "0dab64eb91e17cfcabb5c9be3e797229e0156b6a7deb7a89b78c90ebce073650"
+    },
+    {
+      "path": "reliquary-geometry.js",
+      "sha256": "6814c83e5ca38226f1f2dd54e57769e226833cc79f6e162322a66aa0e4062b16"
+    },
+    {
+      "path": "reliquary-shaders.js",
+      "sha256": "ddf7a62891544707ab73fc3fba689993d1192deb4956a33902423b1bfc740152"
+    },
+    {
+      "path": "octave-lod.js",
+      "sha256": "4f1bcc46f1c50b071237a72fe05037ed5dc7d728c428857a5fdf533e0fba28b9"
+    },
+    {
+      "path": "octave-shaders.js",
+      "sha256": "11dd534e398cbfb6e4ab7bbffbe155e661d55883b4be2e24cd4bf858716725de"
+    },
+    {
+      "path": "octave-visuals.js",
+      "sha256": "d025963895a1bbebffbcf7f21e0887d99ce00dcf69f2d19f405d36464f97cf87"
+    },
+    {
+      "path": "reliquary-visuals.js",
+      "sha256": "37dd8da27a5cdc7546890db9f804b50dfddc1660d8b4b3714f36897e55b55200"
+    },
+    {
+      "path": "reliquary-ui.js",
+      "sha256": "3c5cd569ac571ded29745bf87fb32276ac055488e42067f566127986f9d7a5bf"
+    },
+    {
+      "path": "octave-ui.js",
+      "sha256": "5d532dc82b94ab8b83b14a8aac70be0a615c4eb33dd755f1fc513b05d9a382c3"
+    },
+    {
+      "path": "loom-shaders.js",
+      "sha256": "0b7d32c84c87e78cfc9b612fd1f5bd73c73f735f59ab847a29fa8e1075da398f"
+    },
+    {
+      "path": "repair-ui.js",
+      "sha256": "5422eec896d1af04c62495c80962b44463f52655c4047c4e43261d5690fb655a"
+    },
+    {
+      "path": "loom-ui.js",
+      "sha256": "d18984e0d8c39f082633531f4f42e73b21f1ac489cc73dc68ba5756030e8e682"
+    },
+    {
+      "path": "realms-shaders.js",
+      "sha256": "d0fd80a03000eeb12cc6353de7ae04166dae65209efac810439579d580769f7f"
+    },
+    {
+      "path": "current-shaders.js",
+      "sha256": "55dd6f9aed2afee6bfb6e7206ef5d4613c3dc0e02035cbbca21262c7506b7154"
+    },
+    {
+      "path": "contour-shaders.js",
+      "sha256": "b2f6530fb40b0534533beabcbd18ed9c3b69006f6d7a4bf2cec7a76e2e6a178d"
+    },
+    {
+      "path": "contour-visuals.js",
+      "sha256": "f177308d82cc0b5dff42326b632d06b33c7c5ce08bb77e3489b793fd6f6ae867"
+    },
+    {
+      "path": "realms-visuals.js",
+      "sha256": "5dfa43b63d428a7046748e8e36d3843c1f4c982df7f08efa614d5ce019e4796f"
+    },
+    {
+      "path": "realms-ui.js",
+      "sha256": "03fa4c8071d061810aee06e76420c7a9885704076b99c5eb03633d1c15b050d1"
+    },
+    {
+      "path": "currents-ui.js",
+      "sha256": "98d0041a0d68c126fa450ad90592e90c64a65a68cbeb20bdcd532258796fbc1a"
+    },
+    {
+      "path": "water-shaders.js",
+      "sha256": "af59fbf248b26fda050a35418b1f612283fea3170c29b225ba33b83ec63789e2"
+    },
+    {
+      "path": "water-bindings.js",
+      "sha256": "1c51c778f600f185ac7c9c6531a4dc7b5029762e75404bb20c4d6933f3b9ef12"
+    },
+    {
+      "path": "water-visuals.js",
+      "sha256": "1c5717541a0377decb49426478ccd84e6f3b675205baf35dabd05a400a9e6e6c"
+    },
+    {
+      "path": "water-ui.js",
+      "sha256": "489ea3124a0e94a033dd38be9026a69f9405a4f656e83d997920f55cbd80d635"
+    },
+    {
+      "path": "fire-shaders.js",
+      "sha256": "8271007f925927d7e03f7c8b9e2d19bf38b46ee53ad1640966a4c216a5981d33"
+    },
+    {
+      "path": "fire-bindings.js",
+      "sha256": "d05a3ace363192f89bd410a74ba38f2d0b41f61667b85eebea92306249a8b248"
+    },
+    {
+      "path": "fire-visuals.js",
+      "sha256": "08bd67080eb7656be964b757e86845879b795a0b8faa5c7937833c24d112e669"
+    },
+    {
+      "path": "fire-ui.js",
+      "sha256": "31b6a56a660d7fde24216f2274633471a859cdd34bccfab7c2b9b7ab798c5e7e"
+    },
+    {
+      "path": "wind-shaders.js",
+      "sha256": "25a2d2cffce5858b3e9b7708a506b47ebed61c0057f293c1cfed8892621cc1ab"
+    },
+    {
+      "path": "element-paths.js",
+      "sha256": "16e6c6e22c72dfc8369b1fef71f5eefa494ceed6900acb344386fad6ef590ffc"
+    },
+    {
+      "path": "wind-visuals.js",
+      "sha256": "64f010e14ce357e9359ce6ea1b6a95e0fd006f3293ece9052cc157e974bd3cd1"
+    },
+    {
+      "path": "wind-ui.js",
+      "sha256": "262966c65cad257a761003217d8d6cde8a16053c9e4e463d676ac832f87f9115"
+    },
+    {
+      "path": "dynamics-shaders.js",
+      "sha256": "2285a387b677dd435a875fdb582717147610810250da737ed88d6de537b89c06"
+    },
+    {
+      "path": "dynamics-visuals.js",
+      "sha256": "beddd6cd800147dc6fcc2e721b0f06612beb226e4028f699987e7546b1efea10"
+    },
+    {
+      "path": "dynamics-ui.js",
+      "sha256": "c357842433b727fb161970cd693f1757baecf63dfc8c5e78d70415d40ce86c3a"
+    },
+    {
+      "path": "electric-shaders.js",
+      "sha256": "b41dbf33beb07430ef035b9f5cfb4033075f1963402cee753486ac44a03c47ae"
+    },
+    {
+      "path": "lumen-shaders.js",
+      "sha256": "ca2505d05a55f28e41ab4a2e82e1b10914d2a39b8b2542172282beb100c93af6"
+    },
+    {
+      "path": "electric-visuals.js",
+      "sha256": "158f141045135d9c94ed1125693981aa1cbae1ab2782da6b87b258e3c234f6dc"
+    },
+    {
+      "path": "electric-ui.js",
+      "sha256": "60d31be5ba5877d4743fae8a5e3715e25dffaec547720961e049c2256c54e066"
+    },
+    {
+      "path": "lumen-ui.js",
+      "sha256": "6bac4d0782db0311d979491d6240c8b74a2c9d00eaee0425902ff6eb644e0650"
+    },
+    {
+      "path": "contour-ui.js",
+      "sha256": "046a020325f67d7cce55156322c8f39b332a4cd9ccdf25779d5860b67293ff10"
+    },
+    {
+      "path": "geometry-dance-visuals.js",
+      "sha256": "d96e0afc42b60a8e0d96d95033c0a2c64b6fcc6eb40a9aee22ca6de2a990a915"
+    },
+    {
+      "path": "geometry-dance-ui.js",
+      "sha256": "b0d519e704c5b004ba5060c9c62d1ff37956490736ac54d17243125d793c3da5"
+    },
+    {
+      "path": "element-visuals.js",
+      "sha256": "356b80f3ec37221d9167fdaadd783c4058a468121a414e7dbf71e7d57874cf12"
+    },
+    {
+      "path": "element-ui.js",
+      "sha256": "1d831642784b9ff5bbe4e02025e5740c13af1963e98366d45da656ab884e03e0"
+    },
+    {
+      "path": "stage-conductor.js",
+      "sha256": "4a426eeb614acc2fca217240de82e3e88739629091859d9044d58be165478290"
+    },
+    {
+      "path": "stage-geometry.js",
+      "sha256": "ebe3f7077aa1840e31b428797245242ca27917f30440eed47f8cc9e969f82bad"
+    },
+    {
+      "path": "stage-shaders.js",
+      "sha256": "3202855336015fafe70e0456f8135b2dc0cded95fa7c83cab2875785b55bc4ff"
+    },
+    {
+      "path": "stage-materials.js",
+      "sha256": "dfeaafddf7139c1a36d9f1e27842bd266c512f4a648f8bb1390afbf312dc7c2f"
+    },
+    {
+      "path": "stage-visuals.js",
+      "sha256": "fce0d52d8d6856c96b14dd4aab23b9afdcc0651943e78ed44a1d84c657c67463"
+    },
+    {
+      "path": "stage-ui.js",
+      "sha256": "1c11701e721c928661349137060da949894a8f3c5ddf06962cbfec3acdc58e5b"
+    },
+    {
+      "path": "journey.js",
+      "sha256": "67974210486d3d0bdb674e8a535d9c28e51c0a5fbf586957d13a1ade538762f1"
+    },
+    {
+      "path": "journey-shaders.js",
+      "sha256": "78f5026de9cac3a2fcdfedc69a18c01812c179976d7ea2bf70d2ded7c0047ca9"
+    },
+    {
+      "path": "journey-visuals.js",
+      "sha256": "757e120e8540000af3f397b9db0e2b1715b9413bd6b8515a26465dd3dc8f9673"
+    },
+    {
+      "path": "journey-ui.js",
+      "sha256": "d2496baf9355ac7f1730d7d65503a1fca6cdc4a2aad61872cb5f20b3a7326af8"
+    },
+    {
+      "path": "app.js",
+      "sha256": "412255d3a46dbef66bdbfee4c569ea8b4425a0f223a67d51a3d9d024d4fc94c9"
+    }
+  ],
+  "runtimeOrder": [
+    "embedded-sources.js",
+    "isf-bridge.js",
+    "core.js",
+    "director.js",
+    "editorial.js",
+    "passages.js",
+    "math.js",
+    "geometry-dance-glsl.js",
+    "shaders.js",
+    "media-shaders.js",
+    "renderer.js",
+    "passage-renderer.js",
+    "flow-visuals.js",
+    "horizons.js",
+    "horizon-shaders.js",
+    "horizon-visuals.js",
+    "articulation.js",
+    "currents.js",
+    "loom.js",
+    "realms.js",
+    "geometry-dance.js",
+    "element-response.js",
+    "element-style.js",
+    "contour.js",
+    "water.js",
+    "fire-kernel.js",
+    "fire.js",
+    "wind-kernel.js",
+    "wind.js",
+    "octave.js",
+    "dynamics-kernel.js",
+    "dynamics.js",
+    "electric-kernel.js",
+    "electricity.js",
+    "lumen.js",
+    "reliquary.js",
+    "reliquary-geometry.js",
+    "reliquary-shaders.js",
+    "octave-lod.js",
+    "octave-shaders.js",
+    "octave-visuals.js",
+    "reliquary-visuals.js",
+    "loom-shaders.js",
+    "realms-shaders.js",
+    "current-shaders.js",
+    "contour-shaders.js",
+    "contour-visuals.js",
+    "realms-visuals.js",
+    "water-shaders.js",
+    "water-bindings.js",
+    "water-visuals.js",
+    "fire-shaders.js",
+    "fire-bindings.js",
+    "fire-visuals.js",
+    "wind-shaders.js",
+    "element-paths.js",
+    "wind-visuals.js",
+    "dynamics-shaders.js",
+    "dynamics-visuals.js",
+    "electric-shaders.js",
+    "lumen-shaders.js",
+    "electric-visuals.js",
+    "geometry-dance-visuals.js",
+    "element-visuals.js",
+    "stage-conductor.js",
+    "stage-geometry.js",
+    "stage-shaders.js",
+    "stage-materials.js",
+    "stage-visuals.js",
+    "journey.js",
+    "journey-shaders.js",
+    "journey-visuals.js"
+  ],
+  "privateGlobals": [
+    "HAPA_FINISH_ISF",
+    "HAPA_WEAVE_GLSL",
+    "HAPA_WEAVE_ISF",
+    "HapaArticulation",
+    "HapaContour",
+    "HapaContourShaders",
+    "HapaContourVisuals",
+    "HapaCore",
+    "HapaCurrentShaders",
+    "HapaCurrents",
+    "HapaDirector",
+    "HapaDynamics",
+    "HapaDynamicsShaders",
+    "HapaDynamicsVisuals",
+    "HapaEditorial",
+    "HapaElectricKernel",
+    "HapaElectricShaders",
+    "HapaElectricVisuals",
+    "HapaElectricity",
+    "HapaElementPaths",
+    "HapaElementStyle",
+    "HapaElementVisuals",
+    "HapaElements",
+    "HapaFire",
+    "HapaFireKernel",
+    "HapaFireShaders",
+    "HapaFireVisuals",
+    "HapaFlowVisuals",
+    "HapaGeometryDance",
+    "HapaGeometryDanceVisuals",
+    "HapaGeometryGLSL",
+    "HapaHorizonVisuals",
+    "HapaHorizons",
+    "HapaISF",
+    "HapaJourney",
+    "HapaJourneyShaders",
+    "HapaJourneyVisuals",
+    "HapaLoom",
+    "HapaLumen",
+    "HapaLumenShaders",
+    "HapaMath",
+    "HapaOctave",
+    "HapaOctaveShaders",
+    "HapaOctaveVisuals",
+    "HapaPaints",
+    "HapaPassageRenderer",
+    "HapaPassages",
+    "HapaRealmShaders",
+    "HapaRealmVisuals",
+    "HapaRealms",
+    "HapaReliquary",
+    "HapaReliquaryGeometry",
+    "HapaReliquaryLOD",
+    "HapaReliquaryShaders",
+    "HapaReliquaryVisuals",
+    "HapaRenderer",
+    "HapaShaders",
+    "HapaStageGeometry",
+    "HapaStageShaders",
+    "HapaStageVisuals",
+    "HapaStages",
+    "HapaWater",
+    "HapaWaterKernel",
+    "HapaWaterShaders",
+    "HapaWaterVisuals",
+    "HapaWind",
+    "HapaWindKernel",
+    "HapaWindShaders",
+    "HapaWindVisuals"
+  ],
+  "excludedAssets": [
+    "assets/embedded.js",
+    "assets/scores.js"
+  ],
+  "baselineRebuild": "byte-identical",
+  "sourceChecks": {
+    "passed": 113,
+    "total": 113,
+    "gpuQualified": false
+  },
+  "historical1081Comparison": "unavailable: sibling baseline not supplied; current native qualification remains required"
+}
