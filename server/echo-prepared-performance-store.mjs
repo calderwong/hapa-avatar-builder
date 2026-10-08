@@ -6,6 +6,8 @@ import { normalizeHyperFramesStemRole } from '../src/domain/hyperframes-visualiz
 
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const plainHash = value => String(value || '').replace(/^sha256:/, '');
+const assetPolicy = 'living-light-assets-v1';
+const pointerName = (hash, policy, songId) => policy === assetPolicy ? `assets-${hash}-${digest(songId)}.json` : `master-${hash}.json`;
 const error = (code, message) => Object.assign(new Error(message), { code, statusCode: 409 });
 async function read(file, limit) {
   if ((await fs.stat(file)).size > limit) throw error('echo_performance_budget_exceeded', 'Prepared performance exceeds the read budget.');
@@ -20,14 +22,19 @@ async function atomic(file, value) {
 /** Publication is a disposable cache, never a mutation of a song or saved cut. */
 export async function publishEchoPerformance({ root, bundle, sourceChecks }) {
   if (!/^[a-f0-9]{64}$/.test(plainHash(bundle?.masterAudioHash))) throw error('echo_performance_master_mismatch', 'Publication needs an exact master hash.');
-  if (!Array.isArray(sourceChecks) || !bundle.buses?.length || bundle.buses.length > 64 || bundle.buses.some(bus => !sourceChecks.some(source => normalizeHyperFramesStemRole(source.role) === bus.role && source.sha256 === plainHash(bus.audioHash)))) throw error('echo_performance_source_unverified', 'Every published audio bus needs matching source-byte evidence.');
+  const exact = bundle.sourcePolicy === assetPolicy;
+  if (exact && (!bundle.songId || new Set(bundle.buses?.map(bus => bus.id)).size !== bundle.buses?.length || new Set(bundle.buses?.filter(bus => bus.id !== 'master').map(bus => bus.assetId)).size !== bundle.buses?.filter(bus => bus.id !== 'master').length)) throw error('echo_performance_asset_ambiguous', 'Unique exact asset identities are required.');
+  if (!Array.isArray(sourceChecks) || !bundle.buses?.length || bundle.buses.length > 64 || bundle.buses.some(bus => {
+    if(exact && bus.id !== 'master' && !bus.audioHash && bus.frames?.length === 0 && bus.status === 'missing-analysis') return !bus.assetId;
+    return !sourceChecks.some(source => (exact ? (bus.id === 'master' ? source.role === 'master' && !source.assetId : source.assetId === bus.assetId) : normalizeHyperFramesStemRole(source.role) === bus.role) && source.sha256 === plainHash(bus.audioHash));
+  })) throw error('echo_performance_source_unverified', 'Every available published audio bus needs matching source-byte evidence.');
   const value = { bundle, sourceChecks };
   if (Buffer.byteLength(JSON.stringify(value)) > 32 * 1024 * 1024) throw error('echo_performance_budget_exceeded', 'Prepared publication exceeds 32 MiB.');
   const key = digest(value);
   const directory = path.join(root, 'published');
   await fs.mkdir(directory, { recursive: true });
   await atomic(path.join(directory, `${key}.json`), value);
-  await atomic(path.join(directory, `master-${plainHash(bundle.masterAudioHash)}.json`), { key });
+  await atomic(path.join(directory, pointerName(plainHash(bundle.masterAudioHash), bundle.sourcePolicy, bundle.songId)), { key });
   const entries = [];
   for (const name of await fs.readdir(directory)) {
     if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
@@ -50,11 +57,14 @@ export async function publishEchoPerformance({ root, bundle, sourceChecks }) {
 export function createPreparedEchoPerformanceStore({ root, inspect = createEchoSourceInspector().inspect }) {
   const records = new Map();
   return {
-    async load({ masterPath, stems = [], lyrics = {} }) {
+    async load({ masterPath, stems = [], lyrics = {}, sourcePolicy = null, songId = null }) {
+      const exact = sourcePolicy === assetPolicy;
+      if(sourcePolicy !== null && !exact) throw error('echo_performance_policy_invalid', 'Unsupported source policy.');
+      if(exact && (!songId || stems.length > 32 || stems.some(stem => !stem.assetId) || new Set(stems.map(stem => stem.assetId)).size !== stems.length)) throw error('echo_performance_asset_ambiguous', 'Unique bounded exact selected assets required.');
       const master = await inspect(masterPath);
       if (master.status !== 'bytes-verified' || !master.audioHeaderRecognized) throw error('echo_performance_master_unavailable', 'The selected master audio cannot be verified.');
       let pointer;
-      try { pointer = await read(path.join(root, 'published', `master-${master.sha256}.json`), 1024); }
+      try { pointer = await read(path.join(root, 'published', pointerName(master.sha256, sourcePolicy, songId)), 1024); }
       catch (cause) { if (cause.code === 'ENOENT') throw error('echo_performance_not_prepared', 'This exact master has no prepared performance bundle.'); throw cause; }
       if (!/^[a-f0-9]{64}$/.test(pointer.key || '')) throw error('echo_performance_cache_invalid', 'Prepared performance pointer is invalid.');
       const file = path.join(root, 'published', `${pointer.key}.json`);
@@ -69,19 +79,27 @@ export function createPreparedEchoPerformanceStore({ root, inspect = createEchoS
       }
       const { bundle, sourceChecks } = record.value;
       if (plainHash(bundle.masterAudioHash) !== master.sha256 || bundle.schemaVersion !== 'hapa.echo.music-performance.v1') throw error('echo_performance_master_mismatch', 'Prepared performance does not match the selected master.');
+      if (exact && (bundle.sourcePolicy !== assetPolicy || bundle.songId !== songId)) throw error('echo_performance_source_policy_mismatch', 'Prepared asset bank belongs to another Song or source policy.');
       if (lyrics.audioHash && plainHash(lyrics.audioHash) !== master.sha256) throw error('echo_performance_lyric_master_mismatch', 'Lyrics were aligned against a different master revision.');
       if (!Array.isArray(sourceChecks) || sourceChecks.length > 65) throw error('echo_performance_cache_invalid', 'Prepared source inventory is invalid.');
       for (const source of sourceChecks) {
-        const selectedSource = stems.find(stem => normalizeHyperFramesStemRole(stem.stemType || stem.role || stem.title || stem.id) === normalizeHyperFramesStemRole(source.role));
-        const current = source.role === 'master' ? master : await inspect(selectedSource?.audioPath || source.path);
+        const selectedSource = exact ? stems.find(stem => stem.assetId === source.assetId) : stems.find(stem => normalizeHyperFramesStemRole(stem.stemType || stem.role || stem.title || stem.id) === normalizeHyperFramesStemRole(source.role));
+        if(exact && source.assetId && !selectedSource?.audioPath) throw error('echo_performance_stem_revision_mismatch', 'An analyzed exact asset is no longer selected or locally resolved.');
+        const isMaster = exact ? !source.assetId : source.role === 'master';
+        const current = isMaster ? master : await inspect(selectedSource?.audioPath || source.path);
         if (current.status !== 'bytes-verified' || current.sha256 !== source.sha256) throw error(selectedSource?.audioPath && selectedSource.audioPath !== source.path ? 'echo_performance_stem_revision_mismatch' : 'echo_performance_source_changed', `Prepared ${source.role} source changed or is unavailable.`);
       }
+      if(exact && (bundle.buses.filter(bus => bus.id !== 'master').length !== stems.length || bundle.buses.some(bus => bus.id !== 'master' && !stems.some(stem => stem.assetId === bus.assetId)))) throw error('echo_performance_stem_revision_mismatch', 'Selected asset declarations differ from the prepared bank.');
       // A cut cannot silently replace a stem while retaining old analysis.
       for (const stem of stems) {
-        if (!stem.audioPath) continue;
+        if (!stem.audioPath) {
+          if(exact && bundle.buses.some(bus => bus.assetId === stem.assetId && (bus.audioHash || bus.frames?.length))) throw error('echo_performance_stem_revision_mismatch', 'An analyzed asset is now unavailable.');
+          continue;
+        }
         const role = normalizeHyperFramesStemRole(stem.stemType || stem.role || stem.title || stem.id);
-        const buses = bundle.buses.filter(bus => bus.role === role);
+        const buses = bundle.buses.filter(bus => exact ? bus.assetId === stem.assetId : bus.role === role);
         const current = await inspect(stem.audioPath);
+        if(exact && buses.length === 1 && !buses[0].audioHash && buses[0].frames?.length === 0 && ['missing-file','missing-reference','empty-or-nonfile','read-error'].includes(current.status)) continue;
         if (buses.length !== 1 || current.status !== 'bytes-verified' || plainHash(buses[0].audioHash) !== current.sha256) throw error('echo_performance_stem_revision_mismatch', `The selected ${role} stem has no matching prepared analysis.`);
       }
       const rebound = { ...structuredClone(bundle), lyrics: structuredClone(lyrics), baseFingerprint: bundle.fingerprint };

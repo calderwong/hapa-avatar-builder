@@ -44,7 +44,7 @@ for (const stem of telemetry.stems || []) {
     const error = new Error(`Prepared ${stem.role || stem.id} analysis is stale or its source bytes are missing.`);
     error.code = "echo_performance_stem_source_mismatch"; throw error;
   }
-  sourceChecks.push({ role: stem.role || stem.id, ...source });
+  sourceChecks.push({ role: stem.role || stem.id, ...(stem.identityPolicy === "living-light-assets-v1" ? {assetId:stem.assetId} : {}), ...source });
   Object.assign(stem, await sourceMetadata(stem.audioPath, source.sha256));
 }
 const eventsPath = argument("events");

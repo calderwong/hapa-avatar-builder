@@ -31,6 +31,7 @@ function resolveRegistryRoute(pathname, {
   registryPayload,
   songbookPayload,
   songStorePayload,
+  exactIdentityOnly = false,
 }) {
   const match = pathname.match(/^\/api\/song-registry\/(audio|covers)\/([^/]+)$/u);
   if (!match) return null;
@@ -39,10 +40,14 @@ function resolveRegistryRoute(pathname, {
   const registry = registryPayload || readJson(songRegistryPath);
   if (songId.startsWith("dear-papa-song-")) {
     const songbook = songbookPayload || readJson(songbookPath);
-    const card = (songbook.songCards || []).find((entry) => entry?.id === songId || entry?.songId === songId);
+    const cards = (songbook.songCards || []).filter((entry) => entry?.id === songId || entry?.songId === songId);
+    if (exactIdentityOnly && cards.length > 1) return null;
+    const card = cards[0];
     if (card?.registryTrackId) songId = card.registryTrackId;
   }
-  const song = (registry.songs || []).find((entry) => entry?.id === songId || entry?.title === songId);
+  const matches = (registry.songs || []).filter((entry) => entry?.id === songId || (!exactIdentityOnly && entry?.title === songId));
+  if(exactIdentityOnly && matches.length > 1) return null;
+  const song = matches[0];
   const candidate = route === "audio" ? song?.localPath : song?.raw?._hapaPlaylistExport?.coverPath;
   if (candidate) return path.resolve(candidate);
   if (route !== "audio") return null;
@@ -52,7 +57,7 @@ function resolveRegistryRoute(pathname, {
   // registry route, but resolve only an exact identity match from the local
   // song store and prefer the ingested WAV master over its MP3 derivative.
   const store = songStorePayload || (songStorePath ? readJson(songStorePath) : null);
-  const localSong = (store?.songs || []).find((entry) => [
+  const localSongs = (store?.songs || []).filter((entry) => [
     entry?.id,
     entry?.songId,
     entry?.registryTrackId,
@@ -60,7 +65,8 @@ function resolveRegistryRoute(pathname, {
     entry?.lineage?.registryTrackId,
     entry?.attribution?.songRegistryTrackId,
   ].some((identity) => text(identity) === songId));
-  return localSongAudioPath(localSong);
+  if (exactIdentityOnly && localSongs.length > 1) return null;
+  return localSongAudioPath(localSongs[0]);
 }
 
 export function resolveEchoRuntimeMediaUri(uri, {
@@ -72,6 +78,7 @@ export function resolveEchoRuntimeMediaUri(uri, {
   registryPayload,
   songbookPayload,
   songStorePayload,
+  exactIdentityOnly = false,
 } = {}) {
   const declaredUri = text(uri);
   if (!declaredUri) return { ok: false, reason: "runtime-uri-missing", uri: null, resolvedPath: null };
@@ -115,6 +122,7 @@ export function resolveEchoRuntimeMediaUri(uri, {
         registryPayload,
         songbookPayload,
         songStorePayload,
+        exactIdentityOnly,
       });
       return candidate
         ? { ok: true, reason: null, uri: declaredUri, route: "song-registry-api", resolvedPath: candidate }

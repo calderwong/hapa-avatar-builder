@@ -23,13 +23,22 @@ export function normalizeEchoPerformanceResource(resource = {}, telemetry = {}) 
   if (frames.some((frame, index) => frame.t === null || frame.t < 0 || (index > 0 && frame.t <= frames[index - 1].t))) {
     throw new Error(`Invalid performance frame time for ${role}`);
   }
+  const featureAvailability = resource.identityPolicy === "living-light-assets-v1" ? Object.fromEntries([
+    ["energy", f => [f.rms,f.rawRms].every(v => typeof v === "number" && Number.isFinite(v))],
+    ["peak", f => [f.peak,f.rawPeak].every(v => typeof v === "number" && Number.isFinite(v))],
+    ...["low","mid","high"].map(k => [k, f => typeof (f[k] ?? f.bands?.[k]) === "number" && Number.isFinite(f[k] ?? f.bands?.[k])]),
+    ["onset", f => typeof f.onset === "number" && Number.isFinite(f.onset)],
+  ].map(([name, available]) => [name, (resource.frames || []).length > 0 && resource.frames.every(available)])) : null;
   return {
+    ...(featureAvailability ? {featureAvailability} : {}),
+    ...(resource.identityPolicy === "living-light-assets-v1" ? {assetId: resource.assetId, declaredRole: resource.declaredRole, identityPolicy: resource.identityPolicy} : {}),
     id: String(resource.id || role), role, audioHash: hashValue(resource.audioHash) || null,
     sourceSampleRate: finite(resource.sourceSampleRate), analysisSampleRate: finite(resource.sampleRate ?? telemetry.sampleRate),
     sourceChannels: finite(resource.sourceChannels), analysisChannels: finite(resource.analysisChannels, 1),
     sourceStreamStartSeconds: finite(resource.sourceStreamStartSeconds),
     durationSeconds: finite(resource.durationSeconds ?? telemetry.durationSeconds, 0),
     originSeconds, originStatus: resource.originStatus || "analysis-zero-not-verified-alignment",
+    ...(resource.decodedAnalysis ? {decodedAnalysis:structuredClone(resource.decodedAnalysis)} : {}),
     normalization: structuredClone(resource.normalization || {}),
     analyzer: { version: telemetry.analysisVersion || "unknown", envelopeFps: finite(telemetry.fps),
       sampleRate: finite(telemetry.sampleRate), settings: structuredClone(telemetry.analysisSettings || {}) },
@@ -82,12 +91,13 @@ export function buildEchoMusicPerformance({ telemetry = {}, lyricContract = {}, 
   const duplicateRoles = [...new Set(buses.filter((bus, index) => buses.findIndex(other => other.role === bus.role) !== index).map(bus => bus.role))];
   return {
     schemaVersion: ECHO_MUSIC_PERFORMANCE_SCHEMA, version: ECHO_MUSIC_PERFORMANCE_VERSION,
+    ...(telemetry.sourcePolicy === "living-light-assets-v1" ? {sourcePolicy: telemetry.sourcePolicy} : {}),
     sourceSchemaVersion: telemetry.schemaVersion || null, songId: telemetry.songId || null,
     masterAudioHash: masterHash || null, durationSeconds: finite(telemetry.durationSeconds, 0),
     timebase: { unit: "seconds", origin: "selected-master-presentation-zero", eventQuantization: "none", seekingRunsAnalysis: false },
     buses, events: acceptedEvents, rejectedEvents,
     lyrics: structuredClone(lyricContract),
-    reconstruction: { masterAudioHash: masterHash || null, stemAudioHashes: buses.filter(bus => bus.role !== "master").map(bus => bus.audioHash),
+    reconstruction: { masterAudioHash: masterHash || null, stemAudioHashes: buses.filter(bus => telemetry.sourcePolicy === "living-light-assets-v1" ? bus.id !== "master" : bus.role !== "master").map(bus => bus.audioHash),
       diagnostic: structuredClone(telemetry.masterMix?.isolatedStemReconstructionDiagnostic || null),
       automaticOriginCorrection: false, policy: "Sparse role correlation cannot establish an origin shift." },
     missingData: { masterIdentity: !masterHash, measuredBeats: !acceptedEvents.some(event => ["beat", "downbeat"].includes(event.kind) && ["measured", "verified"].includes(event.truthStatus) && event.precisionSeconds <= 1 / 30),

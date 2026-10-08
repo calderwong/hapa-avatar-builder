@@ -54,7 +54,8 @@ export function runEchoPreparationStage(command, args, { cwd, signal, onOutput =
 
 /** Extends the existing analyzer/preparer. Jobs write only disposable artifacts;
  * cache keys allow retries to reuse completed audio resources after restart. */
-export function createEchoPerformancePreparation({ root, runStage = runEchoPreparationStage, maxQueued = 8, maxRetained = 32 } = {}) {
+export function createEchoPerformancePreparation({ root, runStage = runEchoPreparationStage, maxQueued = 8, maxRetained = 32,
+  playbackCacheRoot = path.join(root, 'data/cache/echo-playback-audio'), analysisCacheRoot = path.join(root, 'data/cache/stem-analysis'), performanceCacheRoot = path.join(root, 'data/cache/echo-performance'), jobRoot = path.join(root, 'artifacts/echo-performance-preparation') } = {}) {
   const jobs = new Map(), queue = [];
   const releasing = new Set();
   function releasePlayback(job) {
@@ -64,11 +65,17 @@ export function createEchoPerformancePreparation({ root, runStage = runEchoPrepa
     releasing.add(work); work.finally(() => releasing.delete(work));
   }
   let current = null, closing = false, runningPromise = Promise.resolve();
-  const publicJob = job => job ? structuredClone(job.view) : null;
+  const publicJob = job => {
+    if (!job) return null;
+    const value = structuredClone(job.view);
+    if(value.variantId === 'living-light-assets-v1') value.outputTail='';
+    if (value.kind === 'playback-audio' && value.result) for (const key of ['path','sourcePath','sourceStamp','outputStamp','leaseId']) delete value.result[key];
+    return value;
+  };
   const update = (job, value) => Object.assign(job.view, value, { updatedAt: new Date().toISOString() });
   async function perform(job) {
     const { graph, masterPath, kind } = job.input;
-    const directory = path.join(root, 'artifacts/echo-performance-preparation', job.view.id);
+    const directory = path.join(jobRoot, job.view.id);
     const graphPath = path.join(directory, 'graph.json'), telemetryPath = path.join(directory, 'telemetry.json');
     const analyzedGraphPath = path.join(directory, 'analyzed-graph.json'), output = path.join(directory, 'performance.json');
     try {
@@ -76,21 +83,21 @@ export function createEchoPerformancePreparation({ root, runStage = runEchoPrepa
       if (kind === 'playback-audio') {
         update(job, { stage: 'preparing-playback', message: 'Preparing audio for precise seeking.' });
         const { prepareEchoPlaybackAudio } = await import('./echo-playback-audio.mjs');
-        const result = await prepareEchoPlaybackAudio({ sourcePath: masterPath, cacheRoot: path.join(root, 'data/cache/echo-playback-audio'), signal: job.controller.signal, leaseId: job.view.id });
+        const result = await prepareEchoPlaybackAudio({ sourcePath: masterPath, cacheRoot: playbackCacheRoot, signal: job.controller.signal, leaseId: job.view.id });
         if (job.controller.signal.aborted) {
           job.view.result = result; releasePlayback(job);
           throw failure('echo_preparation_cancelled', 'Preparation cancelled.');
         }
-        update(job, { status: 'ready', stage: 'complete', message: 'Audio ready for precise seeking.', result: { ...result, sourceUri: job.input.sourceUri } });
+        update(job, { status: 'ready', stage: 'complete', message: 'Audio ready for precise seeking.', result: { ...result, sourceUri: job.input.sourceUri, ...(job.input.sourceSelection ? {sourceSelection:job.input.sourceSelection} : {}) } });
         return;
       }
       await fs.writeFile(graphPath, JSON.stringify(graph), { flag: 'wx' });
       const options = { cwd: root, signal: job.controller.signal, onOutput: text => update(job, { outputTail: (job.view.outputTail + text).slice(-4000) }) };
       update(job, { stage: 'analyzing', message: 'Analyzing audio; unchanged resources reuse cached results.' });
-      await runStage(process.env.HAPA_PYTHON || 'python3', [path.join(root, 'scripts/build-stem-telemetry-bundle.py'), '--graph', graphPath, '--master', masterPath, '--output', telemetryPath, '--graph-output', analyzedGraphPath], options);
+      await runStage(process.env.HAPA_PYTHON || 'python3', [path.join(root, 'scripts/build-stem-telemetry-bundle.py'), '--graph', graphPath, '--master', masterPath, '--output', telemetryPath, '--graph-output', analyzedGraphPath, '--cache-dir', analysisCacheRoot], options);
       if (job.controller.signal.aborted) throw failure('echo_preparation_cancelled', 'Preparation cancelled.');
       update(job, { stage: 'publishing', message: 'Verifying source bytes and publishing prepared timing.' });
-      await runStage(process.execPath, [path.join(root, 'scripts/prepare-echo-music-performance.mjs'), `--telemetry=${telemetryPath}`, `--graph=${analyzedGraphPath}`, `--master=${masterPath}`, `--output=${output}`], options);
+      await runStage(process.execPath, [path.join(root, 'scripts/prepare-echo-music-performance.mjs'), `--telemetry=${telemetryPath}`, `--graph=${analyzedGraphPath}`, `--master=${masterPath}`, `--output=${output}`, `--cache=${performanceCacheRoot}`], options);
       if (job.controller.signal.aborted) throw failure('echo_preparation_cancelled', 'Preparation cancelled.');
       const receipt = JSON.parse(await fs.readFile(`${output}.receipt.json`, 'utf8'));
       update(job, { status: 'ready', stage: 'complete', message: 'Prepared timing is ready. Alignment confidence is reported separately.', fingerprint: receipt.fingerprint, publication: receipt.publication });
@@ -127,6 +134,7 @@ export function createEchoPerformancePreparation({ root, runStage = runEchoPrepa
       jobs.set(job.view.id, job); if (input.kind === 'playback-audio') queue.unshift(job); else queue.push(job); pump(); return publicJob(job);
     },
     get(id) { return publicJob(jobs.get(id)); },
+    getPlaybackReceipt(id) { const job = jobs.get(id); return job?.view.kind === 'playback-audio' && job.view.status === 'ready' ? structuredClone(job.view.result) : null; },
     findRequest(requestId) { return publicJob([...jobs.values()].find(job => job.view.requestId === requestId)); },
     latest(songId, variantId = 'legacy') { return publicJob([...jobs.values()].reverse().find(job => job.view.kind !== 'playback-audio' && job.view.songId === songId && job.view.variantId === variantId)); },
     cancel(id) {

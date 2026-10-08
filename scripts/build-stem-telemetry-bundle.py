@@ -51,6 +51,35 @@ def assert_same_stem_source(role, left, right):
     raise ValueError(f"Ambiguous {role} stem sources; select one exact audio revision before preparation")
 
 
+def canonical_stem_inputs(raw_stems, identity_policy="role"):
+    """Legacy role aliases remain intact; exact mode never merges role peers."""
+    if identity_policy not in {"role", "living-light-assets-v1"}:
+        raise ValueError("Unsupported audio identity policy")
+    canonical, ignored_inputs, asset_ids = {}, [], set()
+    for item in raw_stems:
+        role = str(item.get("stemType") or item.get("title") or item.get("id") or "unknown").strip().lower().replace(" ", "-")
+        if role in {"archive-zip", "stem-archive", "stems-archive"} and not str(item.get("audioPath") or "").strip():
+            ignored_inputs.append({"id": item.get("id"), "role": role, "reason": "non-audio-archive-lineage"})
+            continue
+        exact = identity_policy == "living-light-assets-v1"
+        asset_id = item.get("assetId")
+        if exact and (not isinstance(asset_id, str) or not asset_id.strip() or len(asset_id) > 300 or asset_id in asset_ids):
+            raise ValueError("Unique exact asset IDs required")
+        if exact and (not isinstance(item.get("id"), str) or not item["id"].startswith("stem:") or item["id"] in canonical):
+            raise ValueError("Unique namespaced resource IDs required")
+        key = item["id"] if exact else role
+        asset_ids.add(asset_id)
+        if key not in canonical:
+            canonical[key] = {**item, "role": role, "aliases": [], "sourceLineage": []}
+        else:
+            assert_same_stem_source(role, canonical[key].get("audioPath"), item.get("audioPath"))
+        canonical[key]["aliases"].append(str(item.get("title") or item.get("stemType") or item.get("id") or role))
+        canonical[key]["sourceLineage"].append({"id": item.get("id"), "audioPath": item.get("audioPath")})
+    if len(canonical) > 32:
+        raise ValueError("Stem analysis exceeds the 32-resource budget")
+    return canonical, ignored_inputs
+
+
 def decode(path: Path, sample_rate: int) -> np.ndarray:
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)], check=True, stdout=subprocess.PIPE, timeout=15)
     duration = float(json.loads(probe.stdout).get("format", {}).get("duration", 0))
@@ -290,47 +319,35 @@ def main() -> int:
     graph_output = Path(args.graph_output).resolve()
     graph = json.loads(graph_path.read_text())
     raw_stems = (graph.get("stems") or {}).get("items") or []
-    ignored_inputs = []
-    canonical: dict[str, dict] = {}
-    for item in raw_stems:
-        role = str(item.get("stemType") or item.get("title") or item.get("id") or "unknown").strip().lower().replace(" ", "-")
-        # The director graph may carry the source archive beside the decoded
-        # stems. It is lineage metadata, not an audio stem, and must not turn a
-        # complete local stem set into a false missing-path failure.
-        if role in {"archive-zip", "stem-archive", "stems-archive"} and not str(item.get("audioPath") or "").strip():
-            ignored_inputs.append({"id": item.get("id"), "role": role, "reason": "non-audio-archive-lineage"})
-            continue
-        if role not in canonical:
-            canonical[role] = {**item, "role": role, "aliases": [], "sourceLineage": []}
-        else:
-            assert_same_stem_source(role, canonical[role].get("audioPath"), item.get("audioPath"))
-        canonical[role]["aliases"].append(str(item.get("title") or item.get("stemType") or item.get("id") or role))
-        canonical[role]["sourceLineage"].append({"id": item.get("id"), "audioPath": item.get("audioPath")})
-    if len(canonical) > 32:
-        raise ValueError("Stem analysis exceeds the 32-resource budget")
+    identity_policy = (graph.get("source") or {}).get("identityPolicy", "role")
+    exact_assets = identity_policy == "living-light-assets-v1"
+    canonical, ignored_inputs = canonical_stem_inputs(raw_stems, identity_policy)
     stems = []
     decoded: list[tuple[str, np.ndarray]] = []
-    for role, item in canonical.items():
+    for resource_id, item in canonical.items():
+        role = item["role"]
+        asset_identity = {"assetId": item["assetId"], "declaredRole": item.get("declaredRole", item.get("stemType")), "identityPolicy": identity_policy} if exact_assets else {}
         audio_path = Path(str(item.get("audioPath") or "")).expanduser()
         if not audio_path.is_file():
-            stems.append({"id": item.get("id"), "role": role, "status": "missing-path", "audioPath": str(audio_path), "aliases": item["aliases"], "sourceLineage": item["sourceLineage"], "frames": []})
+            stems.append({**asset_identity, "id": item.get("id"), "role": role, "status": "missing-path", "audioPath": str(audio_path), "aliases": item["aliases"], "sourceLineage": item["sourceLineage"], "frames": []})
             continue
         audio_hash = sha256_file(audio_path)
         key, samples, analysis = cache.resource(audio_path, audio_hash, args.fps, args.sample_rate, decode, analyze)
         if sha256_file(audio_path) != audio_hash:
             raise ValueError("Stem source changed during analysis")
-        decoded_bytes += samples.nbytes
+        decoded_bytes = samples.nbytes if exact_assets else decoded_bytes + samples.nbytes
         if decoded_bytes > 512 * 1024 ** 2:
             raise ValueError("Selected audio exceeds the 512 MiB reconstruction working-set budget")
-        resource_keys.append({"role": role, "key": key})
+        resource_keys.append({"role": role, "key": key, **({"assetId": item["assetId"]} if exact_assets else {})})
         frames, normalization = analysis["frames"], analysis["normalization"]
         sparse_events.extend({**event, "resourceId": str(item.get("id") or role), "audioHash": audio_hash} for event in analysis["events"])
-        decoded.append((role, samples))
+        if not exact_assets:
+            decoded.append((role, samples))
         stems.append({
-            "id": item.get("id"), "role": role, "title": item.get("title") or item.get("stemType"), "audioPath": str(audio_path),
+            **asset_identity, "id": item.get("id"), "role": role, "title": item.get("title") or item.get("stemType"), "audioPath": str(audio_path),
             "pathHash": hashlib.sha256(str(audio_path).encode()).hexdigest(), "audioHash": audio_hash,
             "durationSeconds": round(len(samples) / args.sample_rate, 4), "aliases": sorted(set(item["aliases"])),
-            "sourceLineage": item["sourceLineage"], "normalization": normalization, "status": "verified-local-analysis", "frames": frames,
+            "sourceLineage": item["sourceLineage"], **({"decodedAnalysis": {"digest": hashlib.sha256(memoryview(samples)).hexdigest(), "frameCount": len(samples), "sampleRate": args.sample_rate, "channels": 1, "domain": "ffmpeg-analysis-mono-f32le"}} if exact_assets else {}), "normalization": normalization, "status": "verified-local-analysis", "frames": frames,
         })
     usable = [stem for stem in stems if stem["status"] == "verified-local-analysis"]
     if master_path.is_file():
@@ -393,13 +410,14 @@ def main() -> int:
                 },
             }
         return {"roles": role_diagnostics, "reconstruction": reconstruction}
-    diagnostics = cache.diagnostics(resource_keys, build_diagnostics)
+    diagnostics = {"roles": {}, "reconstruction": {"available": False, "reason": "Exact asset preparation does not infer individual alignment"}} if exact_assets else cache.diagnostics(resource_keys, build_diagnostics)
     for stem in stems:
         if stem["role"] in diagnostics["roles"]:
             stem["masterAlignmentDiagnostic"] = diagnostics["roles"][stem["role"]]
     reconstruction = diagnostics["reconstruction"]
     bundle = {
         "schemaVersion": "hapa.stem-telemetry-bundle.v1", "analysisVersion": ANALYSIS_VERSION,
+        **({"sourcePolicy": identity_policy} if exact_assets else {}),
         "truthStatus": "offline-decoded-local-stems", "songId": (graph.get("song") or {}).get("id"), "title": (graph.get("song") or {}).get("title"),
         "fps": args.fps, "sampleRate": args.sample_rate, "durationSeconds": master_duration,
         "canonicalStemCount": len(stems), "usableStemCount": len(usable), "duplicateInputCount": len(raw_stems) - len(ignored_inputs) - len(canonical),
@@ -410,6 +428,7 @@ def main() -> int:
         "masterMix": {
             "role": "master", "method": "authoritative-registry-master", "audioPath": str(master_path), "audioHash": master_hash,
             "durationSeconds": master_duration, "normalization": master_normalization, "frames": master_frames,
+            **({"decodedAnalysis": {"digest": hashlib.sha256(memoryview(master_samples)).hexdigest(), "frameCount": len(master_samples), "sampleRate": args.sample_rate, "channels": 1, "domain": "ffmpeg-analysis-mono-f32le"}} if exact_assets else {}),
             "isolatedStemReconstructionDiagnostic": reconstruction,
         },
         "renderTruth": {"preview": "authoritative-master-plus-isolated-stems", "export": "authoritative-master-plus-isolated-stems", "runtimeWebAudio": False, "masterAudioHash": master_hash},
@@ -425,7 +444,9 @@ def main() -> int:
     graph["stems"]["runtimeWebAudioTruth"] = False
     graph_output.parent.mkdir(parents=True, exist_ok=True)
     graph_output.write_text(json.dumps(graph, indent=2) + "\n")
-    result = {"ok": len(usable) == len(stems) and len(master_frames) > 0 and master_hash is not None, "output": str(output_path), "graphOutput": str(graph_output), "bundleHash": bundle_hash, "canonicalStems": len(stems), "usableStems": len(usable), "ignoredInputs": len(ignored_inputs), "framesPerStem": len(usable[0]["frames"]) if usable else 0, "masterFrames": len(master_frames), "masterAudioHash": master_hash}
+    result = {"ok": (exact_assets or len(usable) == len(stems)) and len(master_frames) > 0 and master_hash is not None, "output": str(output_path), "graphOutput": str(graph_output), "bundleHash": bundle_hash, "canonicalStems": len(stems), "usableStems": len(usable), "ignoredInputs": len(ignored_inputs), "framesPerStem": len(usable[0]["frames"]) if usable else 0, "masterFrames": len(master_frames), "masterAudioHash": master_hash}
+    if exact_assets:
+        result.update(sourcePolicy=identity_policy, missingAssets=[stem["assetId"] for stem in stems if not stem["frames"]], alignmentApplied=False)
     result["elapsedMs"] = round((time.perf_counter() - started) * 1000, 3)
     result["analysisCache"] = {**cache.metrics, **cache.prune({item["key"] for item in resource_keys})}
     print(json.dumps(result, indent=2))
