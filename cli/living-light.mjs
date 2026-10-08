@@ -8,7 +8,7 @@ export async function runLivingLightCLI(argv,{env=process.env,fetcher=fetch,read
  const flags=new Set(['api-url','kind','id','revision','song','format','limit','offset','search','variant-kind','include-archived','include-notes','file','preview-digest','key','dry-run','target','entity','history','run-offset','max-runs','request-id','job-id']);
  for(let i=0;i<args.length;i++){const a=args[i];if(!a.startsWith('--')){pos.push(a);continue;}const eq=a.indexOf('='),name=a.slice(2,eq<0?undefined:eq);if(!flags.has(name)||Object.hasOwn(options,name))fail('invalid_argument','Unknown or repeated option: '+name);if(['dry-run','include-archived','include-notes','history'].includes(name)){options[name]=eq<0?true:a.slice(eq+1)==='true';if(eq>=0&&!['true','false'].includes(a.slice(eq+1)))fail('invalid_argument','Boolean option must be true or false');}else{const value=eq<0?args[++i]:a.slice(eq+1);if(!value||value.startsWith('--'))fail('invalid_argument','Option requires a value: '+name);options[name]=value;}}
  const help={ok:true,interface:'protected Builder API; no direct store writes',usage:['capabilities','list --kind thing|journey [--song ID --search TEXT --include-archived]','get --kind thing|journey --id ID [--revision REV]','history --kind thing|journey --id ID','validate --file REQUEST.json','save --kind thing|journey [--id ID] --file REQUEST.json [--dry-run]','archive|restore --id ID --file REQUEST.json','fork --id JOURNEY --file REQUEST.json [--dry-run]','notes --target TARGET.json [--history --id NOTE]','note-save|note-revise|note-retract [--id NOTE] --file REQUEST.json','readiness --song ID','export --kind thing|journey --id ID [--revision REV --include-notes]','import --file PACKAGE.json [--preview-digest DIGEST --key KEY]','imports --entity ID | import-record --id DIGEST'],authentication:'HAPA_AVATAR_ADMIN_TOKEN environment only; never argv/browser storage',writes:'explicit native writes; import/fork previews are read-only; no automatic ambiguous retry',limits:{bodyBytes:1048576,responseBytes:4194304,timeoutMs:10000}};
- help.usage.push('signals --song ID','prepare-signals --song ID --request-id RETAINED_ID','signals-status --song ID [--request-id ID | --job-id ID]','cancel-signals --song ID --request-id ID | --job-id ID');help.limits.signalResponseBytes=33554432;
+ help.usage.push('shared-card --kind thing|journey --id ID --revision REV','prepare-shared-card --kind thing|journey --id ID --revision REV [--dry-run]','signals --song ID','prepare-signals --song ID --request-id RETAINED_ID','signals-status --song ID [--request-id ID | --job-id ID]','cancel-signals --song ID --request-id ID | --job-id ID');help.limits.signalResponseBytes=33554432;
  if(op==='help'||op==='--help')return help;
  if(pos.length)fail('invalid_argument','Use named options; positional values are unsupported');
  const token=env.HAPA_AVATAR_ADMIN_TOKEN;if(typeof token!=='string'||!token.trim())fail('auth_not_configured','HAPA_AVATAR_ADMIN_TOKEN must be configured for protected CLI access',401);
@@ -17,7 +17,7 @@ export async function runLivingLightCLI(argv,{env=process.env,fetcher=fetch,read
  const input=async file=>{if(!file)fail('input_required','An explicit metadata JSON file is required');if((await stat(file)).size>1048576)fail('payload_too_large','Input exceeds the 1 MiB request limit',413);try{return JSON.parse(await readFile(file,'utf8'));}catch{fail('invalid_json','Metadata input is not valid JSON');}};
  const query=fields=>'?'+new URLSearchParams(Object.entries(fields).filter(([,v])=>v!==undefined).map(([k,v])=>[k,String(v)])).toString(),exact=v=>{if(typeof v!=='string'||!v||v.length>256||!/^[a-zA-Z0-9][a-zA-Z0-9:._-]*$/.test(v))fail('invalid_id','An exact namespaced ID is required');return encodeURIComponent(v);};
  let suffix,method='GET',body;
- const kind=options.kind;if(['list','get','history','save','export'].includes(op)&&!['thing','journey'].includes(kind))fail('invalid_kind','Choose --kind thing or journey');
+ const kind=options.kind;if(['list','get','history','save','export','shared-card','prepare-shared-card'].includes(op)&&!['thing','journey'].includes(kind))fail('invalid_kind','Choose --kind thing or journey');
  if(op==='capabilities')suffix='/capabilities';
  else if(['signals','prepare-signals','signals-status','cancel-signals'].includes(op)){
   exact(options.song);
@@ -30,6 +30,10 @@ export async function runLivingLightCLI(argv,{env=process.env,fetcher=fetch,read
   if(['prepare-signals','cancel-signals'].includes(op)&&options['dry-run'])fail('dry_run_unsupported','Use signals-status for a read-only check; no mutation was submitted.');
   suffix=(op==='signals'?'/performance':'/performance/prepare')+query({songId:options.song,requestId:options['request-id'],jobId:options['job-id']});
   if(op==='prepare-signals'){method='POST';body={};}if(op==='cancel-signals')method='DELETE';
+ }
+ else if(['shared-card','prepare-shared-card'].includes(op)){
+  exact(options.id);exact(options.revision);const target={kind,id:options.id,revision:options.revision};
+  if(op==='prepare-shared-card'&&!options['dry-run']){suffix='/shared-card/prepare';method='POST';body=target;}else suffix='/shared-card'+query(target);
  }
  else if(op==='list')suffix=(kind==='thing'?'/things':'/journeys')+query({songId:options.song,search:options.search,limit:options.limit,offset:options.offset,variantKind:options['variant-kind'],includeArchived:options['include-archived']});
  else if(['get','history'].includes(op))suffix=(kind==='thing'?'/things/':'/journeys/')+exact(options.id)+(op==='history'?'/history'+query({limit:options.limit,offset:options.offset}):options.revision?'/revisions/'+exact(options.revision):'');

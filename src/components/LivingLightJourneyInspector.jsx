@@ -1,9 +1,10 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {createLivingLightClient} from '../domain/living-light-client.js';
+import LivingLightSharedCardActions from './LivingLightSharedCardActions.jsx';
 import LivingLightNotes from './LivingLightNotes.jsx';
 import LivingLightPortablePanel from './LivingLightPortablePanel.jsx';
 /** Inspection is an owner read. It never changes the editor, song or preview. */
-export default function LivingLightJourneyInspector({reference,songId,registry,onOpen,onClose,onChanged}){
+export default function LivingLightJourneyInspector({reference,songId,registry,onOpen,onClose,onChanged,sharedHandEnabled=false}){
  const client=useMemo(()=>createLivingLightClient(),[]),epoch=useRef(0);
  const [record,setRecord]=useState(null),[busy,setBusy]=useState(true),[status,setStatus]=useState('');
  useEffect(()=>{
@@ -22,6 +23,7 @@ export default function LivingLightJourneyInspector({reference,songId,registry,o
    <button type="button" disabled={busy||journey.songId!==songId} onClick={()=>onOpen?.(record)}>Open saved recipe in editor</button>
    <ol>{journey.schedule.map(row=>{const instance=journey.instances.find(i=>i.instanceId===row.instanceId),thing=registry.resolveThing(instance.thingRef);return <li key={row.instanceId}>{thing?.title||'Pinned module not loaded'} · {(row.startUs/1e6).toFixed(2)}–{(row.endUs/1e6).toFixed(2)}s</li>;})}</ol>
    <details><summary>Source, identity & credits</summary><p>{record.actor?.kind==='agent'?'Agent author':'Local author'} · {record.actor?.displayName} · {record.occurredAt}</p><p>Revision {record.revisionNumber} · <code>{journey.revisionId}</code> · Card custody {record.custody?.state} · publication not acknowledged</p><p>Each use retains its exact module revision and source credits. This recipe is preview only; final rendering is unsupported.</p></details>
+   {sharedHandEnabled&&<LivingLightSharedCardActions key={'shared:'+journey.revisionId} target={{kind:'journey',id:journey.journeyId,revision:journey.revisionId}}/>}
    <LivingLightPortablePanel key={'journey-export:'+journey.revisionId} exportsOnly root={{kind:'journey',id:journey.journeyId,revision:journey.revisionId}}/>
    <LivingLightNotes key={'journey-notes:'+journey.journeyId+':'+journey.revisionId} target={{kind:'journey',journeyId:journey.journeyId,observedRevisionId:journey.revisionId}} label={journey.title} onChanged={onChanged}/>
   </>}

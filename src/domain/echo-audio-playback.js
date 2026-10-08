@@ -1,11 +1,15 @@
 /** Existing preparation queue + range-streamed PCM. No browser-sized WAV blob,
  * source rewrite or fallback to a different master. */
-export async function prepareEchoAudioPlayback({ apiBase = '', songId, variantId = 'legacy', sourceUri,
+export async function prepareEchoAudioPlayback({ apiBase = '', songId, variantId = 'legacy', sourceUri, assetId = null,
   signal, onProgress = () => {}, fetchImpl = (...args) => fetch(...args), requestId = crypto.randomUUID(),
   pollMs = 250, timeoutMs = 180000 } = {}) {
   if (signal?.aborted) throw new Error('Audio preparation cancelled');
   const base = String(apiBase).replace(/\/$/, '');
   const query = new URLSearchParams({ songId, variantId, requestId });
+  if (assetId !== null) {
+    if (typeof assetId !== 'string' || !assetId.trim() || assetId.length > 300) throw new Error('Select an exact registered stem asset.');
+    query.set('assetId', assetId);
+  }
   let jobId = null, released = false, completed = false;
   const release = () => {
     if (released) return; released = true;
@@ -41,12 +45,16 @@ export async function prepareEchoAudioPlayback({ apiBase = '', songId, variantId
     }
     const value = job.result;
     if (signal?.aborted || released) throw new Error('Audio preparation cancelled');
-    if (value?.sourceUri !== sourceUri || value?.fidelity !== 'source-equivalent-ffmpeg-decoded-float32'
+    const selectionMatches = assetId === null ? value?.sourceUri === sourceUri
+      : value?.sourceSelection?.kind === 'stem' && value.sourceSelection.songId === songId && value.sourceSelection.assetId === assetId
+        && value.sourceSelection.clock === 'source-local' && value.sourceSelection.alignmentState === 'alignment-unverified'
+        && value.sourceUri === `hapa-stem:${encodeURIComponent(songId)}:${encodeURIComponent(assetId)}`;
+    if (!selectionMatches || value?.fidelity !== 'source-equivalent-ffmpeg-decoded-float32'
       || !/^[a-f0-9]{64}$/.test(String(value.sourceHash).replace(/^sha256:/, ''))
-      || !/^[a-f0-9]{64}$/.test(value.pcmSha256 || '') || !(value.durationSeconds > 0)) throw new Error('Prepared playback does not match the selected master');
+      || !/^[a-f0-9]{64}$/.test(value.pcmSha256 || '') || !(value.durationSeconds > 0)) throw new Error('Prepared playback does not match the selected source');
     completed = true;
     return { url: `${base}/api/echos/playback-audio?${new URLSearchParams({ jobId })}`,
-      receipt: { sourceUri, sourceHash: value.sourceHash, pcmSha256: value.pcmSha256, durationSeconds: value.durationSeconds,
+      receipt: { sourceUri:value.sourceUri, ...(value.sourceSelection ? {sourceSelection:value.sourceSelection} : {}), sourceHash: value.sourceHash, pcmSha256: value.pcmSha256, durationSeconds: value.durationSeconds,
         sampleRate: value.sampleRate, channels: value.channels, byteSize: value.byteSize, fidelity: value.fidelity, cached: value.cached }, release };
   } finally {
     if (!completed) { release(); signal?.removeEventListener('abort', release); }

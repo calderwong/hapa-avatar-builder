@@ -1,3 +1,5 @@
+import LivingLightSharedCardActions from './LivingLightSharedCardActions.jsx';
+import {livingLightCardTarget} from '../overcard/livingLight.js';
 import LivingLightPortablePanel from './LivingLightPortablePanel.jsx';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import LivingLightNotes from './LivingLightNotes.jsx';
@@ -14,7 +16,7 @@ import LivingLightCardStill from './LivingLightCardStill.jsx';
 const label=thing=>thing.kind==='location'?'Location':thing.variantKind==='continuous-profile'?'Continuous Tunnel':'Bridge Tunnel';
 
 /** Catalog and discussion consume one metadata service; tiles allocate no GL/audio. */
-export default function LivingLightLibrary({registry:sourceRegistry,onUse,onAdd,songId,journeyRefreshToken,onOpenJourney,stillCache,stillVersion}){
+export default function LivingLightLibrary({registry:sourceRegistry,onUse,onAdd,songId,journeyRefreshToken,onOpenJourney,stillCache,stillVersion,sharedHandEnabled=false,openCardRequest}){
  const catalog=useLivingLightRegistry(),registry=catalog?.registry||sourceRegistry;
  const client=useMemo(()=>createLivingLightClient(),[]),[filter,setFilter]=useState('all'),[search,setSearch]=useState(''),[selectedId,setSelectedId]=useState(null),[heads,setHeads]=useState({}),[status,setStatus]=useState(''),[showArchived,setShowArchived]=useState(false),[selectedRecord,setSelectedRecord]=useState(null);
  const selectionEpoch=useRef(0);
@@ -22,6 +24,17 @@ export default function LivingLightLibrary({registry:sourceRegistry,onUse,onAdd,
  const headRow=catalog?.rows[selectedId]||heads[selectedId],archivedThings=catalog?.archivedThings||[],selected=selectedRecord?.thing.thingId===selectedId?selectedRecord.thing:registry.entries.find(t=>t.thingId===selectedId)||archivedThings.find(t=>t.thingId===selectedId),historical=!!selected&&!!headRow&&selected.revisionId!==headRow.currentHead,target=selected?{kind:'thing',thingId:selected.thingId,observedRevisionId:selected.revisionId}:null;
  const cards=livingLightLibraryCards({things:[...registry.entries,...(showArchived?archivedThings:[])],thingRows:{...heads,...catalog?.rows},journeys:journeys.rows}),visible=filterLivingLightLibrary(cards,{kind:filter,search,readiness,tag}),tags=[...new Set(cards.flatMap(card=>card.tags))].sort();
  useEffect(()=>{setJourneyRef(null);},[songId]);
+ useEffect(()=>{
+  if(!openCardRequest)return;let target;try{target=livingLightCardTarget(openCardRequest.target);}catch(error){setStatus(error.message);return;}
+  const ticket=++selectionEpoch.current,c=new AbortController();setStatus('Opening the exact Card revision from the shared Hand…');
+  if(target.kind==='journey'){setSelectedId(null);setSelectedRecord(null);setJourneyRef({journeyId:target.id,revisionId:target.revision});setStatus('');return;}
+  setJourneyRef(null);setSelectedRecord(null);
+  client.request('/things/'+encodeURIComponent(target.id)+'/revisions/'+encodeURIComponent(target.revision),{signal:AbortSignal.any([c.signal,AbortSignal.timeout(30000)])}).then(async row=>{
+   await catalog?.ensure([{thingId:target.id,revisionId:target.revision}]);
+   if(ticket===selectionEpoch.current&&!c.signal.aborted){setSelectedId(target.id);setSelectedRecord(row);setStatus('Inspecting the exact held revision. Your song, editor draft and preview are unchanged.');}
+  }).catch(error=>{if(ticket===selectionEpoch.current&&!c.signal.aborted)setStatus('Card inspection unavailable: '+error.message);});
+  return()=>{c.abort();};
+ },[openCardRequest?.nonce,client]);
  function inspectJourney(reference){selectionEpoch.current++;setSelectedId(null);setSelectedRecord(null);setJourneyRef(reference);}
  useEffect(()=>{if(journeyRefreshToken)catalog?.refresh().catch(()=>{});},[journeyRefreshToken]);
  useEffect(()=>{
@@ -51,7 +64,7 @@ export default function LivingLightLibrary({registry:sourceRegistry,onUse,onAdd,
   <div className="living-light-card-actions"><button type="button" disabled={journeys.busy} onClick={()=>journeys.refresh()}>Reload Journey Cards</button>{journeys.nextOffset!==null&&<button type="button" disabled={journeys.busy} onClick={()=>journeys.refresh(journeys.nextOffset)}>More Journey Cards</button>}<p role="status">{journeys.status}</p></div>
   {catalog&&<div className="living-light-card-actions"><button type="button" disabled={catalog.busy} onClick={()=>catalog.refresh().catch(()=>{})}>Reload saved presets</button>{catalog.nextOffset!==null&&<button type="button" disabled={catalog.busy} onClick={()=>catalog.refresh(catalog.nextOffset).catch(()=>{})}>More saved presets</button>}<p role="status">{catalog.status}</p></div>}
   {visible.length===0&&<p>No matching loaded Cards. Try another filter, or load the next page.</p>}
-  {journeyRef&&<LivingLightJourneyInspector key={journeyRef.journeyId+':'+journeyRef.revisionId} reference={journeyRef} songId={songId} registry={registry} onClose={()=>setJourneyRef(null)} onOpen={onOpenJourney} onChanged={()=>journeys.refresh()}/>}
+  {journeyRef&&<LivingLightJourneyInspector key={journeyRef.journeyId+':'+journeyRef.revisionId} reference={journeyRef} songId={songId} registry={registry} onClose={()=>setJourneyRef(null)} onOpen={onOpenJourney} onChanged={()=>journeys.refresh()} sharedHandEnabled={sharedHandEnabled}/>}
   {selected&&<aside className="living-light-thing-inspector" aria-label={selected.title+' details and notes'}>
    <header><div><small>{label(selected)}</small><h4>{selected.title}</h4></div><button type="button" onClick={()=>{selectionEpoch.current++;setSelectedRecord(null);setSelectedId(null);}}>Close details</button></header>
    <p role="status">{status}</p>{historical&&<p>Inspecting retained revision {selectedRecord?.revisionNumber}. The latest Card and recipe drafts are unchanged. <button type="button" onClick={()=>setSelectedRecord(null)}>View latest Thing revision</button></p>}<p>Defaults in this revision: {Object.entries(selected.parameters).map(([key,def])=>key+' '+JSON.stringify(def.default)+' '+def.units).join(' · ')||'No exposed controls'}</p><button type="button" disabled={!!headRow?.visibility?.archived} onClick={()=>onAdd?.(selected)}>{selected.capabilities.bridge?'Use this exact passage revision…':'Add this exact revision to recipe'}</button>
@@ -59,6 +72,7 @@ export default function LivingLightLibrary({registry:sourceRegistry,onUse,onAdd,
    <LivingLightThingHistory key={"history:"+selectedId} thingId={selectedId} onInspect={inspectRevision}/>
    <p>{selected.summary}</p>{selected.derivedFrom&&<p>Preset of {registry.resolveThing(selected.derivedFrom)?.title||selected.derivedFrom.thingId} · exact parent {selected.derivedFrom.revisionId}. Notes were not copied.</p>}{selected.aliasOf&&<p>This retains a separate identity and notes as an alias of {registry.resolveThing(selected.aliasOf)?.title||selected.aliasOf.thingId}.</p>}
    <details><summary>Source, identity & credits</summary><p>{selected.source.attribution}</p><p>{selected.source.rights}</p><code>{selected.thingId}</code><p>Revision {selected.revisionId} · {(selectedRecord||headRow)?.actor?.kind==='agent'?'Agent author':(selectedRecord||headRow)?.actor?.kind==='human'?'Local operator author':'Source definition'} · Card custody {headRow?.custody?.state||'not-created'} · publication not acknowledged</p></details>
+   {sharedHandEnabled&&<LivingLightSharedCardActions key={'shared:'+selected.thingId+':'+selected.revisionId} target={{kind:'thing',id:selected.thingId,revision:selected.revisionId}}/>}
    <p>These notes apply to {selected.title} wherever it is used.</p>
    {headRow?.usedIn?.length>0&&<details><summary>Used in saved recipes</summary>{headRow.usedIn.map(row=><p key={row.journeyId}><button type="button" onClick={()=>inspectJourney(row)}>{row.title}</button></p>)}</details>}
    <LivingLightPresetPanel key={selected.thingId+':create:'+selected.revisionId} thing={selected} onSaved={()=>{setStatus('Preset saved locally; source settings and old recipes are retained.');return refreshHead(selected.thingId);}}/>{selected.derivedFrom&&!historical&&<LivingLightPresetPanel key={selected.thingId+':revise:'+selected.revisionId} thing={selected} mode="revise" onSaved={()=>{setStatus('Preset saved locally; source settings and old recipes are retained.');return refreshHead(selected.thingId);}}/>}

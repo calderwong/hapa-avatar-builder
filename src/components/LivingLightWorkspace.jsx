@@ -13,7 +13,7 @@ import {createLivingLightClient} from '../domain/living-light-client.js';
 import {editableJourney} from '../domain/living-light-journey.js';
 import './LivingLightWorkspace.css';
 /** Lazy Echo workbench entry. This view never creates an audible source. */
-function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerformance,powerMode,onPlayingChange,songClockRef,audition}) {
+function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerformance,powerMode,onPlayingChange,songClockRef,audition,sharedHandEnabled=false,openCardRequest}) {
  const {registry,archivedThings}=useLivingLightRegistry(),canvasRef=useRef(null),runtimeRef=useRef(null),driverRef=useRef(null),generationRef=useRef(0);
  const [family,setFamily]=useState('fractal'),[quality,setQuality]=useState('balanced'),[signalMode,setSignalMode]=useState('neutral'),[reduced,setReduced]=useState(()=>globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches||false),[status,setStatus]=useState('Preparing neutral study…'),[diagnostic,setDiagnostic]=useState(null),[studyRecipe,setStudyRecipe]=useState(null),[addRequest,setAddRequest]=useState(null);
  const [exactPerformance,setExactPerformance]=useState(null),featureCacheRef=useRef(null);
@@ -94,7 +94,7 @@ function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerforma
   <div className="living-light-card-actions"><button type="button" disabled={capturing} onClick={capture}>{capturing?'Capturing…':'Capture Card preview'}</button><button type="button" disabled={capturing} onClick={()=>{stillCache.clear();setStillVersion(value=>value+1);setCaptureStatus('Session previews cleared. Saved Cards and notes are unchanged.');}}>Clear session previews</button><p role="status">{captureStatus}</p></div>
   {diagnostic&&<details><summary>Preview evidence</summary><p>{diagnostic.environment?.backend||'Native WebGL2'} · {diagnostic.canvasCount} canvas · {diagnostic.ownedAudioContexts} view-owned audio contexts · features {diagnostic.features}</p><pre>{JSON.stringify(diagnostic,null,2)}</pre></details>}
   <LivingLightJourneyEditor songId={songId} title={title} durationUs={Math.round(Number(audioReceipt?.durationSeconds||duration)*1e6)||0} registry={registry} showSavedCards={false} openRequest={openJourneyRequest} onSaved={journeySaved} addRequest={addRequest} performance={selectedPerformance?.sourcePolicy==='living-light-assets-v1'?selectedPerformance:null} onPreview={(recipe,reference)=>{setStudyReference(reference);setStudyRecipe(recipe);}}/>
-  <LivingLightLibrary registry={registry} songId={songId} journeyRefreshToken={journeyRefreshToken} onOpenJourney={row=>setOpenJourneyRequest({row,nonce:crypto.randomUUID()})} onAdd={thing=>setAddRequest({thing,nonce:crypto.randomUUID()})} stillCache={stillCache} stillVersion={stillVersion} onUse={studyThing}/>
+  <LivingLightLibrary sharedHandEnabled={sharedHandEnabled} openCardRequest={openCardRequest} registry={registry} songId={songId} journeyRefreshToken={journeyRefreshToken} onOpenJourney={row=>setOpenJourneyRequest({row,nonce:crypto.randomUUID()})} onAdd={thing=>setAddRequest({thing,nonce:crypto.randomUUID()})} stillCache={stillCache} stillVersion={stillVersion} onUse={studyThing}/>
  </section>;
 }
 

@@ -31,6 +31,12 @@ export async function handleLivingLight({req,res,url,service,authorize,bootstrap
    else throw Object.assign(Error('Method not allowed'),{code:'method_not_allowed',statusCode:405});
   }
   else if(suffix==='/capabilities'&&req.method==='GET')value={...service.capabilities(),preparedSignals:performance?.capabilities?.()||{state:'owner-unavailable'}};
+  else if(suffix==='/shared-card'&&req.method==='GET')value=service.sharedCard(params);
+  else if(suffix==='/shared-card/prepare'&&req.method==='POST'){
+   if(Object.keys(params).length)throw Object.assign(Error('Card preparation takes no query fields'),{code:'unknown_field',statusCode:422});
+   let body;try{body=await readBody(req,4096);}catch(error){if(error instanceof SyntaxError)throw Object.assign(Error('Card target is not valid JSON'),{code:'invalid_json',statusCode:400});throw error;}
+   value=await service.prepareSharedCard(body,caller);
+  }
   else if(suffix==='/export'&&req.method==='GET'){
    if(params.includeNotes!==undefined&&!['true','false'].includes(params.includeNotes))throw Object.assign(Error('includeNotes must be true or false'),{code:'invalid_filter',statusCode:422});
    value=service.exportPackage({kind:params.kind,id:params.id,revision:params.revision,includeNotes:params.includeNotes==='true'});

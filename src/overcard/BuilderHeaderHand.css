@@ -1,0 +1,5 @@
+/* The exact-Card action takes its own row in the existing Header dock. */
+.builder-header-hand:has(> .builder-header-hand__living-light) { display: flex; flex-wrap: wrap; gap: 5px; }
+.builder-header-hand:has(> .builder-header-hand__living-light) > .hapa-overcard-hand { flex: 1 1 0; min-width: 0; box-sizing: border-box; }
+.builder-header-hand__living-light { order: 2; flex: 1 0 100%; min-width: 0; max-width: 100%; box-sizing: border-box; white-space: normal; cursor: pointer; padding: 4px 6px; border: 1px solid var(--hapa-border, #265268); background: var(--hapa-panel, #0d1b28); color: var(--hapa-neon-cyan, #8dedfa); border-radius: 4px; font: inherit; font-size: 11px; }
+.builder-header-hand__living-light:focus-visible { outline: 2px solid var(--hapa-neon-cyan, #8dedfa); outline-offset: 2px; }

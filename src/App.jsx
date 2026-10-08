@@ -619,6 +619,9 @@ export default function App({ overcardAdapter }) {
   const [selectedSceneAssetId, setSelectedSceneAssetId] = useState(null);
   const [intake, setIntake] = useState(INTAKE_SEED);
   const [activeView, setActiveView] = useState(initialAvatarBuilderView);
+  const [echoVisited,setEchoVisited]=useState(initialAvatarBuilderView()==='echos');
+  const [livingLightOpenRequest,setLivingLightOpenRequest]=useState(null);
+  useEffect(()=>{if(activeView==='echos')setEchoVisited(true);},[activeView]);
   const [echoRecordGardenCinematic, setEchoRecordGardenCinematic] = useState(false);
   const [bankViewMode, setBankViewMode] = useState("individual"); // "individual" or "guild"
   const [search, setSearch] = useState("");
@@ -3514,6 +3517,7 @@ export default function App({ overcardAdapter }) {
           adapter={overcardAdapter}
           onOpenManager={(intent) => openOvercardManagement(intent.kind)}
           onOpenLibrary={() => openOvercardManagement("library")}
+          onOpenLivingLight={target=>{setLivingLightOpenRequest({target,nonce:crypto.randomUUID()});switchView('echos');}}
         />
 
         <div className="telemetry">
@@ -4001,14 +4005,15 @@ export default function App({ overcardAdapter }) {
             onExpandAsset={openExpandedAsset}
           />
         )}
-        {activeView === "echos" && (
-          <Suspense fallback={<div className="empty-state"><Loader2 size={22} /><span>Loading Echos Album</span></div>}>
+        {(activeView === "echos" || echoVisited) && (
+          <div hidden={activeView!=="echos"}><Suspense fallback={<div className="empty-state"><Loader2 size={22} /><span>Loading Echos Album</span></div>}>
             <HapaEchosView
-              playbackMode="active"
+              playbackMode={activeView==="echos"?"active":"hidden"}
+              livingLightOpenRequest={livingLightOpenRequest}
               selectedSongId={selectedHapaSongId}
               onSelectSong={setSelectedHapaSongId}
             />
-          </Suspense>
+          </Suspense></div>
         )}
         {activeView === "echo-records" && (
           <EchoRecordGardenBoundary>

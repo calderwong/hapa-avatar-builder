@@ -1,5 +1,6 @@
 import { echoTimelineMediaInstances, hyperFramesMediaOpacityState } from "../domain/echo-media-presentation.js";
 import { prepareEchoAudioPlayback } from '../domain/echo-audio-playback.js';
+import { transitionLivingLightAudition } from '../domain/living-light-audition.js';
 import { createEchoEmptyShaderMedia } from "../domain/echo-empty-shader-media.js";
 import { createEchoIsfHistoryMedia } from "../domain/echo-isf-history-media.js";
 import { createImageShotGeometry, selectImageShotRendition } from "../domain/unified-media-catalog.js";
@@ -12,7 +13,8 @@ import EchoPerformancePreparationControl from "./EchoPerformancePreparationContr
 import EchoPreviewPreparationControl from "./EchoPreviewPreparationControl.jsx";
 import { createEchoProxySourcePrefetch } from "../domain/echo-proxy-frame-decoder.js";
 import { createEchoPreviewProxySchedule, applyEchoPreviewProjection, echoPreviewHistoryMediaCue, ECHO_PREVIEW_QUALITY_PRESETS, normalizeEchoPreviewQuality, echoPreviewShaderSize, echoPreviewShaderLayers } from "../domain/echo-preview-projection.js";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+const LivingLightWorkspace = lazy(() => import("./LivingLightWorkspace.jsx"));
 import { createPortal } from "react-dom";
 import { createEchoPanelLoader } from "../domain/echo-panel-loader.js";
 import {
@@ -1771,7 +1773,7 @@ function pruneEchoStemDecoderPool(
   }
 }
 
-function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }) {
+function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", livingLightOpenRequest }) {
   const clockDiagnostics = globalThis.__HAPA_ECHO_CLOCK_DIAGNOSTICS__ ||= { topLevelRenders: 0, boundaryRenders: 0 };
   clockDiagnostics.topLevelRenders += 1;
   const powerMode = normalizePlaybackPowerMode(playbackMode);
@@ -1827,6 +1829,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const projectDetailControllerBySongRef = useRef(new Map());
   const [planning, setPlanning] = useState(false);
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState("preview");
+  const [livingLightVisited,setLivingLightVisited]=useState(false);
+  useEffect(()=>{if(activeWorkbenchTab==='living-light')setLivingLightVisited(true);},[activeWorkbenchTab]);
+  useEffect(()=>{if(livingLightOpenRequest)setActiveWorkbenchTab('living-light');},[livingLightOpenRequest?.nonce]);
   const [isPlaying, setIsPlaying] = useState(false);
   const isPlayingRef = useRef(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -1916,6 +1921,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const [audioBlobUrl, setAudioBlobUrl] = useState("");
   const [audioPlaybackReceipt, setAudioPlaybackReceipt] = useState(null);
+  const audioPlaybackReceiptRef = useRef(null);
+  const masterPlaybackReceiptRef = useRef(null);
+  const [livingLightAudition, setLivingLightAudition] = useState(null);
+  const livingLightAuditionRef = useRef(null);
+  const pendingPlaybackRestoreRef = useRef(null);
+  const preparedPlaybackSongIdRef = useRef(null);
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioPlaybackReady, setAudioPlaybackReady] = useState(false);
   const [audioPlaybackError, setAudioPlaybackError] = useState("");
@@ -2191,6 +2202,21 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const activeShowGraph = useMemo(() => (
     activeProject?.director_show_graph?.tracks ? projectToEditorGraph(activeProject) : null
   ), [activeProject]);
+  const requestedPlaybackAssetId = activeWorkbenchTab === 'living-light' && livingLightAudition?.songId === activeProject?.song_id ? livingLightAudition.assetId : null;
+  const selectLivingLightPlayback = assetId => {
+    if (!activeProject?.song_id || previewRecordingActiveRef.current) return;
+    const next = transitionLivingLightAudition(livingLightAuditionRef.current, {songId:activeProject.song_id,assetId,songSeconds:currentTimeRef.current});
+    audioRef.current?.pause(); setIsPlaying(false);
+    livingLightAuditionRef.current = next; setLivingLightAudition(next);
+    currentTimeRef.current = next.heldSongSeconds;
+  };
+  useEffect(() => {
+    const previous = livingLightAuditionRef.current;
+    if (!previous || (previous.songId === activeProject?.song_id && activeWorkbenchTab === 'living-light')) return;
+    audioRef.current?.pause(); setIsPlaying(false);
+    const next = activeProject?.song_id ? transitionLivingLightAudition(previous, {songId:activeProject.song_id,songSeconds:currentTimeRef.current}) : null;
+    livingLightAuditionRef.current = next; setLivingLightAudition(next);
+  }, [activeProject?.song_id, activeWorkbenchTab]);
   const preparedAudioRoute = echoProjectAudioRoute(activeProject || {}, activeShowGraph).uri || "";
   const recordingSourceKey = useMemo(() => JSON.stringify([selectedProjectSongId, activeDirectionVariantSelection, preparedAudioRoute, activeShowGraph]), [selectedProjectSongId, activeDirectionVariantSelection, preparedAudioRoute, activeShowGraph]);
   recordingSourceKeyRef.current = recordingSourceKey;
@@ -2581,7 +2607,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     const sameSong = Boolean(nextSong && engine?.getSnapshot().projectKey === nextSong);
     engine?.setProject(activeProject, {
       preserveClock: sameSong,
-      atSeconds: sameSong ? (audioRef.current?.currentTime ?? currentTimeRef.current) : 0,
+      atSeconds: sameSong ? (audioPlaybackReceiptRef.current?.sourceSelection?.kind === 'stem' ? currentTimeRef.current : audioRef.current?.currentTime ?? currentTimeRef.current) : 0,
     });
   }, [activeProject]);
 
@@ -2590,8 +2616,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   }, [powerMode]);
 
   useEffect(() => {
-    echoPlaybackEngineRef.current?.setPlaying(isPlaying);
-  }, [isPlaying]);
+    echoPlaybackEngineRef.current?.setPlaying(isPlaying && !requestedPlaybackAssetId);
+  }, [isPlaying, requestedPlaybackAssetId]);
 
   // Prepare source-bound PCM and stream it through the CORS-enabled local file owner.
   // Keep the existing audio element/clock; no large WAV blob or source replacement.
@@ -2608,6 +2634,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
     
     let active = true;
+    audioRef.current?.pause(); setIsPlaying(false);
+    const sourcePosition = !requestedPlaybackAssetId && preparedPlaybackSongIdRef.current === activeProject.song_id ? currentTimeRef.current : 0;
+    preparedPlaybackSongIdRef.current = activeProject.song_id;
+    pendingPlaybackRestoreRef.current = {songId:activeProject.song_id,assetId:requestedPlaybackAssetId,seconds:sourcePosition};
     setAudioLoading(true);
     setAudioPlaybackReady(false);
     setAudioPlaybackError("");
@@ -2616,12 +2646,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       return "";
     });
     setAudioPlaybackReceipt(null);
+    audioPlaybackReceiptRef.current = null;
+    if (masterPlaybackReceiptRef.current?.songId !== activeProject.song_id) masterPlaybackReceiptRef.current = null;
     setAudioDiagnostics("Preparing audio for precise seeking…");
     
     const audioRoute = echoProjectAudioRoute(activeProject);
     const url = resolveSongRegistryUri(audioRoute.uri);
 
-    if (!url) {
+    if (!url && !requestedPlaybackAssetId) {
       setAudioLoading(false);
       setAudioPlaybackError("This song does not have a playback audio route. Update the Song Registry, then retry.");
       setAudioDiagnostics("Fetch error: no playback audio route");
@@ -2632,10 +2664,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     
     const controller = new AbortController();
     prepareEchoAudioPlayback({ apiBase: API_BASE, songId: activeProject.song_id, variantId: activeDirectionVariantSelection,
-      sourceUri: audioRoute.uri, signal: controller.signal, onProgress: message => { if (active) setAudioDiagnostics(message); } })
+      sourceUri: audioRoute.uri, assetId:requestedPlaybackAssetId, signal: controller.signal, onProgress: message => { if (active) setAudioDiagnostics(message); } })
       .then(({ url: playbackUrl, receipt }) => {
         if (!active) return;
         setAudioPlaybackReceipt(receipt);
+        audioPlaybackReceiptRef.current = receipt;
+        if (!requestedPlaybackAssetId) masterPlaybackReceiptRef.current = {songId:activeProject.song_id,receipt};
         setAudioBlobUrl(playbackUrl);
         setAudioLoading(false);
         setAudioPlaybackError("");
@@ -2660,6 +2694,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     activeProject?.song_id,
     activeShowGraph?.song?.audioPath,
     audioLoadRetryNonce,
+    requestedPlaybackAssetId,
   ]);
 
   const retryPreviewAudio = useCallback(() => {
@@ -3286,7 +3321,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       powerResumePlayingRef.current = false;
       return;
     }
-    powerResumePlayingRef.current = Boolean(isPlaying && audio && !audio.paused);
+    powerResumePlayingRef.current = powerMode !== "hidden" && Boolean(isPlaying && audio && !audio.paused);
     if (audio && !audio.paused) audio.pause();
     pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
     if (audioContextRef.current?.state === "running") audioContextRef.current.suspend().catch(() => {});
@@ -3347,8 +3382,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       const audio = audioRef.current;
       if (audio && !audio.paused) {
         const next = audio.currentTime;
-        currentTimeRef.current = next;
-        echoPlaybackEngineRef.current?.tick(next, { playing: true });
+        if (audioPlaybackReceiptRef.current?.sourceSelection?.kind !== 'stem') {
+          currentTimeRef.current = next;
+          echoPlaybackEngineRef.current?.tick(next, { playing: true });
+        }
         // Let the audio element reach its natural end. Project metadata can
         // round a song short; resetting here truncates audio and loses `ended`.
       } else if (audio) {
@@ -3370,6 +3407,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   // Audio time update handler
   const handleTimeUpdate = () => {
     if (!audioRef.current) return;
+    if (audioPlaybackReceiptRef.current?.sourceSelection?.kind === 'stem') return;
     const next = audioRef.current.currentTime;
     currentTimeRef.current = next;
     echoPlaybackEngineRef.current?.tick(next, { playing: isPlaying, reason: "media-timeupdate" });
@@ -7308,7 +7346,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                             
                             {/* Tabs select */}
                             <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.2)', padding: '3px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                              {['preview', 'lyrics', 'tracks', 'variation', 'live', 'palmier', 'script', 'edl', 'journal', 'recordings'].map(tab => (
+                              {['preview', 'lyrics', 'tracks', 'variation', 'live', 'palmier', 'script', 'edl', 'journal', 'recordings', 'living-light'].map(tab => (
                                 <button
                                   key={tab}
                                   type="button"
@@ -7335,6 +7373,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   {tab === 'edl' && '📋 EDL Table'}
                                   {tab === 'journal' && '📓 Narrative'}
                                   {tab === 'recordings' && '🎞 Recordings'}
+                                  {tab === 'living-light' && '✦ Living Light'}
                                 </button>
                               ))}
                             </div>
@@ -7349,6 +7388,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 data-echo-audio-source-hash={audioPlaybackReceipt?.sourceHash || ""}
                                 data-echo-audio-pcm-hash={audioPlaybackReceipt?.pcmSha256 || ""}
                                 data-echo-audio-duration={audioPlaybackReceipt?.durationSeconds || ""}
+                                data-echo-audio-source-kind={audioPlaybackReceipt?.sourceSelection?.kind || 'master'}
+                                data-echo-audio-asset-id={audioPlaybackReceipt?.sourceSelection?.assetId || ''}
+                                onLoadedMetadata={() => {
+                                  const target = pendingPlaybackRestoreRef.current;
+                                  if (target && target.songId === activeProject.song_id && target.assetId === requestedPlaybackAssetId && audioRef.current) {
+                                    audioRef.current.currentTime = Math.min(target.seconds, Number(audioRef.current.duration) || target.seconds);
+                                    pendingPlaybackRestoreRef.current = null;
+                                  }
+                                }}
                                 onTimeUpdate={handleTimeUpdate}
                                 onEnded={() => setIsPlaying(false)}
                                 onLoadedData={() => {
@@ -7379,6 +7427,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 crossOrigin="anonymous"
                               />
                             )}
+
+                            {(activeWorkbenchTab === "living-light" || livingLightVisited) && <div hidden={activeWorkbenchTab!=="living-light"}><Suspense fallback={<p role="status">Loading Living Light…</p>}><LivingLightWorkspace
+                              songId={activeProject.song_id} title={activeProject.song_title} duration={activeProject.duration}
+                              audioRef={audioRef} audioReceipt={requestedPlaybackAssetId ? masterPlaybackReceiptRef.current?.receipt : audioPlaybackReceipt} preparedPerformance={activePreparedPerformance} powerMode={activeWorkbenchTab==="living-light"?powerMode:"hidden"} sharedHandEnabled openCardRequest={livingLightOpenRequest} onPlayingChange={setIsPlaying}
+                              songClockRef={currentTimeRef} audition={{assetId:requestedPlaybackAssetId,heldSongSeconds:livingLightAudition?.heldSongSeconds||0,busy:audioLoading,ready:audioPlaybackReady,error:audioPlaybackError,durationSeconds:requestedPlaybackAssetId?audioPlaybackReceipt?.durationSeconds:0,onSelect:selectLivingLightPlayback}}
+                            /></Suspense></div>}
 
                             {/* Keep the comparison session while inspecting Preview or Tracks.
                                 The panel resets itself when song/cut identity changes. */}
