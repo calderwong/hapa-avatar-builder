@@ -1,5 +1,5 @@
 /** Shared validators for native authoring, API and CLI. No I/O or executable records. */
-export const LL_SCHEMAS = Object.freeze({thing:'hapa.living-light.thing.v1',journey:'hapa.living-light.journey.v1',source:'hapa.living-light.source-binding.v1',features:'hapa.living-light.features.v1',note:'hapa.living-light.note.v1'});
+export const LL_SCHEMAS = Object.freeze({thing:'hapa.living-light.thing.v1',journey:'hapa.living-light.journey.v1',source:'hapa.living-light.source-binding.v1',features:'hapa.living-light.features.v1',signalBinding:'hapa.living-light.signal-binding.v1',note:'hapa.living-light.note.v1'});
 export class LivingLightValidationError extends Error {
   constructor(code, path, message) { super(message); this.name='LivingLightValidationError'; this.code=code; this.path=path; this.status=422; }
 }
@@ -25,6 +25,31 @@ export function validateActor(actor) {
   if(actor.instanceId!==undefined)id(actor.instanceId,'actor.instanceId');return actor;
 }
 export function validateRef(ref,path='ref') {object(ref,path);keys(ref,['thingId','revisionId'],path);id(ref.thingId,path+'.thingId');id(ref.revisionId,path+'.revisionId');return ref;}
+/** Master and a stem literally named "master" remain different identities. */
+export function signalSourceKey(ref,path='sourceRef') {
+  object(ref,path);choices(ref.kind,['master','stem'],path+'.kind');keys(ref,ref.kind==='master'?['kind']:['kind','assetId'],path);
+  if(ref.kind==='stem')string(ref.assetId,path+'.assetId',300);
+  return JSON.stringify(ref.kind==='master'?['master']:['stem',ref.assetId]);
+}
+export function validateSignalBinding(binding,port,path='binding') {
+  object(binding,path);
+  if(binding.schemaVersion!==LL_SCHEMAS.signalBinding)fail('unsupported_signal_binding',path,'Choose a versioned exact-source binding');
+  keys(binding,['schemaVersion','sourceRefs','feature','aggregation','weights','onUnavailable'],path);
+  const refs=array(binding.sourceRefs,path+'.sourceRefs',33),identities=refs.map((ref,i)=>signalSourceKey(ref,path+'.sourceRefs.'+i));
+  if(!refs.length||new Set(identities).size!==refs.length)fail('duplicate_signal_source',path,'Choose one or more distinct exact sources');
+  choices(binding.feature,['energy','onset'],path+'.feature');
+  if(port&&binding.feature!==port.feature)fail('signal_feature_mismatch',path+'.feature','Use the feature accepted by this port');
+  choices(binding.aggregation,['max','mean','weighted-sum'],path+'.aggregation');
+  if(binding.aggregation==='weighted-sum'){
+    const weights=array(binding.weights,path+'.weights',33);
+    if(weights.length!==refs.length)fail('signal_weights_mismatch',path+'.weights','One explicit weight per source is required');
+    weights.forEach((weight,i)=>number(weight,0,1,path+'.weights.'+i));
+    if(weights.reduce((total,weight)=>total+weight,0)>1+1e-12)fail('signal_weights_excess',path+'.weights','Weights must total at most one');
+  }else if(binding.weights!==undefined)fail('unexpected_signal_weights',path+'.weights','Weights belong only to weighted sum');
+  choices(binding.onUnavailable,['neutral','block','master'],path+'.onUnavailable');
+  if(binding.onUnavailable==='master'&&binding.feature!=='energy')fail('signal_fallback_unavailable',path,'Master fallback provides energy only');
+  return binding;
+}
 export function validateParameter(def,path='parameter') {
   object(def,path);keys(def,['type','units','min','max','default','values','length'],path);
   choices(def.type,['number','boolean','enum','vector'],path+'.type');string(def.units,path+'.units',100);
@@ -62,7 +87,7 @@ export function validateInstance(instance,{resolveThing},path='instance') {
   object(instance,path);keys(instance,['instanceId','thingRef','parameters','bindings','locked'],path);id(instance.instanceId,path+'.instanceId');validateRef(instance.thingRef,path+'.thingRef');
   const thing=resolveThing?.(instance.thingRef);if(!thing)fail('unknown_revision',path+'.thingRef','Pinned Thing revision is unavailable');
   object(instance.parameters,path+'.parameters');for(const [k,v]of Object.entries(instance.parameters)){if(!Object.hasOwn(thing.parameters,k))fail('unknown_parameter',path+'.parameters.'+k,'Unknown control');validateParameterValue(thing.parameters[k],v,path+'.parameters.'+k);}
-  object(instance.bindings,path+'.bindings');for(const [port,b]of Object.entries(instance.bindings)){if(!thing.signalPorts.some(p=>p.portId===port))fail('unknown_port',path+'.bindings.'+port,'Unknown signal port');object(b,path+'.bindings');keys(b,['source','feature','onUnavailable','aggregation','weights'],path+'.bindings');id(b.source,'bindings.source');string(b.feature,'bindings.feature',100);choices(b.onUnavailable,['neutral','hold','block'],'bindings.onUnavailable');if(b.aggregation!==undefined)choices(b.aggregation,['max','mean','weighted-sum'],'bindings.aggregation');if(b.weights!==undefined)array(b.weights,'bindings.weights',200).forEach(v=>number(v,0,1,'bindings.weight'));}
+  object(instance.bindings,path+'.bindings');for(const [port,b]of Object.entries(instance.bindings)){const definition=thing.signalPorts.find(p=>p.portId===port);if(!definition)fail('unknown_port',path+'.bindings.'+port,'Unknown signal port');object(b,path+'.bindings');if(b.schemaVersion!==undefined){validateSignalBinding(b,definition,path+'.bindings.'+port);continue;}keys(b,['source','feature','onUnavailable','aggregation','weights'],path+'.bindings');id(b.source,'bindings.source');string(b.feature,'bindings.feature',100);choices(b.onUnavailable,['neutral','hold','block'],'bindings.onUnavailable');if(b.aggregation!==undefined)choices(b.aggregation,['max','mean','weighted-sum'],'bindings.aggregation');if(b.weights!==undefined)array(b.weights,'bindings.weights',200).forEach(v=>number(v,0,1,'bindings.weight'));}
   if(instance.locked!==undefined&&typeof instance.locked!=='boolean')fail('invalid_boolean',path+'.locked','Expected boolean');return thing;
 }
 export function validateJourney(journey,{resolveThing,durationUs}={}) {

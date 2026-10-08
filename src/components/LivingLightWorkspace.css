@@ -38,3 +38,10 @@
 .living-light-portable {padding:12px 0;border-top:1px solid #27465a;overflow-wrap:anywhere;min-width:0}
 .living-light-portable textarea {display:block;box-sizing:border-box;width:100%;min-height:130px;max-height:400px;resize:vertical}
 .living-light-portable code {overflow-wrap:anywhere;white-space:pre-wrap}
+.living-light-signal-port{min-width:0;margin:12px 0;padding:12px;border:1px solid #477086;border-radius:6px}
+.living-light-signal-sources{max-height:280px;overflow:auto;margin:12px 0}
+.living-light-signal-sources>div{padding:8px 0;border-bottom:1px solid #27465a;overflow-wrap:anywhere}
+.living-light-signal-sources label{flex-direction:row;align-items:center}
+.living-light-signal-sources input[type=checkbox]{flex:0 0 auto;width:18px;height:18px}
+.living-light-signal-sources small{display:block;color:#90b6c3}
+.living-light-signal-sources input[type=number]{max-width:100px}

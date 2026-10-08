@@ -1,4 +1,4 @@
-import {validateJourney, LivingLightValidationError} from './living-light-contracts.js';
+import {validateJourney, LivingLightValidationError,LL_SCHEMAS} from './living-light-contracts.js';
 import {effectiveThingParameters} from './living-light-preset.js';
 import {IMPLEMENTATIONS} from '../living-light/registry.js';
 
@@ -14,7 +14,7 @@ export function compileLivingLightNativeTour(journey,{registry,native,durationUs
   const item=uses.get(row.instanceId),thing=registry.resolveThing(item.thingRef),renderer=thing.rendererRef;
   const expected=IMPLEMENTATIONS[renderer.implementationId];
   if(!expected||renderer.implementationVersion!==expected.version||renderer.sourceDigest!==expected.sourceDigest)fail('renderer_revision_mismatch','thingRef','Only the pinned supplied native implementation can render.');
-  if(Object.keys(item.bindings).length)fail('signal_binding_unqualified','bindings','This preview does not yet support per-instance signal bindings.');
+  if(Object.values(item.bindings).some(binding=>binding.schemaVersion!==LL_SCHEMAS.signalBinding))fail('signal_binding_unqualified','bindings','Re-select legacy signal choices as exact sources before previewing.');
   const sourceId=thing.source.moduleId;
   // Retain Halo's independent Card/notes while declaring the source alias.
   const renderId=thing.variantKind==='destination'&&sourceId==='halo-vault'?'lumen-arcade':sourceId;

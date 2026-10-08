@@ -12,6 +12,7 @@ export function editJourneyDraft(input,action,registry){
  if(action.type==='title')value.title=action.title;
  else if(action.type==='lock'){requireSelected();if(typeof action.value!=='boolean')throw Error('Choose an explicit lock state.');selected.locked=action.value;}
  else if(action.type==='parameter'){requireSelected();selected.parameters[action.key]=action.value;}
+ else if(action.type==='binding'){requireSelected();if(action.binding===null)delete selected.bindings[action.portId];else selected.bindings[action.portId]=clone(action.binding);}
  else if(action.type==='reset'){requireSelected();selected.parameters={};}
  else if(action.type==='replace'){requireSelected();const old=registry.resolveThing(selected.thingRef),thing=registry.resolveThing(action.thingRef);if(!thing||old.variantKind!==thing.variantKind)throw Error('Choose a Thing with the same route capability.');selected.thingRef=clone(action.thingRef);selected.parameters={};selected.bindings={};}
  else if(action.type==='duration'){

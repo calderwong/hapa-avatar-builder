@@ -1,5 +1,6 @@
 import {createLivingLightBasicMaster} from './living-light-basic-master.js';
 import {validateSourceBinding} from './living-light-source-binding.js';
+import {signalSourceKey} from './living-light-contracts.js';
 export const LIVING_LIGHT_FEATURE_VERSION='echo-source-assets-display-v1';
 const hash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code});};
@@ -68,10 +69,12 @@ export function createLivingLightFeatureBank({songId,performance,playbackReceipt
  }catch(error){master.dispose();for(const a of assets.values()){for(const c of Object.values(a.curves||{}))c.fill(0);a.valid?.fill(0);}throw error;}
  const identity=Object.freeze({version:LIVING_LIGHT_FEATURE_VERSION,songId,sourceHash:playbackReceipt.sourceHash,decodedDigest:playbackReceipt.pcmSha256,bindingId:sourceBinding.bindingId,bindingRevision:sourceBinding.revisionId,performanceRevision:performance.fingerprint,durationUs,bytes,assetCount:assets.size,compatibility:LIVING_LIGHT_FEATURE_COMPATIBILITY});
  function assertSample(t){if(disposed)fail('feature_lease_disposed','Feature bank was released.');if(!Number.isSafeInteger(t)||t<0||t>durationUs)fail('feature_time_outside_source','Sample outside selected master.');}
- function sample(assetId,feature,timelineUs){
+ function sample(source,feature,timelineUs){
   assertSample(timelineUs);
+  const ref=typeof source==='string'?(source==='master'?{kind:'master'}:{kind:'stem',assetId:source}):source;
+  signalSourceKey(ref);const assetId=ref.kind==='master'?'master':ref.assetId;
   if(!measured.includes(feature))return {assetId,feature,value:null,availability:'unavailable',reason:'feature-semantics-unavailable'};
-  if(assetId==='master')return feature==='energy'?{...master.sample(timelineUs),assetId,feature}: {assetId,feature,value:null,availability:'unavailable',reason:'master-basic-energy-only'};
+  if(ref.kind==='master')return feature==='energy'?{...master.sample(timelineUs),assetId,feature}: {assetId,feature,value:null,availability:'unavailable',reason:'master-basic-energy-only'};
   const a=assets.get(assetId);if(!a)fail('feature_asset_unknown','Select an exact prepared asset.');
   const empty=reason=>({assetId,feature,timelineUs,value:null,availability:'unknown',reason});
   if(!a.curves)return {...empty('analysis-unavailable'),availability:a.state};
@@ -84,11 +87,16 @@ export function createLivingLightFeatureBank({songId,performance,playbackReceipt
   const availability=a.valid[i]===2&&(u===0||a.valid[j]===2)?'silent':'present',curve=a.curves[feature];
   return {assetId,feature,timelineUs,sourceUs,value:availability==='silent'?0:curve[i]+(curve[j]-curve[i])*u,availability,validity:'measured',sourceHash:a.sourceHash,decodedDigest:a.decodedDigest,transformationVersion:LIVING_LIGHT_FEATURE_VERSION};
  }
- function aggregate({assetIds,feature,operation,weights},timelineUs){
+ function aggregate({assetIds,sourceRefs,feature,operation,weights},timelineUs){
   assertSample(timelineUs);
-  if(!Array.isArray(assetIds)||!assetIds.length||assetIds.length>33||new Set(assetIds).size!==assetIds.length||!['max','mean','weighted-sum'].includes(operation))fail('feature_aggregation_invalid','Explicit bounded unique assets and aggregation required.');
-  if(operation==='weighted-sum'&&(!Array.isArray(weights)||weights.length!==assetIds.length||weights.some(w=>!Number.isFinite(w)||w<0||w>1)||weights.reduce((s,w)=>s+w,0)>1+1e-12))fail('feature_weights_invalid','Weighted sum needs nonnegative explicit weights with total at most one.');
-  const contributions=assetIds.map((id,i)=>({...sample(id,feature,timelineUs),weight:operation==='weighted-sum'?weights[i]:1}));
+  if(sourceRefs!==undefined&&assetIds!==undefined)fail('feature_aggregation_invalid','Choose one explicit source addressing scheme.');
+  const sources=sourceRefs||assetIds;
+  if(!Array.isArray(sources)||!sources.length||sources.length>33||!['max','mean','weighted-sum'].includes(operation))fail('feature_aggregation_invalid','Explicit bounded unique assets and aggregation required.');
+  const identities=sources.map(source=>signalSourceKey(typeof source==='string'?(source==='master'?{kind:'master'}:{kind:'stem',assetId:source}):source));
+  if(new Set(identities).size!==sources.length)fail('feature_aggregation_invalid','Select each exact source once.');
+  if(operation!=='weighted-sum'&&weights!==undefined)fail('feature_weights_invalid','Weights belong only to weighted sum.');
+  if(operation==='weighted-sum'&&(!Array.isArray(weights)||weights.length!==sources.length||weights.some(w=>!Number.isFinite(w)||w<0||w>1)||weights.reduce((s,w)=>s+w,0)>1+1e-12))fail('feature_weights_invalid','Weighted sum needs nonnegative explicit weights with total at most one.');
+  const contributions=sources.map((source,i)=>({...sample(source,feature,timelineUs),...(sourceRefs?{sourceRef:structuredClone(source)}:{}),weight:operation==='weighted-sum'?weights[i]:1}));
   const used=contributions.filter(c=>c.weight>0),unavailable=used.filter(c=>!['present','silent'].includes(c.availability));
   if(unavailable.length)return {feature,timelineUs,value:null,availability:'unknown',operation,contributions,reason:'selected-contribution-unavailable'};
   const value=!used.length?0:operation==='max'?Math.max(...used.map(c=>c.value)):operation==='mean'?used.reduce((s,c)=>s+c.value,0)/used.length:used.reduce((s,c)=>s+c.value*c.weight,0);

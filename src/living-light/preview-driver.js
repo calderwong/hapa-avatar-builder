@@ -2,7 +2,7 @@
  * Paused seeks/resize/controls redraw once. Media capture follows replacement
  * audio elements without owning a decoder, audible clock or second player. */
 export function createLivingLightPreviewDriver({canvas,runtime,getAudio,getFrame,documentTarget=globalThis.document,requestFrame=globalThis.requestAnimationFrame,cancelFrame=globalThis.cancelAnimationFrame,resizeObserverFactory=globalThis.ResizeObserver?(callback=>new globalThis.ResizeObserver(callback)):null,onStatus=()=>{},onError=()=>{}}={}) {
- let disposed=false,failed=false,contextLost=false,suspended=false,handle=null,lastPicture=null,draws=0;
+ let disposed=false,failed=false,contextLost=false,suspended=false,handle=null,lastPicture=null,draws=0,lastSignalStatus=null;
  const events=['play','playing','pause','ended','timeupdate','seeking','seeked','loadedmetadata','emptied','durationchange','ratechange'];
  const cancel=()=>{if(handle!==null){cancelFrame(handle);handle=null;}};
  const stop=error=>{cancel();failed=true;onError(error);};
@@ -11,8 +11,12 @@ export function createLivingLightPreviewDriver({canvas,runtime,getAudio,getFrame
   if(disposed||failed||!visible())return null;
   try{
    const input=getFrame(),packet=runtime.evaluate(input);
+   if(packet?.signalRouting){
+    const routing=packet.signalRouting,ports=Object.entries(routing.ports).map(([port,value])=>`${port}: ${value.state}`),message=(routing.blocked?'Visual response blocked; waiting for selected signals. ':'Audio choices · ')+ports.join(' · ');
+    if(message!==lastSignalStatus){onStatus(message);lastSignalStatus=message;}
+   }
    const picture=packet?`${packet.generation}:${packet.visualUs}:${packet.quality}:${input.viewport?.width}:${input.viewport?.height}`:null;
-   if(packet&&(force||picture!==lastPicture)){runtime.render(packet);lastPicture=picture;draws++;}
+   if(packet&&(force||picture!==lastPicture)&&runtime.render(packet)!==false){lastPicture=picture;draws++;}
    return input;
   }catch(error){stop(error);return null;}
  }
