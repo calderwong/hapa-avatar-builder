@@ -6,6 +6,10 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+if (process.env.HAPA_LOCAL_HYPERFRAMES_WORKER === "1") {
+  console.error("A HyperFrames worker cannot re-enter the local CLI orchestrator.");
+  process.exit(1);
+}
 
 function versionParts(value) {
   return String(value || "0.0.0").split(/[.-]/).slice(0, 3).map((part) => Number(part) || 0);
@@ -56,9 +60,15 @@ if (process.argv.includes("--print-path")) {
   process.stdout.write(`${JSON.stringify(resolved, null, 2)}\n`);
   process.exit(0);
 }
+// The renderer remains upstream-owned. Local validation must not opt into
+// telemetry, background installation, update checks, or inherited Node loaders.
+const childEnv = { ...process.env, HAPA_LOCAL_HYPERFRAMES_WORKER: "1",
+  HYPERFRAMES_NO_UPDATE_CHECK: "1", HYPERFRAMES_NO_AUTO_INSTALL: "1", HYPERFRAMES_NO_TELEMETRY: "1" };
+delete childEnv.NODE_OPTIONS;
 const child = spawnSync(process.execPath, [resolved.cliPath, ...process.argv.slice(2)], {
   cwd: process.cwd(),
-  env: process.env,
+  env: childEnv,
+  shell: false,
   stdio: "inherit",
 });
 if (child.error) {

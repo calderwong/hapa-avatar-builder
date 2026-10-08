@@ -60,6 +60,8 @@ const APPLY = args.has("--apply");
 const DRY_RUN = !APPLY;
 const MISSING_ONLY = args.has("--missing-only");
 const VARIANTS_ONLY = args.has("--variants-only");
+const LIBRARY_ONLY = args.has("--library-only");
+if (LIBRARY_ONLY && (!MISSING_ONLY || VARIANTS_ONLY)) throw new Error("Library recovery requires --missing-only and cannot use --variants-only");
 const TARGET_SONG_ID = process.argv.find((arg) => arg.startsWith("--song-id="))
   ?.slice("--song-id=".length)
   .trim() || "";
@@ -221,7 +223,7 @@ async function createPathsAndAsset(entry) {
     if (!(await stat(sourceFramePath).catch(() => null))) continue;
     const frameFileName = `scroll-frame-${entry.id}-${short}-${marker}.jpg`;
     const frameMediaPath = path.join(MEDIA_DIR, frameFileName);
-    if (APPLY && !VARIANTS_ONLY) await ensureSymlink(sourceFramePath, frameMediaPath);
+    if (APPLY && !VARIANTS_ONLY && !LIBRARY_ONLY) await ensureSymlink(sourceFramePath, frameMediaPath);
     frameRows.push({
       marker,
       label: `${marker[0].toUpperCase()}${marker.slice(1)} frame`,
@@ -236,7 +238,7 @@ async function createPathsAndAsset(entry) {
     });
   }
 
-  if (APPLY && !VARIANTS_ONLY) {
+  if (APPLY && !VARIANTS_ONLY && !LIBRARY_ONLY) {
     await ensureSymlink(entry.sourcePath, sourceMediaPath);
     if (runtimeSource && await stat(runtimeSource).catch(() => null)) await ensureSymlink(runtimeSource, path.join(MEDIA_DIR, runtimeFileName));
     if (mobileRuntimeSource && await stat(mobileRuntimeSource).catch(() => null)) await ensureSymlink(mobileRuntimeSource, path.join(MEDIA_DIR, mobileRuntimeFileName));
@@ -432,6 +434,8 @@ async function projectsMissingScrollVariant(projectFiles) {
 }
 
 async function main() {
+  const libraryBefore = LIBRARY_ONLY ? await readFile(MEDIA_LIBRARY_PATH) : null;
+  const itemBefore = LIBRARY_ONLY ? await readFile(ITEM_STORE_PATH) : null;
   const [continuityBytes, siteBytes, itemStore, sceneStore, mediaLibrary] = await Promise.all([
     readFile(CONTINUITY_PATH),
     readFile(SITE_MANIFEST_PATH),
@@ -453,6 +457,60 @@ async function main() {
   });
   const assetByClipId = new Map(processed.map((item) => [item.entry.id, item.asset]));
   const mediaRecords = processed.map(({ entry, asset }) => createScrollSystemMediaRecord(entry, asset, RUN_STARTED_AT));
+
+  if (LIBRARY_ONLY) {
+    // This recovery projects existing source Cards; it does not create or revise Cards.
+    const cardsById = new Map(list(itemStore.cards).map(card => [card.id, card]));
+    const existing = new Map(list(mediaLibrary.records).map(record => [record.id, record]));
+    const restored = [];
+    for (let index = 0; index < processed.length; index++) {
+      const { entry, asset } = processed[index];
+      const card = cardsById.get(scrollVideoCardId(entry.sha256));
+      const source = list(card?.mediaAssets).find(value => value.id === asset.id);
+      if (!source || source.uri !== asset.uri || source.metadata?.scrollSite?.sha256 !== entry.sha256
+          || source.metadata?.scrollSite?.authored?.eligible !== entry.autoEligible) {
+        throw new Error(`Existing Scroll Card does not match verified source: ${entry.source}`);
+      }
+      const mediaPath = path.resolve(MEDIA_DIR, decodeURIComponent(source.uri.slice("/media/".length)));
+      assertWithin(MEDIA_DIR, mediaPath, "Existing Scroll media");
+      if (!(await stat(mediaPath)).isFile() || await sha256File(mediaPath) !== entry.sha256) {
+        throw new Error(`Existing Scroll media content mismatch: ${entry.source}`);
+      }
+      const record = createScrollSystemMediaRecord(entry, { ...source, name: source.title || card.title }, RUN_STARTED_AT);
+      const previous = existing.get(record.id);
+      if (previous) {
+        if (previous.contentFingerprint !== record.contentFingerprint || previous.uri !== record.uri) {
+          throw new Error(`Conflicting existing library identity: ${record.id}`);
+        }
+      } else restored.push(record);
+    }
+    if (!(await readFile(ITEM_STORE_PATH)).equals(itemBefore) || !(await readFile(MEDIA_LIBRARY_PATH)).equals(libraryBefore)) {
+      throw new Error("Source Card or media library changed during recovery; no write permitted");
+    }
+    let backupDirectory = "";
+    if (APPLY && restored.length) {
+      backupDirectory = path.join(BACKUPS_DIR, RUN_ID);
+      await mkdir(backupDirectory, { recursive: true });
+      await writeFile(path.join(backupDirectory, path.basename(MEDIA_LIBRARY_PATH)), libraryBefore, { flag: "wx" });
+      const next = { ...mediaLibrary, records: [...list(mediaLibrary.records), ...restored], updatedAt: RUN_STARTED_AT };
+      const temporary = `${MEDIA_LIBRARY_PATH}.${process.pid}.library-recovery.tmp`;
+      try {
+        await writeFile(temporary, json(next), { flag: "wx" });
+        if (!(await readFile(ITEM_STORE_PATH)).equals(itemBefore) || !(await readFile(MEDIA_LIBRARY_PATH)).equals(libraryBefore)) {
+          throw new Error("Concurrent source edit; stop library recovery");
+        }
+        await rename(temporary, MEDIA_LIBRARY_PATH);
+      } finally { await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
+    }
+    const report = { ok: true, mode: APPLY ? "apply" : "dry-run", scope: "existing-scroll-card-library-projection-only",
+      runId: RUN_ID, sourceCardsVerified: processed.length, addedRecords: restored.length, preservedExistingRecords: existing.size,
+      sourceContinuitySha256: sha256Bytes(continuityBytes), sourceManifestSha256: sha256Bytes(siteBytes),
+      sourceItemSha256: sha256Bytes(itemBefore), sourceLibrarySha256: sha256Bytes(libraryBefore),
+      cardsWritten: 0, scenesWritten: 0, mediaFilesWritten: 0, variantsWritten: 0, backupDirectory };
+    if (APPLY) await atomicWrite(path.join(REPORTS_DIR, `${RUN_ID}-library-recovery.json`), json(report));
+    console.log(json(report));
+    return;
+  }
   const videoCards = processed.map(({ entry, asset }) => createScrollVideoItemCard(entry, asset, RUN_STARTED_AT));
   const storyCards = createScrollStoryItemCards(plan.storyCards, entries, RUN_STARTED_AT);
 
