@@ -6,7 +6,7 @@ import LivingLightPresetPanel from './LivingLightPresetPanel.jsx';
 import LivingLightSignalControls from './LivingLightSignalControls.jsx';
 import {useLivingLightRegistry} from './LivingLightRegistryProvider.jsx';
 import {createLivingLightClient} from '../domain/living-light-client.js';
-import {editableJourney,newJourneyDraft,editJourneyDraft,validateDraft} from '../domain/living-light-journey.js';
+import {editableJourney,newJourneyDraft,editJourneyDraft,validateDraft,useJourneyPassage} from '../domain/living-light-journey.js';
 import {livingLightSavedStudyTarget} from '../domain/living-light-stills.js';
 const keyFor=songId=>'hapa.living-light.journey-draft.v1:'+songId;
 function readDraft(songId){try{const raw=localStorage.getItem(keyFor(songId));if(!raw||raw.length>1024*1024)return null;const value=JSON.parse(raw);return value.draft?.songId===songId?value:null;}catch{return null;}}
@@ -16,6 +16,7 @@ export default function LivingLightJourneyEditor({songId,title,durationUs,regist
  const catalog=useLivingLightRegistry(),registry=catalog?.registry||sourceRegistry;
  const client=useMemo(()=>createLivingLightClient(),[]),generation=useRef(0),pendingKey=useRef(null),draftRef=useRef(null);
  const [draft,setDraft]=useState(null),[identity,setIdentity]=useState(null),[saved,setSaved]=useState([]),[nextOffset,setNextOffset]=useState(null),[selectedId,setSelectedId]=useState(null),[past,setPast]=useState([]),[future,setFuture]=useState([]),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[dirty,setDirty]=useState(false),[history,setHistory]=useState(null),[historyNext,setHistoryNext]=useState(null),[pendingLoad,setPendingLoad]=useState(null);
+ const [passageChoice,setPassageChoice]=useState(null);
  const [bridgeId,setBridgeId]=useState(()=>registry.entries.find(t=>t.variantKind==='passage-style').thingId),[addId,setAddId]=useState('');
  draftRef.current=draft;
  const thingById=id=>registry.entries.find(t=>t.thingId===id),selected=draft?.instances.find(item=>item.instanceId===selectedId),selectedThing=selected?registry.resolveThing(selected.thingRef):null;
@@ -24,13 +25,26 @@ export default function LivingLightJourneyEditor({songId,title,durationUs,regist
  function recover(value,nextIdentity,nextDirty,key=null){setDraft(value);setIdentity(nextIdentity);setDirty(nextDirty);pendingKey.current=key;setPast([]);setFuture([]);setHistory(null);setHistoryNext(null);setPendingLoad(null);setSelectedId(value?.instances[0]?.instanceId||null);}
  async function refresh(offset=0,epoch=generation.current){const result=await client.request('/journeys?songId='+encodeURIComponent(songId)+'&limit=50&offset='+offset);if(generation.current!==epoch)return;setSaved(previous=>offset?[...previous,...result.journeys]:result.journeys);setNextOffset(result.nextOffset);}
  useEffect(()=>{
-  const epoch=++generation.current,local=readDraft(songId);setSaved([]);setMessage('Loading saved Journeys…');setBusy(true);
+  const epoch=++generation.current,local=readDraft(songId);setPassageChoice(null);setSaved([]);setMessage('Loading saved Journeys…');setBusy(true);
   if(local){catalog?.ensure(local.draft.instances.map(i=>i.thingRef)).catch(error=>{if(generation.current===epoch)setMessage('Recovered draft; a pinned preset could not load: '+error.message);});}if(local)recover(local.draft,local.identity||null,local.dirty!==false,local.pendingKey||null);else recover(null,null,false);
   refresh(0,epoch).then(()=>{if(generation.current===epoch)setMessage(local?(local.dirty===false?'Recovered the last local saved revision.':'Recovered an unsaved local draft.'):'');}).catch(error=>{if(generation.current===epoch)setMessage(error.message);}).finally(()=>{if(generation.current===epoch)setBusy(false);});
  },[songId]);
  useEffect(()=>{if(!draft||draft.songId!==songId)return;try{const value=JSON.stringify({draft,identity,dirty,pendingKey:pendingKey.current});if(value.length<=1024*1024)localStorage.setItem(keyFor(songId),value);}catch{}},[draft,identity,dirty,songId]);
  function begin(mode){try{const thing=registry.entries.find(t=>mode==='tour'?t.capabilities.destination:t.capabilities.continuous),value=newJourneyDraft({songId,title:(title||'Song')+' — '+(mode==='tour'?'tour':'tunnel study'),durationUs,thing,mode},registry);if(dirty){setPendingLoad({draft:value,identity:null,newDraft:true,label:'New unsaved recipe'});setMessage('Compare before replacing your unsaved recipe.');}else{recover(value,null,true);setMessage('New unsaved draft. Saved recipes remain unchanged.');}}catch(error){setMessage(error.message);}}
- function edit(action){if(!draft||busy)return;try{const next=editJourneyDraft(draft,action,registry);setPast(previous=>[...previous.slice(-49),draft]);setFuture([]);setDraft(next);setDirty(true);pendingKey.current=null;setMessage('Unsaved draft');}catch(error){setMessage(error.message);}}
+ function commitEdit(next){setPast(previous=>[...previous.slice(-49),draft]);setFuture([]);setDraft(next);setDirty(true);pendingKey.current=null;setMessage('Unsaved draft');}
+ function edit(action){if(!draft||busy)return;try{commitEdit(editJourneyDraft(draft,action,registry));}catch(error){setMessage(error.message);}}
+ function usePassage(mode){
+  if(!passageChoice||busy)return;
+  try{
+   const result=useJourneyPassage(draft,{...passageChoice,mode,passageRef:{thingId:passageChoice.thing.thingId,revisionId:passageChoice.thing.revisionId},songId,title:(title||'Song')+' — Location tour',durationUs},registry);
+   if(mode==='new'){
+    if(dirty){setPendingLoad({draft:result.draft,identity:null,newDraft:true,label:'New passage tour'});setMessage('A new tour is ready to compare. Your current draft is kept.');}
+    else{recover(result.draft,null,true);setSelectedId(result.instanceId);setMessage('Created an unsaved tour with the chosen Locations and passage.');}
+   }else{commitEdit(result.draft);setSelectedId(result.instanceId);setMessage(mode==='replace'?'Replaced this passage use. Both Locations and their intervals are unchanged.':'Added the chosen next Location and a new passage use.');}
+   setPassageChoice(null);
+  }catch(error){setMessage(error.message);}
+ }
+
  function undo(){if(!past.length||busy)return;setFuture(previous=>[draft,...previous].slice(0,50));setDraft(past.at(-1));setPast(past.slice(0,-1));setDirty(true);pendingKey.current=null;}
  function redo(){if(!future.length||busy)return;setPast(previous=>[...previous.slice(-49),draft]);setDraft(future[0]);setFuture(future.slice(1));setDirty(true);pendingKey.current=null;}
  async function load(row){const epoch=generation.current;setBusy(true);try{const value=await client.request('/journeys/'+encodeURIComponent(row.journey.journeyId)+'/revisions/'+encodeURIComponent(row.journey.revisionId));if(generation.current!==epoch)return;await catalog?.ensure(value.journey.instances.map(i=>i.thingRef));if(generation.current!==epoch)return;const nextIdentity={journeyId:value.journey.journeyId,revisionId:value.journey.revisionId,currentHead:value.currentHead,snapshot:value.journey};if(dirty){setPendingLoad({draft:editableJourney(value.journey),identity:nextIdentity});setMessage('A saved revision is ready to compare. Your unsaved draft is kept.');}else{recover(editableJourney(value.journey),nextIdentity,false);setMessage('Opened the exact saved revision.');}}catch(error){if(generation.current===epoch)setMessage(errorText(error));}finally{if(generation.current===epoch)setBusy(false);}}
@@ -44,7 +58,14 @@ export default function LivingLightJourneyEditor({songId,title,durationUs,regist
  async function revisions(offset=0){if(!identity)return;const epoch=generation.current;setBusy(true);setMessage('Loading saved history…');try{const result=await client.request('/journeys/'+encodeURIComponent(identity.journeyId)+'/history?limit=50&offset='+offset);if(generation.current===epoch){setHistory(previous=>offset?[...(previous||[]),...result.revisions]:result.revisions);setHistoryNext(result.nextOffset);setMessage('Saved history loaded.');}}catch(error){if(generation.current===epoch)setMessage(error.message);}finally{if(generation.current===epoch)setBusy(false);}}
  useEffect(()=>{
   if(!addRequest?.thing)return;const thing=addRequest.thing;
-  if(thing.capabilities.bridge){setBridgeId(thing.thingId);setMessage('Selected this connecting passage. Add or replace a Location connection in a tour.');return;}
+  if(busy){setMessage('The editor is working. Choose the Card again when it finishes.');return;}
+  if(thing.capabilities.bridge){
+   const locations=registry.entries.filter(t=>t.capabilities.destination),current=draftRef.current;
+   const connections=current?.mode==='tour'?current.schedule.filter(row=>registry.resolveThing(current.instances.find(item=>item.instanceId===row.instanceId).thingRef)?.capabilities.bridge):[];
+   const replace=connections.find(row=>row.instanceId===selectedId)||connections.find(row=>row.fromInstanceId===selectedId)||connections[0];
+   setPassageChoice({thing,fromRef:current?.mode==='tour'?current.instances.find(item=>item.instanceId===current.schedule[0].instanceId).thingRef:{thingId:locations[0].thingId,revisionId:locations[0].revisionId},toRef:{thingId:(locations[1]||locations[0]).thingId,revisionId:(locations[1]||locations[0]).revisionId},replaceInstanceId:replace?.instanceId||''});
+   setMessage('Choose the Locations or existing connection for this passage. Nothing has changed yet.');return;
+  }
   if(!draftRef.current){try{recover(newJourneyDraft({songId,title:(title||'Song')+' — recipe',durationUs,thing,mode:thing.capabilities.destination?'tour':'continuous'},registry),null,true);setMessage('Thing added to a new unsaved recipe.');}catch(error){setMessage(error.message);}}
   else edit({type:'add',thingRef:{thingId:thing.thingId,revisionId:thing.revisionId},bridgeRef:{thingId:bridgeId,revisionId:thingById(bridgeId)?.revisionId}});
  },[addRequest?.nonce]);
@@ -54,7 +75,21 @@ export default function LivingLightJourneyEditor({songId,title,durationUs,regist
   <div className="living-light-card-actions"><button type="button" disabled={busy||!durationUs} onClick={()=>begin('continuous')}>New Tunnel recipe</button><button type="button" disabled={busy||!durationUs} onClick={()=>begin('tour')}>New Location tour</button><button type="button" disabled={busy} onClick={()=>{const epoch=generation.current;setBusy(true);refresh(0,epoch).then(()=>{if(generation.current===epoch)setMessage('Saved Journeys refreshed; your draft is kept.');}).catch(error=>{if(generation.current===epoch)setMessage(error.message);}).finally(()=>{if(generation.current===epoch)setBusy(false);});}}>Reload saved Journeys</button></div>
   {showSavedCards&&<div className="living-light-saved-journeys">{saved.map(row=><article className="living-light-card" key={row.journey.journeyId}><small>{row.journey.mode==='tour'?'Location tour':'Tunnel recipe'} · Qualification pending</small><h5>{row.journey.title}</h5><p>{row.journey.instances.length} instances · {row.noteCount} recipe notes</p><button type="button" disabled={busy} onClick={()=>load(row)}>Open saved recipe</button></article>)}</div>}
   {showSavedCards&&nextOffset!==null&&<button type="button" disabled={busy} onClick={()=>{const epoch=generation.current;setBusy(true);setMessage('Loading more Journeys…');refresh(nextOffset,epoch).then(()=>{if(generation.current===epoch)setMessage('More Journeys loaded.');}).catch(error=>{if(generation.current===epoch)setMessage(error.message);}).finally(()=>{if(generation.current===epoch)setBusy(false);});}}>More saved Journeys</button>}
-  {pendingLoad&&<aside className="living-light-journey-comparison"><h5>Compare before replacing your draft</h5><p>Your draft: {draft?.title} · chosen recipe: {pendingLoad.draft.title}</p><p>{pendingLoad.draft.instances.length} chosen instances · {(pendingLoad.draft.schedule.at(-1).endUs/1e6).toFixed(2)} seconds. Replacing affects only the local draft.</p><button type="button" onClick={()=>{recover(pendingLoad.draft,pendingLoad.identity,!!pendingLoad.newDraft);setPendingLoad(null);setMessage('Opened the chosen saved revision.');}}>Replace local draft with chosen recipe</button><button type="button" onClick={()=>setPendingLoad(null)}>Keep my draft</button></aside>}
+  {pendingLoad&&<aside className="living-light-journey-comparison"><h5>Compare before replacing your draft</h5><p>Your draft: {draft?.title} · chosen recipe: {pendingLoad.draft.title}</p><p>{pendingLoad.draft.instances.length} chosen instances · {(pendingLoad.draft.schedule.at(-1).endUs/1e6).toFixed(2)} seconds. Replacing affects only the local draft.</p><button type="button" onClick={()=>{recover(pendingLoad.draft,pendingLoad.identity,!!pendingLoad.newDraft);setPendingLoad(null);setMessage(pendingLoad.newDraft?'Opened the chosen new unsaved draft.':'Opened the chosen saved revision.');}}>Replace local draft with chosen recipe</button><button type="button" onClick={()=>setPendingLoad(null)}>Keep my draft</button></aside>}
+  {passageChoice&&<aside className="living-light-instance-editor" aria-label="Use passage in recipe">
+   <h5>Use {passageChoice.thing.title}</h5><p>A passage connects two Locations. Choose a destination or an existing connection, then apply it. This does not change the reusable originals.</p>
+   <p>Chosen passage revision: <code>{passageChoice.thing.revisionId}</code></p>
+   {draft?.mode==='tour'?<>
+    <label>Next Location <select aria-label="Passage next Location" value={JSON.stringify(passageChoice.toRef)} disabled={busy} onChange={event=>setPassageChoice(previous=>({...previous,toRef:JSON.parse(event.target.value)}))}>{registry.entries.filter(t=>t.capabilities.destination).map(t=><option key={t.thingId+':'+t.revisionId} value={JSON.stringify({thingId:t.thingId,revisionId:t.revisionId})}>{t.title}</option>)}</select></label>
+    <p>Add at the end of this tour using eight seconds from its final Location for travel, then split the remaining dwell. Existing saved revisions are unchanged.</p><button type="button" disabled={busy} onClick={()=>usePassage('extend')}>Add Location with this passage</button>
+    {draft.schedule.some(row=>row.fromInstanceId)&&<><label>Existing connection <select aria-label="Passage existing connection" value={passageChoice.replaceInstanceId} disabled={busy} onChange={event=>setPassageChoice(previous=>({...previous,replaceInstanceId:event.target.value}))}>{draft.schedule.filter(row=>row.fromInstanceId).map(row=>{const name=id=>registry.resolveThing(draft.instances.find(item=>item.instanceId===id).thingRef)?.title;return <option key={row.instanceId} value={row.instanceId}>{name(row.fromInstanceId)} → {name(row.toInstanceId)} · {(row.startUs/1e6).toFixed(2)}–{(row.endUs/1e6).toFixed(2)}s</option>;})}</select></label><button type="button" disabled={busy||!passageChoice.replaceInstanceId} onClick={()=>usePassage('replace')}>Replace chosen connection</button></>}
+   </>:<>
+    <p>Create a separate Location tour for this song. A current unsaved draft will be kept for comparison.</p>
+    {[['fromRef','Starting Location'],['toRef','Next Location']].map(([field,label])=><label key={field}>{label} <select aria-label={'Passage '+label} disabled={busy} value={JSON.stringify(passageChoice[field])} onChange={event=>setPassageChoice(previous=>({...previous,[field]:JSON.parse(event.target.value)}))}>{registry.entries.filter(t=>t.capabilities.destination).map(t=><option key={t.thingId+':'+t.revisionId} value={JSON.stringify({thingId:t.thingId,revisionId:t.revisionId})}>{t.title}</option>)}</select></label>)}
+    <button type="button" disabled={busy||!durationUs} onClick={()=>usePassage('new')}>Create tour with this passage</button>
+   </>}
+   <button type="button" onClick={()=>setPassageChoice(null)}>Cancel passage choice</button>
+  </aside>}
   {draft&&<div className="living-light-journey-draft">
    <label>Recipe title <input key={draft.title} defaultValue={draft.title} disabled={busy} maxLength={200} onBlur={event=>{if(event.target.value!==draft.title)edit({type:'title',title:event.target.value});}}/></label>
    <p>{dirty?'Unsaved local draft':'Saved local revision'} · {draft.mode==='tour'?'Tour':'Continuous Tunnel'} · planned {(draft.schedule.at(-1).endUs/1e6).toFixed(2)} seconds. Measured signals and tour playback remain unqualified.</p>

@@ -4,6 +4,26 @@ export function editableJourney(value){const result=clone(value);for(const key o
 export function validateDraft(value,registry,durationUs){return validateJourney({...value,journeyId:'ll-journey:draft',revisionId:'ll-journey-r:draft',parentRevisionId:null},{resolveThing:registry.resolveThing,durationUs});}
 const instance=(thing,id=newId())=>({instanceId:id,thingRef:{thingId:thing.thingId,revisionId:thing.revisionId},parameters:{},bindings:{}});
 export function newJourneyDraft({songId,title,durationUs,thing,mode='continuous',seed=109},registry){const item=instance(thing),value={schemaVersion:'hapa.living-light.journey.v1',title:title||'New Journey',songId,sourceBindingRef:null,state:'draft-unresolved',mode,seed,instances:[item],schedule:[{instanceId:item.instanceId,startUs:0,endUs:durationUs}],actorTreatment:'none',mediaSlots:[]};validateDraft(value,registry,durationUs);return value;}
+/** Explicit passage choice: retain existing endpoints when replacing, or add
+ * the chosen next destination. Creating a tour never overwrites its input. */
+export function useJourneyPassage(input,{mode,passageRef,fromRef,toRef,replaceInstanceId,songId,title,durationUs},registry){
+ const passage=registry.resolveThing(passageRef);if(!passage?.capabilities.bridge)throw Error('Choose an exact connecting passage revision.');
+ if(mode==='replace'){
+  if(input?.mode!=='tour')throw Error('Choose a Location tour before replacing a connection.');
+  const current=input.instances.find(item=>item.instanceId===replaceInstanceId);
+  if(!current||!registry.resolveThing(current.thingRef)?.capabilities.bridge)throw Error('Choose an existing passage connection.');
+  return {draft:editJourneyDraft(input,{type:'replace',instanceId:replaceInstanceId,thingRef:passageRef},registry),instanceId:replaceInstanceId};
+ }
+ if(!['extend','new'].includes(mode))throw Error('Choose Add next Location, Replace connection, or Create tour.');
+ const to=registry.resolveThing(toRef);if(!to?.capabilities.destination)throw Error('Choose the next exact Location revision.');
+ let base=input;
+ if(mode==='new'){
+  const from=registry.resolveThing(fromRef);if(!from?.capabilities.destination)throw Error('Choose the starting exact Location revision.');
+  base=newJourneyDraft({songId,title,durationUs,thing:from,mode:'tour'},registry);
+ }else if(input?.mode!=='tour')throw Error('A passage connects Locations. Create a Location tour first; the current draft is kept.');
+ const draft=editJourneyDraft(base,{type:'add',thingRef:toRef,bridgeRef:passageRef},registry);
+ return {draft,instanceId:draft.schedule.at(-2).instanceId};
+}
 function rebuild(value,rows){let cursor=0;value.schedule=rows.map(row=>{const next={...row,startUs:cursor,endUs:cursor+row.lengthUs};cursor=next.endUs;delete next.lengthUs;return next;});if(value.mode==='tour')value.schedule.forEach((row,i)=>{if(i%2===1){row.fromInstanceId=value.schedule[i-1].instanceId;row.toInstanceId=value.schedule[i+1].instanceId;row.entryAnchorId='entry';row.exitAnchorId='exit';}});value.instances=value.instances.filter(item=>value.schedule.some(row=>row.instanceId===item.instanceId));}
 /** One committed editor action -> one undo snapshot. No source-time scaling. */
 export function editJourneyDraft(input,action,registry){

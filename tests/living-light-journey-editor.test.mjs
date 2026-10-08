@@ -1,9 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createLivingLightRegistry} from '../src/living-light/registry.js';
-import {newJourneyDraft,editJourneyDraft,validateDraft} from '../src/domain/living-light-journey.js';
+import {newJourneyDraft,editJourneyDraft,validateDraft,useJourneyPassage} from '../src/domain/living-light-journey.js';
 const registry=createLivingLightRegistry(),ref=thing=>({thingId:thing.thingId,revisionId:thing.revisionId}),continuous=registry.entries.filter(t=>t.capabilities.continuous),locations=registry.entries.filter(t=>t.capabilities.destination),bridges=registry.entries.filter(t=>t.capabilities.bridge);
 const make=(mode='continuous',durationUs=60000000)=>newJourneyDraft({songId:'song:one',title:'Fixture',durationUs,thing:mode==='tour'?locations[0]:continuous[0],mode},registry);
+test('every catalog passage can create an explicit tour and extend a tour without modifying its input',()=>{
+ const original=make(),before=JSON.stringify(original);
+ for(const passage of bridges){
+  const result=useJourneyPassage(original,{mode:'new',passageRef:ref(passage),fromRef:ref(locations[2]),toRef:ref(locations[1]),songId:'song:one',title:'Chosen tour',durationUs:60000000},registry);
+  assert.equal(JSON.stringify(original),before);assert.equal(result.draft.mode,'tour');assert.equal(result.draft.instances.length,3);
+  assert.deepEqual(result.draft.instances.map(i=>i.thingRef),[ref(locations[2]),ref(passage),ref(locations[1])]);
+  assert.equal(result.instanceId,result.draft.schedule[1].instanceId);assert.equal(result.draft.schedule[1].fromInstanceId,result.draft.schedule[0].instanceId);assert.equal(result.draft.schedule[1].toInstanceId,result.draft.schedule[2].instanceId);
+  const prior=JSON.stringify(result.draft),extended=useJourneyPassage(result.draft,{mode:'extend',passageRef:ref(passage),toRef:ref(locations[0])},registry);
+  assert.equal(JSON.stringify(result.draft),prior);assert.equal(extended.draft.instances.length,5);assert.equal(extended.instanceId,extended.draft.schedule[3].instanceId);assert.equal(extended.draft.schedule.at(-1).endUs,60000000);validateDraft(extended.draft,registry,60000000);
+ }
+});
+test('replacing a chosen passage keeps endpoints, all source-time intervals and other uses',()=>{
+ let draft=useJourneyPassage(null,{mode:'new',passageRef:ref(bridges[0]),fromRef:ref(locations[0]),toRef:ref(locations[1]),songId:'song:one',durationUs:120000000},registry).draft;
+ draft=useJourneyPassage(draft,{mode:'extend',passageRef:ref(bridges[1]),toRef:ref(locations[2])},registry).draft;
+ const id=draft.schedule[1].instanceId,before=JSON.stringify(draft);
+ for(const passage of bridges){const result=useJourneyPassage(draft,{mode:'replace',passageRef:ref(passage),replaceInstanceId:id},registry);assert.equal(result.instanceId,id);assert.deepEqual(result.draft.schedule,draft.schedule);assert.deepEqual(result.draft.instances.filter(i=>i.instanceId!==id),draft.instances.filter(i=>i.instanceId!==id));assert.deepEqual(result.draft.instances.find(i=>i.instanceId===id).thingRef,ref(passage));}
+ assert.equal(JSON.stringify(draft),before);
+});
+test('passage use rejects incompatible, missing, short or locked choices and preserves the draft',()=>{
+ const tour=make('tour',60000000),one=useJourneyPassage(tour,{mode:'extend',passageRef:ref(bridges[0]),toRef:ref(locations[1])},registry).draft;
+ const locked=editJourneyDraft(one,{type:'lock',instanceId:one.schedule[0].instanceId,value:true},registry),before=JSON.stringify(locked);
+ assert.throws(()=>useJourneyPassage(locked,{mode:'replace',passageRef:ref(bridges[1]),replaceInstanceId:one.schedule[1].instanceId},registry),/Unlock/);
+ assert.equal(JSON.stringify(locked),before);
+ for(const options of [
+  {mode:'extend',passageRef:ref(locations[0]),toRef:ref(locations[1])},
+  {mode:'extend',passageRef:ref(bridges[0]),toRef:ref(continuous[0])},
+  {mode:'replace',passageRef:ref(bridges[0]),replaceInstanceId:tour.instances[0].instanceId},
+  {mode:'extend',passageRef:{...ref(bridges[0]),revisionId:'missing'},toRef:ref(locations[1])},
+  {mode:'invalid',passageRef:ref(bridges[0])}
+ ]){const copy=JSON.stringify(tour);assert.throws(()=>useJourneyPassage(tour,options,registry));assert.equal(JSON.stringify(tour),copy);}
+ assert.throws(()=>useJourneyPassage(make(),{mode:'extend',passageRef:ref(bridges[0]),toRef:ref(locations[1])},registry),/current draft is kept/);
+ assert.throws(()=>useJourneyPassage(make('tour',9000000),{mode:'extend',passageRef:ref(bridges[0]),toRef:ref(locations[1])},registry),/at least ten seconds/);
+});
 test('continuous edits preserve originals, exact total time and independent instance handles',()=>{const original=make(),firstId=original.instances[0].instanceId;let next=editJourneyDraft(original,{type:'parameter',instanceId:firstId,key:'intensity',value:.44},registry);assert.equal(original.instances[0].parameters.intensity,undefined);next=editJourneyDraft(next,{type:'duplicate',instanceId:firstId},registry);assert.equal(next.instances.length,2);assert.notEqual(next.instances[0].instanceId,next.instances[1].instanceId);assert.equal(next.instances[1].parameters.intensity,.44);const secondId=next.instances[1].instanceId;next=editJourneyDraft(next,{type:'replace',instanceId:secondId,thingRef:ref(continuous[1])},registry);assert.deepEqual(next.instances[1].parameters,{});next=editJourneyDraft(next,{type:'duration',instanceId:firstId,durationUs:20000000},registry);assert.equal(next.schedule[1].endUs,60000000);assert.equal(next.schedule[1].startUs,20000000);next=editJourneyDraft(next,{type:'move',instanceId:secondId,direction:-1},registry);assert.equal(next.schedule[0].instanceId,secondId);next=editJourneyDraft(next,{type:'remove',instanceId:firstId},registry);assert.equal(next.schedule.length,1);assert.equal(next.schedule[0].endUs,60000000);assert.equal(next.instances[0].thingRef.thingId,continuous[1].thingId);validateDraft(next,registry,60000000);});
 test('tour edits reconnect explicit endpoints while keeping swapped Locations and bridge styles independent',()=>{let value=make('tour',120000000);const first=value.instances[0].instanceId;value=editJourneyDraft(value,{type:'add',thingRef:ref(locations[1]),bridgeRef:ref(bridges[0])},registry);value=editJourneyDraft(value,{type:'add',thingRef:ref(locations[2]),bridgeRef:ref(bridges[1])},registry);const second=value.schedule[2].instanceId,bridgeId=value.schedule[1].instanceId,locationRefs=value.instances.filter(i=>registry.resolveThing(i.thingRef).kind==='location').map(i=>i.thingRef);value=editJourneyDraft(value,{type:'replace',instanceId:bridgeId,thingRef:ref(bridges[2])},registry);assert.deepEqual(value.instances.filter(i=>registry.resolveThing(i.thingRef).kind==='location').map(i=>i.thingRef),locationRefs);value=editJourneyDraft(value,{type:'move',instanceId:second,direction:-1},registry);assert.equal(value.schedule[0].instanceId,second);assert.equal(value.schedule[1].fromInstanceId,second);assert.equal(value.schedule[1].toInstanceId,first);value=editJourneyDraft(value,{type:'remove',instanceId:first},registry);assert.equal(value.schedule.length,3);assert.equal(value.schedule[1].fromInstanceId,value.schedule[0].instanceId);assert.equal(value.schedule[1].toInstanceId,value.schedule[2].instanceId);assert.equal(value.schedule.at(-1).endUs,120000000);validateDraft(value,registry,120000000);});
 test('invalid gestures reject without altering the draft or silently scaling source time',()=>{const original=make();const before=JSON.stringify(original);assert.throws(()=>editJourneyDraft(original,{type:'replace',instanceId:original.instances[0].instanceId,thingRef:ref(locations[0])},registry),/same route capability/);assert.throws(()=>editJourneyDraft(original,{type:'parameter',instanceId:original.instances[0].instanceId,key:'intensity',value:NaN},registry));assert.equal(JSON.stringify(original),before);assert.throws(()=>editJourneyDraft(make('tour',9000000),{type:'add',thingRef:ref(locations[1]),bridgeRef:ref(bridges[0])},registry),/at least ten seconds/);assert.throws(()=>editJourneyDraft(original,{type:'remove',instanceId:original.instances[0].instanceId},registry),/at least one/);});
