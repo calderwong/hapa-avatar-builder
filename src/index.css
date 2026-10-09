@@ -21768,6 +21768,16 @@ h1 {
   }
 }
 
+/* The Echos view stays mounted (hidden) for background playback; its host must fill the workspace
+   cell so the view's own height:100% is definite and it scrolls instead of being clipped. */
+.echos-view-host {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.echos-view-host[hidden] { display: none; }
+
 .hapa-echos-view {
   position: relative;
   height: 100%;

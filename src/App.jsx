@@ -4006,7 +4006,7 @@ export default function App({ overcardAdapter }) {
           />
         )}
         {(activeView === "echos" || echoVisited) && (
-          <div hidden={activeView!=="echos"}><Suspense fallback={<div className="empty-state"><Loader2 size={22} /><span>Loading Echos Album</span></div>}>
+          <div className="echos-view-host" hidden={activeView!=="echos"}><Suspense fallback={<div className="empty-state"><Loader2 size={22} /><span>Loading Echos Album</span></div>}>
             <HapaEchosView
               playbackMode={activeView==="echos"?"active":"hidden"}
               livingLightOpenRequest={livingLightOpenRequest}
