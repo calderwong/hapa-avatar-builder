@@ -11,7 +11,8 @@ const dirOf = value => text(value).replace(/\/[^/]*$/, "");
 export function stemRoleLabel(record = {}) {
   const raw = text(record.stemType || record.kind || record.role || record.title || record.id);
   const wrapped = raw.match(/\(([^()]+)\)\s*$/);
-  return text(wrapped ? wrapped[1] : raw);
+  // Ingest/export file names prefix an ordinal ("0-lead-vocals", "03 - Drums").
+  return text(wrapped ? wrapped[1] : raw).replace(/^\d+\s*[-_. ]\s*/, "");
 }
 
 /** Excludes archive and master-like records that are not separable stems. */
