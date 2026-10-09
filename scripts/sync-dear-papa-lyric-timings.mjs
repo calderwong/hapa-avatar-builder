@@ -20,6 +20,9 @@ const PLAYLIST_ROOT = process.env.HAPA_DEAR_PAPA_PLAYLIST_ROOT || path.join(SUNO
 const MANIFEST_PATH = process.env.HAPA_DEAR_PAPA_MANIFEST || path.join(PLAYLIST_ROOT, "manifest.hapa-avatar-builder.json");
 const ECHO_ALIGNMENT_MANIFEST_PATH = process.env.HAPA_ECHO_LYRIC_ALIGNMENT_MANIFEST
   || path.join(ROOT, "artifacts/echo-lyric-quality-v4/alignment-manifest.json");
+// Promotion destination for Audio Atlas timing (scripts/atlas-lyric-timing.mjs); read first so a
+// promoted song is synced even when no playlist or alignment manifest lists it yet.
+const BUILDER_TIMING_DIR = process.env.HAPA_ECHO_LYRIC_TIMING_STORE || path.join(DATA_DIR, "echo-lyric-sources", "lyric_timings");
 const SCRIPT_NAME = "scripts/sync-dear-papa-lyric-timings.mjs";
 const args = new Set(process.argv.slice(2));
 const APPLY_MUTATIONS = args.has("--apply") || process.env.HAPA_DEAR_PAPA_TIMINGS_APPLY === "1";
@@ -157,6 +160,7 @@ function normalizeTimingLines(lines = []) {
 
 function readTimingForManifestSong(song = {}) {
   const candidates = [
+    song.id ? path.join(BUILDER_TIMING_DIR, `${song.id}.json`) : "",
     song.id ? path.join(PLAYLIST_ROOT, "lyric_timings", `${song.id}.json`) : "",
     song.lyricTimingPath,
     song.localDir ? path.join(song.localDir, "lyric-timing.json") : "",
@@ -205,7 +209,12 @@ const manifest = readJson(MANIFEST_PATH);
 const echoAlignmentManifest = fs.existsSync(ECHO_ALIGNMENT_MANIFEST_PATH)
   ? readJson(ECHO_ALIGNMENT_MANIFEST_PATH)
   : { songs: [] };
+const builderTimingSongs = fs.existsSync(BUILDER_TIMING_DIR)
+  ? fs.readdirSync(BUILDER_TIMING_DIR).filter((name) => name.endsWith(".json") && !name.endsWith(".stt.json"))
+    .map((name) => ({ id: name.replace(/\.json$/, ""), title: readJson(path.join(BUILDER_TIMING_DIR, name)).title || "" }))
+  : [];
 const manifestSongs = [...new Map([
+  ...builderTimingSongs,
   ...(echoAlignmentManifest.songs || []),
   ...(manifest.songs || []),
 ].map((song) => [String(song.id || ""), song])).values()];

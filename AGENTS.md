@@ -149,3 +149,11 @@ For Echo Album continuation, read `$HAPA_FRONT_DOOR_ROOT/docs/REQUIREMENT_COMPLE
 18|
 19|Ownership & conflict rules: board event log wins task truth; `avatar-store.json` wins lore; SB ledger wins durability; Hermes `MEMORY.md` is a derived cache. No store writes another store's database directly — cross-store writes go through the owner's API/CLI. Builder→SB flows through the subscriber outbox (`data/subscribers/hapa-second-brain.ndjson`); SB→boards is read-only ingress links (`docs/KANBAN_UI_INGRESS.md`).
 20|
+
+<!-- HAPA_AUDIO_ATLAS_OWNER_V1 -->
+## Audio Atlas is the song-understanding and lyric-timing owner (2026-10-09)
+
+- Echo song analysis, transcription and measured lyric timing run through the **Audio Atlas** (`cli/audio-atlas.mjs`, `server/audio-atlas.mjs`) on local **MLX** models: MLX Whisper large-v3 (`data/audio-atlas/local-model.json`) and Qwen3-ForcedAligner MLX (`data/audio-atlas/alignment-model.json`). Check those configs before choosing any audio or lyric tool.
+- Whole-song lyric timing: `scripts/atlas-lyric-timing.mjs` (plan → align → assemble), then the shared promotion gate and `scripts/sync-dear-papa-lyric-timings.mjs`. Protocol: `docs/audio-atlas/LYRIC_TIMING.md`.
+- Do **not** regress to the Hapa Music Viz `enrich_suno_playlist_lyrics.py` / whisper.cpp / ggml path because it looks simpler or an older doc names it. It is legacy; update any doc that still points there.
+- Every consumer uses exactly one stem set per song (`src/domain/echo-stem-set.js`): one generation, one record per role, WAV preferred. Never feed every stem file or both the WAV and MP3 copies; duplicate roles/files are refused by the Atlas, the eligibility audit and the batch coordinator. Stem roles must be role names (`Lead Vocals`), not file stubs (`0-lead-vocals`).

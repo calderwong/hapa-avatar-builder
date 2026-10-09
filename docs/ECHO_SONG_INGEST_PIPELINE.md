@@ -96,41 +96,30 @@ The local-H3 worker owns one global Metal lock. If a worker is already draining 
 Registration creates line and word timestamps shaped by the verified master duration. They are deliberately labeled `audio-duration-shaped-provisional`, use confidence `0.35`, and mark every word `matched: false`. This makes them immediately usable for rough scripting while keeping the forced-alignment gate visible.
 
 Do not rename or promote this interpolation as measured timing. Replace it with
-the Hapa Music Viz reconciliation pipeline against an isolated vocal or
-reproducible vocal mix:
+**Audio Atlas** timing (active protocol, 2026-10-09): MLX Whisper large-v3 words on the
+isolated Lead Vocals stem locate each lyric line, then the Atlas Qwen3 forced aligner (MLX)
+places the supplied lyrics in ≤30 s windows. Full procedure and guarantees:
+[`docs/audio-atlas/LYRIC_TIMING.md`](audio-atlas/LYRIC_TIMING.md).
 
 ```bash
-HAPA_MUSIC_VIZ_WHISPER_NO_GPU=1 \
-python3 "$HAPA_MUSIC_VIZ_ROOT/scripts/enrich_suno_playlist_lyrics.py" \
-  /absolute/path/to/alignment-workspace \
-  --manifest /absolute/path/to/alignment-manifest.json \
-  --out-dir /absolute/path/to/candidates \
-  --stt-source vocals \
-  --song-id SUNO_UUID \
-  --force --no-manifest-update --stop-on-error
+node cli/audio-atlas.mjs analyze SONG_ID --transcribe --beats --acoustic --pitch-source=stem-N
+node scripts/atlas-lyric-timing.mjs plan --song=SONG_ID --out=WORK_DIR
+node scripts/atlas-lyric-timing.mjs align --plan=WORK_DIR/plan.json
+node scripts/atlas-lyric-timing.mjs assemble --plan=WORK_DIR/plan.json --candidates=WORK_DIR/candidates
 ```
 
-The default supported-model path keeps the normal Whisper transcript and uses
-a second cross-attention DTW pass only to refine nearby exact-word boundaries.
-It retains both candidates and reports `granularity: word-estimate`; it is not a
-syllable aligner. GPU runs automatically retry on CPU when whisper.cpp fails or
-returns no JSON.
+Before analysis, make sure the Song Card's stem roles are real role names (`Lead Vocals`,
+`Backing Vocals`, …), not ingest file stubs such as `0-lead-vocals`; the Atlas worker selects the
+transcription and pitch source by role name and otherwise falls back to the full mix.
 
-For an already accepted song, do not risk a new transcript. Reuse its accepted
-STT sidecar and run only the boundary-refinement pass:
-
-```bash
-python3 "$HAPA_MUSIC_VIZ_ROOT/scripts/enrich_suno_playlist_lyrics.py" \
-  /absolute/path/to/alignment-workspace \
-  --manifest /absolute/path/to/alignment-manifest.json \
-  --out-dir /absolute/path/to/candidates \
-  --base-stt-dir "$HAPA_BUILDER_ROOT/data/echo-lyric-sources/lyric_timings" \
-  --stt-source vocals --song-id SUNO_UUID \
-  --force --no-manifest-update --stop-on-error
-```
+Legacy (do not use for new work): the Hapa Music Viz `enrich_suno_playlist_lyrics.py`
+whisper.cpp/ggml pipeline produced the timing of earlier songs such as Gnow Her. Its output
+remains readable and promotable as a legacy measured engine, and accepted Atlas timing
+supersedes it.
 
 Run the promotion command without `--apply` first, inspect its report, then
-apply. Equal-confidence replacement is allowed only for a hash-identical hybrid
+apply. An accepted Audio Atlas candidate supersedes legacy whisper.cpp timing for the same
+lyrics; otherwise equal-confidence replacement is allowed only for a hash-identical hybrid
 boundary upgrade with no regression in coverage, counts, warnings, or structure.
 The apply pass backs up the timing and STT files before replacement.
 

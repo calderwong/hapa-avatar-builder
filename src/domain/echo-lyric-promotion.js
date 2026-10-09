@@ -1,5 +1,10 @@
 export const ECHO_LYRIC_PROMOTION_SCHEMA = "hapa.echo.lyric-promotion-gate.v1";
 export const DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE = 0.6;
+// Audio Atlas (MLX Whisper + Qwen3 forced alignment on the isolated vocal stem) is the current
+// measured timing owner; whisper.cpp (Hapa Music Viz) remains accepted as a legacy measured engine.
+export const ECHO_LYRIC_ATLAS_ENGINE = "audio-atlas-mlx";
+export const ECHO_LYRIC_LEGACY_ENGINES = Object.freeze(["whisper-cli", "whisper.cpp"]);
+export const ECHO_LYRIC_MEASURED_ENGINES = Object.freeze([ECHO_LYRIC_ATLAS_ENGINE, ...ECHO_LYRIC_LEGACY_ENGINES]);
 export const ECHO_LYRIC_ADJUDICATION_SCHEMA = "hapa.echo.lyric-evidence-adjudication.v1";
 export const ECHO_LYRIC_ADJUDICATION_POLICY = "near-threshold-clean-alignment-v1";
 export const ECHO_LYRIC_SPARSE_LINE_ADJUDICATION_POLICY = "high-word-coverage-sparse-line-anchors-v1";
@@ -262,7 +267,7 @@ export function evaluateEchoLyricTimingPromotion(timing = {}, {
   }
   if (!sourcePathExists) reasons.push("timing-sidecar-missing");
   if (!sttPathExists) reasons.push("stt-sidecar-missing");
-  if (!["whisper-cli", "whisper.cpp"].includes(engine)) reasons.push("non-measured-engine");
+  if (!ECHO_LYRIC_MEASURED_ENGINES.includes(engine)) reasons.push("non-measured-engine");
   if (!text(provenance.audioPath)) reasons.push("audio-source-path-missing");
   if (!text(provenance.audioSha256)) reasons.push("audio-source-hash-missing");
   if (!text(provenance.lyricsPath)) reasons.push("lyric-source-path-missing");
@@ -297,6 +302,13 @@ export function compareEchoLyricTimingCandidate({
   }
   if (!existing || existingPromotion?.accepted !== true) {
     return { selected: true, reason: "replaces-unaccepted-or-missing" };
+  }
+  // Confidence is engine-specific, so an accepted Atlas candidate supersedes legacy whisper.cpp timing
+  // for the same audio and lyrics instead of competing on the legacy confidence scale.
+  const engineOf = (timing) => text(timing.engine || timing.provenance?.timingSource);
+  if (engineOf(candidate) === ECHO_LYRIC_ATLAS_ENGINE && ECHO_LYRIC_LEGACY_ENGINES.includes(engineOf(existing))
+    && text(candidate.provenance?.lyricsSha256) && text(candidate.provenance?.lyricsSha256) === text(existing.provenance?.lyricsSha256)) {
+    return { selected: true, reason: "audio-atlas-supersedes-legacy-engine" };
   }
   const candidateConfidence = Number(candidate.confidence || 0);
   const existingConfidence = Number(existing.confidence || 0);
