@@ -149,7 +149,7 @@ export default function EchoLyricTimingEditor({ project, currentTime = 0, analys
         <strong style={{ color: "#67e8f9", fontSize: 16 }}>Lyric timing review</strong>
         <button type="button" style={buttonStyle} disabled={disabled || !state?.undo?.length} onClick={() => commit({ type: "undo" })}>Undo lyric correction</button>
       </div>
-      <p style={{ margin: 0, color: "#94a3b8", lineHeight: 1.5 }}>Changes belong to this cut and persist when you save it. Editing preserves source evidence; it does not verify vocal alignment. Changed words use phrase timing until independently verified.</p>
+      <p style={{ margin: 0, color: "#94a3b8", lineHeight: 1.5 }}>Changes belong to this cut and persist when you save it. Editing preserves source evidence; it does not verify vocal alignment. Changed words animate on your corrected timing and stay marked unverified until independently checked.</p>
       <div data-testid="echo-lyric-precision" style={{ display: "grid", gap: 5, padding: 10, border: `1px solid ${precision.exactSyllableReady ? "#22c55e" : "#a16207"}`, borderRadius: 5, background: precision.exactSyllableReady ? "rgba(20,83,45,.2)" : "rgba(113,63,18,.18)" }}>
         <strong>{precision.label} · animation: {precision.animationUnit}</strong>
         <span>{precision.counts.matchedWords}/{precision.counts.words} words have direct STT anchors · {precision.counts.trustworthySyllables}/{precision.counts.syllables} syllables have explicit acoustic/review evidence</span>
