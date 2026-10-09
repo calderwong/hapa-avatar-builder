@@ -48,15 +48,9 @@ function resolveRegistryRoute(pathname, {
   const matches = (registry.songs || []).filter((entry) => entry?.id === songId || (!exactIdentityOnly && entry?.title === songId));
   if(exactIdentityOnly && matches.length > 1) return null;
   const song = matches[0];
-  const candidate = route === "audio" ? song?.localPath : song?.raw?._hapaPlaylistExport?.coverPath;
-  if (candidate) return path.resolve(candidate);
-  if (route !== "audio") return null;
-
-  // Incremental Echo ingests enter Builder-owned custody before they are
-  // necessarily mirrored into the external Song Registry. Keep the stable
-  // registry route, but resolve only an exact identity match from the local
-  // song store and prefer the ingested WAV master over its MP3 derivative.
-  const store = songStorePayload || (songStorePath ? readJson(songStorePath) : null);
+  // Builder-owned custody: incremental ingests may not be mirrored into the external Song Registry yet,
+  // and the Audio Atlas analyzes the Builder song's WAV master. Resolve only an exact identity match.
+  const store = route === "audio" ? songStorePayload || (songStorePath ? readJson(songStorePath) : null) : null;
   const localSongs = (store?.songs || []).filter((entry) => [
     entry?.id,
     entry?.songId,
@@ -66,7 +60,13 @@ function resolveRegistryRoute(pathname, {
     entry?.attribution?.songRegistryTrackId,
   ].some((identity) => text(identity) === songId));
   if (exactIdentityOnly && localSongs.length > 1) return null;
-  return localSongAudioPath(localSongs[0]);
+  const localMaster = localSongAudioPath(localSongs[0]);
+  // A verified Builder WAV master wins so playback, Director preparation and Atlas analysis share bytes.
+  if (localMaster && /\.(wav|wave)$/iu.test(localMaster) && fs.existsSync(localMaster)) return localMaster;
+  const candidate = route === "audio" ? song?.localPath : song?.raw?._hapaPlaylistExport?.coverPath;
+  if (candidate) return path.resolve(candidate);
+  if (route !== "audio") return null;
+  return localMaster;
 }
 
 export function resolveEchoRuntimeMediaUri(uri, {

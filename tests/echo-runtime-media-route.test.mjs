@@ -173,3 +173,17 @@ test("Echo audio loads and retries always bypass stale browser responses", () =>
     options: { cache: "no-store" },
   });
 });
+
+test("a verified Builder WAV master wins over the Registry MP3 so playback matches Atlas analysis", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "echo-wav-master-"));
+  const wav = path.join(dir, "master.wav");
+  fs.writeFileSync(wav, "RIFF....WAVE");
+  const options = {
+    registryPayload: { songs: [{ id: "track-1", localPath: "/playlist/song.mp3" }] },
+    songStorePayload: { songs: [{ id: "dear-papa-song-x", audio: { registryTrackId: "track-1", localPath: wav, mp3Path: "/playlist/song.mp3" } }] },
+  };
+  assert.equal(resolveEchoRuntimeMediaUri("/api/song-registry/audio/track-1", options).resolvedPath, wav);
+  // Without an existing Builder WAV the Registry path is still used.
+  fs.rmSync(wav);
+  assert.equal(resolveEchoRuntimeMediaUri("/api/song-registry/audio/track-1", options).resolvedPath, "/playlist/song.mp3");
+});
