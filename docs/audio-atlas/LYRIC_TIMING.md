@@ -48,10 +48,15 @@ For an album batch, run step 1 through the Atlas album coordinator
   `alignment: {sourceId, startSeconds, endSeconds, text}`, waits, and records the run ID.
   Each window is an ordinary Atlas job: same cache identity, provenance, cancellation and
   review surfaces. Re-running resumes from the first incomplete window.
-- **assemble** maps every Qwen3 word interval back to its lyric line by character offset,
-  interpolates zero-duration / unsupported words inside their line (`matched: false`), clamps
-  any line overlap, and writes a `hapa.suno_playlist_lyric_timing.v1` file plus `.stt.json`
-  sidecar with engine `audio-atlas-mlx`.
+- **assemble** maps every Qwen3 word interval back to its lyric line by character offset and
+  places each unsupported word (`matched: false`) *between its aligned neighbours* by character
+  weight with `echoLyricResolvedWordIntervals` (the same resolver the renderer uses). A word the
+  aligner skipped between two adjacent matches borrows up to half of each neighbour (≥ 150 ms);
+  leading/trailing unmatched words extend the line up to 0.3 s per word into the surrounding
+  silence; out-of-order matches lose their anchor. Word intervals never overlap. (Before
+  2026-10-09 unmatched words were spread over the whole line and overlapped aligned words —
+  Hey Sister had 26 such overlaps.) Line overlaps are clamped, and the step writes a
+  `hapa.suno_playlist_lyric_timing.v1` file plus `.stt.json` sidecar with engine `audio-atlas-mlx`.
 - **confidence** = aligned-word ratio × agreement ratio, where agreement is the share of aligned
   words whose start lies within ±1 s of the same word from MLX Whisper. It is cross-model machine
   evidence, not human review. `low_match_ratio` (< 0.6) and `many_unmatched_lines` (> 20 %)
@@ -63,7 +68,27 @@ For an album batch, run step 1 through the Atlas album coordinator
 legacy whisper.cpp engines; every other gate (≥ 0.60 confidence, interval validity, sidecars,
 audio/lyric hashes) is unchanged. An accepted Atlas candidate supersedes accepted legacy
 whisper.cpp timing for the same lyrics (`audio-atlas-supersedes-legacy-engine`), because the two
-engines' confidence scales are not comparable. Promotion backs up the replaced files.
+engines' confidence scales are not comparable. A re-assembly of the same engine's evidence (same
+audio and lyric hashes, no stat regression) that has fewer overlapping word intervals is promoted as
+`word-interval-repair`. Promotion backs up the replaced files.
+
+## How timing reaches the screen
+
+`src/domain/echo-lyric-template-runtime.js` never hides a lyric line and production frames never
+print timing provenance (it stays in `data-timing-mode`, `data-timing-reason` and
+`data-timing-label` on the overlay element):
+
+- **word** mode — every word anchored, *or* at least half anchored, *or* first and last words
+  anchored with at least a third anchored. Unanchored words animate on their interpolated
+  interval (`timingPolicy.interpolatedWords`).
+- **phrase** mode — no usable anchors, too few, or synthetic timing. Multi-word templates show the
+  line statically (paged by the template's word limit so it never overflows); one-word templates
+  (Center Word Focus, Prism Slam, Letterfall Totem) still step through the interpolated words.
+- One-word templates hold the last sung word through gaps between words, so they never blink out.
+
+`renderEchoLyricSurface` lays out one box per word in every mode, clamps each panel to the
+title-safe width, and shrinks the font until no word is wider than its column and the panel fits
+the safe area (vertical included). A token that still cannot fit may break inside itself.
 
 `scripts/sync-dear-papa-lyric-timings.mjs` reads `data/echo-lyric-sources/lyric_timings/` first, so
 promoted Atlas timing reaches the Song Card and Director project even for songs that are not yet
@@ -71,6 +96,7 @@ in the Suno playlist snapshot.
 
 ## Limits
 
-English only (Atlas aligner contract). A forced aligner can place supplied words on silence; the
+English only (`align` passes `language: 'English'`; lines in Japanese, e.g. Green XX Asia and
+Dear Papa XX Asia, are not aligned and fall back to phrase display). A forced aligner can place supplied words on silence; the
 Atlas RMS abstention and the MLX Whisper agreement term are the guards, not proof of performance.
 No syllable or phoneme timing. Human review of boundaries remains open.

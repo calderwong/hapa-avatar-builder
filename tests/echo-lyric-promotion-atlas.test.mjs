@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   compareEchoLyricTimingCandidate,
   ECHO_LYRIC_ATLAS_ENGINE,
+  echoLyricWordOverlapCount,
   evaluateEchoLyricTimingPromotion,
 } from "../src/domain/echo-lyric-promotion.js";
 
@@ -33,4 +34,16 @@ test("accepted Atlas timing supersedes accepted legacy whisper.cpp timing for th
   assert.equal(otherLyrics.selected, false);
   const rejected = compareEchoLyricTimingCandidate({ candidate, existing, candidatePromotion: { accepted: false }, existingPromotion: { accepted: true } });
   assert.equal(rejected.selected, false);
+});
+
+test("a same-evidence Atlas re-assembly that removes overlapping word intervals is promoted as a repair", () => {
+  const existing = timing(ECHO_LYRIC_ATLAS_ENGINE, 0.8), candidate = timing(ECHO_LYRIC_ATLAS_ENGINE, 0.8);
+  existing.lines[0].words[1] = { text: "words", start: 1.3, end: 2 };
+  assert.equal(echoLyricWordOverlapCount(existing), 1);
+  assert.equal(echoLyricWordOverlapCount(candidate), 0);
+  const accepted = { candidatePromotion: { accepted: true }, existingPromotion: { accepted: true } };
+  assert.deepEqual(compareEchoLyricTimingCandidate({ candidate, existing, ...accepted }), { selected: true, reason: "word-interval-repair" });
+  assert.equal(compareEchoLyricTimingCandidate({ candidate: existing, existing: candidate, ...accepted }).selected, false);
+  assert.equal(compareEchoLyricTimingCandidate({ candidate: timing(ECHO_LYRIC_ATLAS_ENGINE, 0.8, "changed"), existing, ...accepted }).selected, false);
+  assert.equal(compareEchoLyricTimingCandidate({ candidate: timing(ECHO_LYRIC_ATLAS_ENGINE, 0.7), existing, ...accepted }).selected, false);
 });

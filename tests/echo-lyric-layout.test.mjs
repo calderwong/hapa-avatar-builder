@@ -22,7 +22,7 @@ test('impossible caption avoidance is explicit and custom safe margins change ex
 test('word animation remains inside its cached rectangle without layout reads',()=>{
  const value=fitEchoLyricWordMotion({scale:1.16,rotateDegrees:8,translateX:-30,translateY:30},{x:0,y:0,width:500,height:60},{x:-20,y:-14,width:540,height:88});assert.match(value,/translate\(/);assert.ok(!value.includes('NaN'));
 });
-test('out-of-phrase, overlapping and explicitly unaligned words use honest phrase fallback',()=>{
+test('out-of-phrase, overlapping and explicitly unaligned words keep an honest reason while anchors drive word timing',()=>{
  const line={start:1,end:3,words:[{word:'hold',start:1,end:2,confidence:.9},{word:'on',start:2,end:3,confidence:.9}]};assert.equal(echoLyricWordTimingPolicy(line).mode,'word');
  for(const [patch,reason]of [[{start:1.9},'overlapping-word-intervals'],[{end:3.1},'word-outside-phrase'],[{matched:false},'word-unaligned']]){const copy=structuredClone(line);Object.assign(copy.words[1],patch);assert.equal(echoLyricWordTimingPolicy(copy).reason,reason)}
 });

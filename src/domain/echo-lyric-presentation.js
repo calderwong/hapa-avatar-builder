@@ -46,7 +46,8 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
   const bottom = validInset(contract.safeArea?.lyricBottom ?? profile.safeArea?.lyricBottom, .1);
   const position = singleWordFocus || squareMosaic ? 'center' : contract.position || 'bottom-center';
   const side = /left|right/.test(position), top = /top|upper/.test(position), center = position === 'center' || position === 'side-right';
-  const maxWidth = squareMosaic
+  // Every template's panel stays inside the title-safe width.
+  const maxWidth = Math.min(width * (1 - 2 * inset), squareMosaic
     ? Math.min(width, height) * .72
     : verticalPoster
       ? Math.min(width * .62, height * .68)
@@ -54,7 +55,7 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
         ? width * .9
         : letterfallTotem
           ? Math.min(width * .28, height * .38)
-      : width * (singleWordFocus ? .84 : position === 'side-right' ? .5 : side ? .72 : 1-2*inset);
+      : width * (singleWordFocus ? .84 : position === 'side-right' ? .5 : side ? .72 : 1-2*inset));
   const fontRatio = centerWordFocus ? .11 : prismSlam ? .15 : letterfallTotem ? .066 : squareMosaic ? .055 : verticalPoster ? .065 : letterWave ? .072 : kineticTypewriter ? .06 : .052;
   const fontSize = Math.round(Math.min(width,height)*fontRatio*fontScale);
   const panel = { position:'absolute', boxSizing:'border-box', width:maxWidth+'px', padding:'18px 24px',
@@ -256,13 +257,12 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   if(!element)return null;
   let state=element.__echoLyricSurface;
   if(!state){
-    const doc=element.ownerDocument,stage=doc.createElement('div'),panel=doc.createElement('div'),words=doc.createElement('div'),label=doc.createElement('div');
-    stage.dataset.lyricStage='true';panel.dataset.lyricPanel='true';words.dataset.lyricWords='true';label.dataset.testid='echo-lyric-timing-label';
+    const doc=element.ownerDocument,stage=doc.createElement('div'),panel=doc.createElement('div'),words=doc.createElement('div');
+    stage.dataset.lyricStage='true';panel.dataset.lyricPanel='true';words.dataset.lyricWords='true';
     Object.assign(stage.style,{position:'absolute',left:'0',top:'0',transformOrigin:'0 0',pointerEvents:'none'});
     Object.assign(words.style,{display:'block',position:'relative',overflow:'visible'});
-    Object.assign(label.style,{font:'500 22px/1.3 system-ui, sans-serif',letterSpacing:'0',marginTop:'10px',opacity:'.8',textShadow:'none'});
-    panel.append(words,label);stage.append(panel);element.replaceChildren(stage);
-    state={stage,panel,words,label,nodes:[],glyphNodes:[],caretNodes:[],key:'',layouts:new Map(),layoutBuilds:0,layoutHits:0};element.__echoLyricSurface=state;
+    panel.append(words);stage.append(panel);element.replaceChildren(stage);
+    state={stage,panel,words,nodes:[],glyphNodes:[],caretNodes:[],key:'',layouts:new Map(),layoutBuilds:0,layoutHits:0};element.__echoLyricSurface=state;
   }
   if(!Array.isArray(state.glyphNodes))state.glyphNodes=state.nodes.map(()=>[]);
   if(!Array.isArray(state.caretNodes))state.caretNodes=state.nodes.map(()=>null);
@@ -274,11 +274,13 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   const presentation=state.presentation;
   element.dataset.timingMode=frame.timingPolicy.mode;element.dataset.timingReason=frame.timingPolicy.reason;element.dataset.templateId=frame.templateId;
   const sourceWords=Array.isArray(line.words)?line.words:[],singleWordFocus=Boolean(presentation.singleWordOnly);
-  // Phrase fallback displays the selected source text, not stale aligned tokens.
-  const rows=singleWordFocus?frame.words.filter(word=>word.display):frame.timingPolicy.mode!=='phrase'&&sourceWords.length?frame.words.filter(word=>word.display):[{index:0,displayText:frame.displayText||line.text,opacity:1,scale:1}];
+  // Every mode lays out one box per word so long phrases wrap inside the panel;
+  // a line without word rows is split on whitespace for the same reason.
+  const rows=sourceWords.length?frame.words.filter(word=>word.display):String(frame.displayText||line.text||'').split(/\s+/u).filter(Boolean).map((displayText,index)=>({index,displayText,opacity:1,scale:1}));
   state.rows=rows;state.contract=contract;
-  const label=!singleWordFocus&&frame.timingPolicy.mode==='phrase'?frame.timingPolicy.label:'';
-  const contentKey=JSON.stringify([line.id,line.start??line.startSeconds,line.end??line.endSeconds,rows.map(w=>[w.index,w.displayText]),label]);
+  // Timing provenance stays in data attributes; production frames never print it.
+  element.dataset.timingLabel=frame.timingPolicy.label||'';
+  const contentKey=JSON.stringify([line.id,line.start??line.startSeconds,line.end??line.endSeconds,rows.map(w=>[w.index,w.displayText])]);
   if(state.contentKey!==contentKey||state.protection!==protection){
     if(state.protection!==protection)state.layouts.clear();
     state.contentKey=contentKey;state.protection=protection;
@@ -287,7 +289,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     state.panel.removeAttribute('style');Object.assign(state.panel.style,presentation.panel);
     state.words.removeAttribute('style');Object.assign(state.words.style,echoLyricWordsLayoutStyle(presentation,rows.length));
     Object.assign(state.stage.style,{width:presentation.width+'px',height:presentation.height+'px'});
-    state.label.textContent=label;state.label.style.display=label?'block':'none';
+    state.panel.querySelector?.('[data-testid="echo-lyric-timing-label"]')?.remove();
     state.nodes.forEach((node,index)=>{
       const row=rows[index],characters=Array.isArray(row.characters)?row.characters:[];
       node.replaceChildren();state.glyphNodes[index]=[];state.caretNodes[index]=null;
@@ -306,11 +308,30 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     if(!layout){
       state.words.style.height='auto';let fontSize=presentation.fontSize;
       const minimumFontSize=Math.round(Math.min(presentation.width,presentation.height)*.028);
+      const hardMinimumFontSize=Math.max(10,Math.round(Math.min(presentation.width,presentation.height)*.014));
+      const marginX=presentation.width*presentation.inset,marginY=presentation.height*presentation.inset;
+      // Text must stay inside its panel and the panel inside the title-safe frame:
+      // no word box may be wider than the text column, no glyph run may overflow
+      // its word box, and the whole panel must fit the stage safe area.
+      const overflows=()=>{
+        const column=state.words.clientWidth||parseFloat(presentation.panel.width)||presentation.width;
+        if(state.panel.offsetWidth>presentation.width-2*marginX+1||state.panel.offsetHeight>presentation.height-2*marginY+1)return true;
+        // Natural (unclamped) word width against the column; glyph letter-spacing
+        // and motion overshoot are not layout overflow, so scrollWidth is not used.
+        state.nodes.forEach(node=>{node.style.width='max-content';node.style.maxWidth='none';});
+        const wide=state.nodes.some(node=>node.offsetWidth>column+1);
+        state.nodes.forEach(node=>{node.style.width='';node.style.maxWidth='100%';});
+        return wide;
+      };
+      state.panel.style.fontSize=fontSize+'px';
+      while(overflows()&&fontSize>hardMinimumFontSize){fontSize=Math.max(hardMinimumFontSize,fontSize-2);state.panel.style.fontSize=fontSize+'px';}
       // Measure only when preparing a new phrase/window. Prefer its authored
       // font, then reduce within the readability floor if no clear anchor fits.
       while(!presentation.fixedCenter&&chooseEchoLyricPlacement({presentation,panelHeight:state.panel.offsetHeight,obstacles}).status!=='clear'&&fontSize>minimumFontSize){
         fontSize=Math.max(minimumFontSize,fontSize-2);state.panel.style.fontSize=fontSize+'px';
       }
+      // A single token that still cannot fit (e.g. an unspaced CJK line) may break inside itself.
+      if(overflows())state.nodes.forEach(node=>Object.assign(node.style,{whiteSpace:'normal',overflowWrap:'anywhere',wordBreak:'break-all'}));
       const boxes=state.nodes.map(node=>({x:node.offsetLeft,y:node.offsetTop,width:node.offsetWidth,height:node.offsetHeight}));
       const glyphBoxes=state.glyphNodes.map((glyphs,index)=>glyphs.map(glyph=>echoLyricGlyphMeasurementBox(glyph,state.nodes[index])));
       layout={boxes,height:state.words.offsetHeight,width:state.words.clientWidth,panelHeight:state.panel.offsetHeight,fontSize,
@@ -428,11 +449,6 @@ export function paintEchoLyricSurfaceToCanvas(context,element,{width,height}={})
     const underline=Number(row.underlineProgress||0);
     if(!presentation.fixedCenter&&underline>0){context.shadowColor='transparent';context.fillStyle=presentation.accent;context.fillRect(-box.width/2,box.height/2-3,Math.max(0,Math.min(1,underline))*box.width,3);}
     context.restore();
-  }
-  const timingLabel=String(state.label?.textContent||'');
-  if(timingLabel&&state.label?.style?.display!=='none'){
-    context.globalAlpha=.8;context.font='500 22px system-ui, sans-serif';context.fillStyle=presentation.text;context.shadowColor='transparent';
-    context.fillText(timingLabel,wordsX,wordsY+Number(layout.height||0)+10);
   }
   const accentCanvas=state.panel?.querySelector?.('[data-echo-lyric-accents]');
   if(accentCanvas&&Number(accentCanvas.width||0)>0&&Number(accentCanvas.height||0)>0){

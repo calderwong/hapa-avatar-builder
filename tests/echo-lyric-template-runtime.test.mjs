@@ -6,6 +6,7 @@ import {
   echoLyricAuthoredWordSurfaces,
   echoLyricDisplayWindow,
   echoLyricFrameTime,
+  echoLyricResolvedWordIntervals,
   echoLyricTemplateRuntimeBrowserSource,
   resolveEchoLyricTemplateFrame,
 } from "../src/domain/echo-lyric-template-runtime.js";
@@ -112,7 +113,7 @@ test("letter templates animate individual glyphs from the measured word interval
   }
 });
 
-test("center word focus shows exactly the active measured word and stays blank without one", () => {
+test("center word focus shows exactly one word and never blanks out mid-line", () => {
   const active = resolveEchoLyricTemplateFrame({
     project: { lyrics: { enabled: true, templateId: "center-word-focus-v1" } },
     line,
@@ -140,9 +141,11 @@ test("center word focus shows exactly the active measured word and stays blank w
     timeSeconds: 1.3,
     fps: 30,
   });
-  assert.equal(gap.visible, false);
-  assert.equal(gap.displayText, "");
-  assert.equal(gap.words.filter((word) => word.display).length, 0);
+  // The last sung word holds through the inter-word gap instead of blinking out.
+  assert.equal(gap.visible, true);
+  assert.equal(gap.displayText, "Hold");
+  assert.equal(gap.words.filter((word) => word.display).length, 1);
+  assert.equal(gap.words.filter((word) => word.active).length, 0);
 
   const partial = structuredClone(gapLine);
   partial.words[0].matched = true;
@@ -153,8 +156,9 @@ test("center word focus shows exactly the active measured word and stays blank w
     timeSeconds: 1.1,
     fps: 30,
   });
-  assert.equal(directAnchor.timingPolicy.mode, "phrase");
+  assert.equal(directAnchor.timingPolicy.mode, "word");
   assert.equal(directAnchor.timingPolicy.reason, "word-unaligned");
+  assert.equal(directAnchor.timingPolicy.interpolatedWords, 1);
   assert.equal(directAnchor.visible, true);
   assert.equal(directAnchor.displayText, "Hold");
   const interpolated = resolveEchoLyricTemplateFrame({
@@ -163,8 +167,8 @@ test("center word focus shows exactly the active measured word and stays blank w
     timeSeconds: 1.6,
     fps: 30,
   });
-  assert.equal(interpolated.visible, false);
-  assert.equal(interpolated.displayText, "");
+  assert.equal(interpolated.visible, true);
+  assert.equal(interpolated.displayText, "still");
 
   const unverified = structuredClone(gapLine);
   unverified.words[0].confidence = .4;
@@ -174,9 +178,10 @@ test("center word focus shows exactly the active measured word and stays blank w
     timeSeconds: 1.1,
     fps: 30,
   });
-  assert.equal(phraseFallback.timingPolicy.mode, "phrase");
-  assert.equal(phraseFallback.visible, false);
-  assert.equal(phraseFallback.displayText, "");
+  // One of two words keeps its acoustic anchor; the other is interpolated, not hidden.
+  assert.equal(phraseFallback.timingPolicy.mode, "word");
+  assert.equal(phraseFallback.visible, true);
+  assert.equal(phraseFallback.displayText, "Hold");
 });
 
 test("disabled contracts retain timing but emit no visible template frame", () => {
@@ -264,24 +269,57 @@ test("exact frame clocks do not slip a frame through floating-point multiplicati
   }
 });
 
-test('missing, low and synthetic word confidence produces static phrase fallback without invented paging', () => {
+test('missing, low and synthetic word confidence produces static phrase fallback that pages within the caption limit', () => {
   for (const [confidence, timingSource] of [[undefined,'forced-alignment'],[.4,'forced-alignment'],[.9,'synthetic-weighted-lyric-heal'],['0.9','forced-alignment']]) {
     const source = { text: 'whole phrase', start: 1, end: 10, words: Array.from({length: 24}, (_,i) => ({word: `w${i}`,start: 1+i/3,end:1+(i+1)/3,confidence})) };
     const before = JSON.stringify(source);
     const frame = resolveEchoLyricTemplateFrame({contract:{enabled:true,templateId:'kinetic-word-burst-v1',timingSource},line:source,timeSeconds:5});
     assert.equal(frame.timingPolicy.mode,'phrase');
-    assert.equal(frame.displayWindow.wordCount,24);
+    // Long phrase-timed lines page by their interval estimate so they never overflow the caption box.
+    assert.equal(frame.displayWindow.wordCount,7);
+    assert.equal(frame.displayWindow.startIndex,7);
     assert.ok(frame.words.every(word => !word.active && word.progress===0 && word.scale===1 && word.translateY===0));
     assert.equal(JSON.stringify(source),before);
   }
 });
 
-test('a fully unanchored canonical row is suppressed instead of flashing an invented interval', () => {
-  const source={text:"I’d know her if I saw her,",start:99,end:99.2,words:["I’d","know","her","if","I","saw","her"].map((word,index)=>({word,start:99+index/35,end:99+(index+1)/35,matched:false}))};
+test('a fully unanchored row is shown as a static phrase, and one-word templates still step through it', () => {
+  const source={text:"I’d know her if I saw her,",start:99,end:99.7,words:["I’d","know","her","if","I","saw","her"].map((word,index)=>({word,start:99+index/10,end:99+(index+1)/10,matched:false}))};
   const frame=resolveEchoLyricTemplateFrame({contract:{enabled:true},line:source,timeSeconds:99.1});
-  assert.equal(frame.timingPolicy.mode,'hidden');
+  assert.equal(frame.timingPolicy.mode,'phrase');
   assert.equal(frame.timingPolicy.reason,'line-unaligned');
-  assert.equal(frame.visible,false);
+  assert.equal(frame.visible,true);
+  assert.equal(frame.displayText,"I’d know her if I saw her,");
+  assert.ok(frame.words.every(word => word.display && !word.active));
+  for (const templateId of ['center-word-focus-v1','prism-slam-v1','letterfall-totem-v1']) {
+    const shown = [99.01,99.2,99.45,99.69].map(timeSeconds => resolveEchoLyricTemplateFrame({contract:{enabled:true,templateId},line:source,timeSeconds}));
+    assert.ok(shown.every(item => item.visible && item.displayWindow.wordCount===1), templateId);
+    assert.deepEqual(shown.map(item => item.words.find(word => word.display).index), [0,1,4,6], templateId);
+  }
+});
+
+test('unanchored words are interpolated between anchors instead of overlapping them', () => {
+  // Shape of an Audio Atlas line where the aligner skipped "were" and "a".
+  const source={text:'What were we? To One',start:28.66,end:30.9,words:[
+    {word:'What',start:28.66,end:29.46,matched:true},{word:'were',start:29.28,end:29.89,matched:false},
+    {word:'we?',start:29.46,end:30.1,matched:true},{word:'To',start:30.1,end:30.18,matched:true},{word:'One',start:30.18,end:30.9,matched:true}]};
+  const {words,anchoredCount}=echoLyricResolvedWordIntervals(source);
+  assert.equal(anchoredCount,4);
+  for (let index=1; index<words.length; index+=1) assert.ok(words[index].start >= words[index-1].end - 1e-9, `word ${index} overlaps`);
+  assert.ok(words.every(word => word.end > word.start));
+  assert.deepEqual([words[1].start,words[1].end],[29.31,29.46]);
+  assert.equal(words[0].end,29.31);
+  assert.deepEqual([words[2].start,words[2].end],[29.46,30.1]);
+  const frame=resolveEchoLyricTemplateFrame({contract:{enabled:true,templateId:'scanline-phrase-ribbon-v1'},line:source,timeSeconds:29.4});
+  assert.equal(frame.timingPolicy.mode,'word');
+  assert.equal(frame.words.find(word => word.active)?.index,1);
+});
+
+test('unspaced Japanese tokens join without inserted spaces', () => {
+  const source={text:'だから私は',start:16,end:17,words:[{word:'だから',start:16,end:16.5,matched:false},{word:'私',start:16.5,end:16.75,matched:false},{word:'は',start:16.75,end:17,matched:false}]};
+  const frame=resolveEchoLyricTemplateFrame({contract:{enabled:true},line:source,timeSeconds:16.2});
+  assert.equal(frame.displayText,'だから私は');
+  assert.deepEqual(frame.words.map(word => word.joinerBefore),[false,false,false]);
 });
 
 test('verified sustained words fill continuously and their onset emphasis does not retrigger', () => {
@@ -321,4 +359,14 @@ test('explicit reviewed syllables drive sub-word progress without accepting infe
   delete inferred.words[0].syllables[1].evidence;
   inferred.words[0].syllables[1].confidence = .9;
   assert.equal(resolveEchoLyricTemplateFrame({ contract: { enabled: true }, line: inferred, timeSeconds: 1.7 }).timingPolicy.mode, 'phrase');
+});
+
+test('a line bracketed by anchored first and last words animates its interpolated middle', () => {
+  const source={text:'Where’s that River to Rediscover?',start:122.14,end:126.54,words:[['Where’s',122.14,122.86,true],['that',122.86,123.18,false],['River',123.18,123.58,false],['to',123.58,123.74,false],['Rediscover?',123.74,126.54,true]].map(([word,start,end,matched])=>({word,start,end,matched}))};
+  const frame=resolveEchoLyricTemplateFrame({contract:{enabled:true},line:source,timeSeconds:123.3});
+  assert.equal(frame.timingPolicy.mode,'word');
+  assert.equal(frame.timingPolicy.interpolatedWords,3);
+  assert.equal(frame.words.find(word => word.active)?.displayText,'River');
+  const unbracketed=structuredClone(source);unbracketed.words[4].matched=false;unbracketed.words[2].matched=true;
+  assert.equal(resolveEchoLyricTemplateFrame({contract:{enabled:true},line:unbracketed,timeSeconds:123.3}).timingPolicy.mode,'phrase');
 });

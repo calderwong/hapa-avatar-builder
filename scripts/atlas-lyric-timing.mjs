@@ -13,6 +13,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createAudioAtlas } from '../server/audio-atlas.mjs';
+import { echoLyricResolvedWordIntervals } from '../src/domain/echo-lyric-template-runtime.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const [command, ...rest] = process.argv.slice(2);
@@ -155,15 +156,25 @@ function assemble(atlas) {
     const hits = lineWords.filter(x => x.matched);
     return { index, text: p.lines[index], hits, lineWords };
   });
-  // Interpolate unmatched words inside their line, and unmatched lines between anchored neighbours.
+  // Unmatched lines sit between their anchored neighbours. Inside a line, unmatched words are placed
+  // between the neighbouring aligned words (the same resolver the renderer uses), never spread over the
+  // whole line where they would overlap aligned words. Leading/trailing unmatched words extend the line
+  // into the silence around it by up to LEAD_SECONDS per word. Out-of-order matches lose their anchor.
+  const LEAD_SECONDS = 0.3;
   for (const [i, line] of out.entries()) {
     if (!line.hits.length) {
       const prev = out.slice(0, i).reverse().find(l => l.hits.length), next = out.slice(i + 1).find(l => l.hits.length);
       const s = prev ? prev.hits.at(-1).end : 0, e = next ? next.hits[0].start : p.durationSeconds;
       line.start = s; line.end = Math.max(s + 0.1, e);
-    } else { line.start = line.hits[0].start; line.end = line.hits.at(-1).end; }
-    const span = line.end - line.start, n = line.lineWords.length;
-    line.lineWords.forEach((w, k) => { if (!w.matched) { w.start = line.start + span * k / n; w.end = line.start + span * (k + 1) / n; } });
+    } else {
+      const lead = line.lineWords.findIndex(w => w.matched), trail = line.lineWords.length - 1 - line.lineWords.findLastIndex(w => w.matched);
+      const prevEnd = i ? out[i - 1].end : 0, nextStart = out.slice(i + 1).find(l => l.hits.length)?.hits[0].start ?? p.durationSeconds;
+      line.start = Math.min(line.hits[0].start, Math.max(prevEnd, line.hits[0].start - LEAD_SECONDS * lead));
+      line.end = Math.max(line.hits.at(-1).end, Math.min(nextStart, line.hits.at(-1).end + LEAD_SECONDS * trail));
+    }
+    const resolved = echoLyricResolvedWordIntervals({ start: line.start, end: line.end,
+      words: line.lineWords.map(w => ({ word: w.text, start: w.matched ? w.start : null, end: w.matched ? w.end : null, matched: w.matched })) }).words;
+    line.lineWords.forEach((w, k) => Object.assign(w, { start: resolved[k].start, end: resolved[k].end, matched: resolved[k].anchored }));
   }
   for (let i = 0; i + 1 < out.length; i += 1) if (out[i].end > out[i + 1].start) { overlapCount += 1; out[i].end = out[i + 1].start; }
   const wordCount = aligned.flat().length, ratio = wordCount ? alignedCount / wordCount : 0, agreement = alignedCount ? agreeing / alignedCount : 0;

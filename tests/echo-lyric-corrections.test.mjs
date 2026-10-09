@@ -17,7 +17,8 @@ test("correction preserves exact untouched source records, marks changed confide
  assert.deepEqual(p,before);assert.deepEqual(next.lyrics,p.lyrics);assert.deepEqual(next.timed_lyrics[1],p.timed_lyrics[1]);
  assert.deepEqual(next.timed_lyrics[0].words[1],p.timed_lyrics[0].words[1]);
  const word=next.timed_lyrics[0].words[0];assert.equal(word.start,1.25);assert.equal(word.confidence,null);assert.equal(word.timingCorrection.source.confidence,.9);
- assert.equal(echoLyricWordTimingPolicy(next.timed_lyrics[0],next.lyrics.timingSource).mode,"phrase");
+ // The operator-corrected word loses measured confidence but its hand-placed interval drives the display.
+ const policy=echoLyricWordTimingPolicy(next.timed_lyrics[0],next.lyrics.timingSource);assert.equal(policy.mode,"word");assert.equal(policy.reason,"word-confidence-missing");
  assert.deepEqual(next.lyric_timing_manual_edit.source.originalLines,p.timed_lyrics);
  assert.deepEqual(edit(next,{type:"undo"}).timed_lyrics,p.timed_lyrics);
 });

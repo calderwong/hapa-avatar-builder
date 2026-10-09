@@ -287,6 +287,15 @@ function timingMethod(timing = {}) {
   return text(timing.provenance?.wordTiming?.method || timing.wordTiming?.method);
 }
 
+export function echoLyricWordOverlapCount(timing = {}) {
+  let count = 0;
+  for (const line of timing.lines || []) {
+    const words = Array.isArray(line.words) ? line.words : [];
+    for (let index = 1; index < words.length; index += 1) if (Number(words[index].start) < Number(words[index - 1].end) - 1e-6) count += 1;
+  }
+  return count;
+}
+
 function timingStat(timing, key) {
   return Number(timing?.stats?.[key] || 0);
 }
@@ -335,6 +344,12 @@ export function compareEchoLyricTimingCandidate({
     && Number(candidate.provenance?.wordTiming?.refinement?.refinedWordCount || 0) > 0;
   if (sameEvidence && noQualityRegression && measuredBoundaryUpgrade) {
     return { selected: true, reason: "measured-boundary-upgrade" };
+  }
+  // A re-assembly of the same engine's evidence that removes overlapping word intervals (e.g. unmatched
+  // words re-placed between their aligned neighbours) is a strict repair, not a competing measurement.
+  if (sameEvidence && noQualityRegression && engineOf(candidate) === engineOf(existing)
+    && echoLyricWordOverlapCount(candidate) < echoLyricWordOverlapCount(existing)) {
+    return { selected: true, reason: "word-interval-repair" };
   }
   return { selected: false, reason: "not-better-than-accepted" };
 }

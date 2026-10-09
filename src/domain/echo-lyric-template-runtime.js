@@ -219,14 +219,60 @@ export function resolveEchoLyricTemplateFrame({
   });
 }
 
+// Acoustic anchors keep their measured intervals. Unanchored words (no aligner
+// match, low confidence, out of order or outside the phrase) are placed between
+// the neighbouring anchors, or the phrase edges, by character weight, so every
+// word has an ordered, non-overlapping interval. Self-contained for HyperFrames.
+export function echoLyricResolvedWordIntervals(line = {}) {
+  const words = Array.isArray(line.words) ? line.words : [];
+  const lineStart = echoLyricBoundary(line, 'start', 0);
+  const lineEnd = Math.max(lineStart + 0.001, echoLyricBoundary(line, 'end', lineStart + 0.001));
+  const items = words.map((word) => {
+    const start = echoLyricBoundary(word, 'start', NaN), end = echoLyricBoundary(word, 'end', NaN);
+    const confidence = word.confidence ?? word.probability;
+    // Operator corrections are placed by hand against the audio: keep them as anchors.
+    const evidence = Boolean(word.timingCorrection) || (!(word.matched === false || word.unaligned === true)
+      && (word.matched === true || (typeof confidence === 'number' && confidence >= .6 && confidence <= 1)));
+    const weight = Math.max(1, Array.from(String(word.word || word.text || '').replace(/[^\p{L}\p{N}]/gu, '')).length);
+    return { start, end, weight, anchored: evidence && Number.isFinite(start) && Number.isFinite(end) && end > start && start >= lineStart - 1e-6 && end <= lineEnd + 1e-6 };
+  });
+  let previousEnd = lineStart;
+  for (const item of items) {
+    if (item.anchored && item.start < previousEnd - 1e-6) item.anchored = false;
+    if (item.anchored) previousEnd = item.end;
+  }
+  for (let index = 0; index < items.length;) {
+    if (items[index].anchored) { index += 1; continue; }
+    let last = index;
+    while (last + 1 < items.length && !items[last + 1].anchored) last += 1;
+    const previous = items[index - 1], next = items[last + 1], minimum = 0.15 * (last - index + 1);
+    let from = previous ? previous.end : lineStart, to = next ? next.start : lineEnd;
+    // Aligners often skip a short word wedged between two matches: borrow up
+    // to half of each neighbour instead of stacking the word on top of them.
+    if (to - from < minimum && previous) { from = Math.max(previous.start + (previous.end - previous.start) / 2, to - minimum); previous.end = lyricRound(Math.min(previous.end, from), 6); }
+    if (to - from < minimum && next) { to = Math.min(next.end - (next.end - next.start) / 2, from + minimum); next.start = lyricRound(Math.max(next.start, to), 6); }
+    to = Math.max(to, from + 0.001 * (last - index + 1));
+    const total = items.slice(index, last + 1).reduce((sum, item) => sum + item.weight, 0);
+    let cursor = from;
+    for (let k = index; k <= last; k += 1) {
+      items[k].start = lyricRound(cursor, 6);
+      cursor += (to - from) * items[k].weight / total;
+      items[k].end = lyricRound(k === last ? to : cursor, 6);
+    }
+    index = last + 1;
+  }
+  return { words: items.map(({ start, end, anchored }) => ({ start, end, anchored })), anchoredCount: items.filter((item) => item.anchored).length };
+}
+
 // Text-match flags and line-level scores are not acoustic word confidence.
 // Keep this self-contained for the generated HyperFrames/Song Card runtime.
+// A line is never hidden: with no usable anchor it falls back to phrase display.
 export function echoLyricWordTimingPolicy(line = {}, timingSource = '') {
   const words = Array.isArray(line.words) ? line.words : [];
   if (words.length && words.every((word) => word.matched === false || word.unaligned === true)) return {
-    mode: 'hidden',
+    mode: 'phrase',
     reason: 'line-unaligned',
-    label: 'Hidden · no direct performance anchor',
+    label: 'Phrase timing · no direct word anchor',
     manuallyVerified: false,
   };
   let reason = /synthetic|weighted|evenly|estimated/i.test(timingSource) ? 'synthetic-word-timing' : '';
@@ -247,6 +293,17 @@ export function echoLyricWordTimingPolicy(line = {}, timingSource = '') {
     previousEnd = end;
   }
   const acceptedReason = directAnchorWords === words.length && words.length ? 'direct-stt-word-anchors' : 'word-confidence-available';
+  // Most words carry acoustic anchors: animate words, interpolating the rest
+  // between their neighbours rather than dropping the whole line to phrase.
+  if (reason && reason !== 'synthetic-word-timing' && words.length) {
+    const resolved = echoLyricResolvedWordIntervals(line);
+    const ratio = resolved.anchoredCount / words.length;
+    // Half the words anchored, or both ends anchored so every interpolated word is bracketed by measurements.
+    const bracketed = resolved.words[0].anchored && resolved.words.at(-1).anchored && ratio >= 1 / 3;
+    if (resolved.anchoredCount && (ratio >= .5 || bracketed)) return { mode: 'word', reason,
+      label: 'Word timing · unanchored words interpolated between anchors', manuallyVerified: false,
+      anchoredWords: resolved.anchoredCount, interpolatedWords: words.length - resolved.anchoredCount };
+  }
   return { mode: reason ? 'phrase' : 'word', reason: reason || acceptedReason,
     label: reason ? 'Phrase timing · word alignment unverified' : directAnchorWords === words.length ? 'Word timing · direct STT anchors (not syllable exact)' : 'Word timing · confidence available',
     manuallyVerified: false };
@@ -309,11 +366,18 @@ export function echoLyricTemplateFrameState({
   const lineProgress = lyricClamp01((clock.timeSeconds - start) / Math.max(0.001, end - start));
   const words = Array.isArray(line.words) ? line.words : [];
   const authoredWordSurfaces = echoLyricAuthoredWordSurfaces(line);
-  const displayWords = words.map((word, index) => ({ ...word, displayText: authoredWordSurfaces[index], joinerBefore: index > 0 && !/-$/u.test(authoredWordSurfaces[index - 1]) }));
+  // Unspaced scripts (Japanese/Chinese) are tokenised per character run; never insert spaces between them.
+  const unspaced = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー々〆、。！？「」『』]/u;
+  const displayWords = words.map((word, index) => ({ ...word, displayText: authoredWordSurfaces[index], joinerBefore: index > 0 && !/-$/u.test(authoredWordSurfaces[index - 1])
+    && !(unspaced.test(Array.from(String(authoredWordSurfaces[index - 1] || "")).at(-1) || "") && unspaced.test(Array.from(String(authoredWordSurfaces[index] || ""))[0] || "")) }));
   const timingPolicy = echoLyricTimingPolicy(line, timingSource);
-  const displayWindow = timingPolicy.mode === "phrase" ? { startIndex: 0, endIndex: words.length, wordCount: words.length, text: String(line.text || words.map(word => word.word || word.text || "").join(" ")) } : echoLyricDisplayWindow({
+  const resolvedIntervals = echoLyricResolvedWordIntervals(line).words;
+  const singleWordPerformance = ["center-word-focus-v1", "prism-slam-v1", "letterfall-totem-v1"].includes(templateId);
+  // Phrase lines still page by their best interval estimate so long lines never overflow the caption box.
+  const timedWords = displayWords.map((word, index) => ({ ...word, start: resolvedIntervals[index].start, end: resolvedIntervals[index].end, startSeconds: undefined, endSeconds: undefined }));
+  const displayWindow = echoLyricDisplayWindow({
     templateId,
-    words: displayWords,
+    words: timedWords,
     timeSeconds: clock.timeSeconds,
     lineStart: start,
     lineEnd: end,
@@ -325,15 +389,15 @@ export function echoLyricTemplateFrameState({
     fps: clock.fps,
     timeSeconds: clock.timeSeconds,
     timingPolicy,
-    visible: enabled && timingPolicy.mode !== 'hidden' && clock.timeSeconds >= entryStart && clock.timeSeconds < exitEnd,
+    visible: enabled && clock.timeSeconds >= entryStart && clock.timeSeconds < exitEnd,
     lineProgress: lyricRound(lineProgress),
     entryProgress: lyricRound(entryProgress),
     exitProgress: lyricRound(exitProgress),
     displayWindow,
     displayText: displayWindow.text || String(line.text || ""),
     words: words.map((word, index) => {
-      const wordStart = echoLyricBoundary(word, "start", start);
-      const wordEnd = Math.max(wordStart + 0.001, echoLyricBoundary(word, "end", wordStart + 0.001));
+      const wordStart = timingPolicy.mode === 'syllable' ? echoLyricBoundary(word, "start", start) : resolvedIntervals[index].start;
+      const wordEnd = Math.max(wordStart + 0.001, timingPolicy.mode === 'syllable' ? echoLyricBoundary(word, "end", wordStart + 0.001) : resolvedIntervals[index].end);
       const syllables = (Array.isArray(word.syllables) ? word.syllables : []).map((syllable, syllableIndex) => {
         const syllableStart = echoLyricBoundary(syllable, "start", wordStart);
         const syllableEnd = Math.max(syllableStart + 0.001, echoLyricBoundary(syllable, "end", syllableStart + 0.001));
@@ -353,18 +417,19 @@ export function echoLyricTemplateFrameState({
           ? lyricClamp01((activeSyllableIndex + activeSyllable.progress) / syllables.length)
           : clock.timeSeconds >= wordEnd ? 1 : 0
         : 0;
-      const singleWordPerformance = ["center-word-focus-v1", "prism-slam-v1", "letterfall-totem-v1"].includes(templateId);
-      const performanceDirectAnchor = singleWordPerformance && timingPolicy.reason === 'word-unaligned' && word.matched === true;
-      const active = timingPolicy.mode === 'syllable' ? activeSyllableIndex >= 0 : (timingPolicy.mode === 'word' || performanceDirectAnchor) && clock.timeSeconds >= wordStart && clock.timeSeconds < wordEnd;
-      const completed = timingPolicy.mode !== 'phrase' && clock.timeSeconds >= wordEnd;
-      const wordProgress = timingPolicy.mode === 'syllable' ? syllableProgress : timingPolicy.mode === 'word' || performanceDirectAnchor ? lyricClamp01((clock.timeSeconds - wordStart) / Math.max(0.001, wordEnd - wordStart)) : 0;
+      // One-word templates have nothing to show without a current word, so they
+      // step through the best interval estimate even on phrase-timed lines.
+      const animateWords = timingPolicy.mode !== 'phrase' || singleWordPerformance;
+      const active = timingPolicy.mode === 'syllable' ? activeSyllableIndex >= 0 : animateWords && clock.timeSeconds >= wordStart && clock.timeSeconds < wordEnd;
+      const completed = animateWords && clock.timeSeconds >= wordEnd;
+      const wordProgress = timingPolicy.mode === 'syllable' ? syllableProgress : animateWords ? lyricClamp01((clock.timeSeconds - wordStart) / Math.max(0.001, wordEnd - wordStart)) : 0;
       const onsetImpulse = active ? Math.max(0, 1 - (clock.timeSeconds - wordStart) / 0.18) ** 2 : 0;
       const spread = words.length > 1 ? (index / (words.length - 1)) * 2 - 1 : 0;
       const base = {
         index,
         joinerBefore: displayWords[index]?.joinerBefore,
         display: index >= displayWindow.startIndex && index < displayWindow.endIndex,
-        displayText: timingPolicy.mode === "phrase" ? String(authoredWordSurfaces[index] || word.word || word.text || "") : echoLyricDisplayToken(displayWords[index], clock.timeSeconds),
+        displayText: echoLyricDisplayToken(timedWords[index], clock.timeSeconds),
         active,
         completed,
         progress: lyricRound(wordProgress),
@@ -376,7 +441,7 @@ export function echoLyricTemplateFrameState({
         rotateDegrees: 0,
         underlineProgress: reducedMotion ? (active || completed ? 1 : 0) : active ? lyricRound(wordProgress) : completed ? 1 : 0,
       };
-      if (reducedMotion || timingPolicy.mode === 'phrase') return { ...base, opacity: 1 };
+      if (reducedMotion || !animateWords) return { ...base, opacity: 1 };
       if (templateId === "kinetic-word-burst-v1") {
         return {
           ...base,
@@ -455,8 +520,12 @@ export function echoLyricTemplateFrameState({
       return animatedWord;
     }),
   };
-  if (["center-word-focus-v1", "prism-slam-v1", "letterfall-totem-v1"].includes(templateId)) {
-    const activeWord = frame.words.find((word) => word.active);
+  if (singleWordPerformance) {
+    // Hold the most recently sung word through inter-word gaps (and the first
+    // word through the entry lead-in) so the template never blinks out mid-line.
+    const activeWord = frame.words.find((word) => word.active)
+      || [...frame.words].reverse().find((word) => clock.timeSeconds >= resolvedIntervals[word.index].start)
+      || frame.words[0];
     frame.visible = frame.visible && Boolean(activeWord);
     frame.words = frame.words.map((word) => ({
       ...word,
@@ -489,6 +558,7 @@ export function echoLyricTemplateRuntimeBrowserSource() {
     echoLyricFrameTime.toString(),
     echoLyricDisplayToken.toString(),
     echoLyricDisplayWindow.toString(),
+    echoLyricResolvedWordIntervals.toString(),
     echoLyricWordTimingPolicy.toString(),
     echoLyricSyllableTimingPolicy.toString(),
     echoLyricTimingPolicy.toString(),
