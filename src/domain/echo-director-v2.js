@@ -15,6 +15,7 @@ import { buildMediaDiversityReport } from "./media-diversity-budget.js";
 import { buildSafeCameraPath, buildProtectedCameraPath, classifyMediaRole } from "./media-role-camera.js";
 import { ECHO_SECTION_VISUAL_BUDGET_SCHEMA, echoSectionCameraBudgetForWindow } from './hyperframes-visualizer-runtime.js';
 import { createImageShotGeometry } from "./unified-media-catalog.js";
+import { chooseStemSet, isStemRecord, stemRoleLabel } from "./echo-stem-set.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import {
   echoPersistentShaderSegments,
@@ -151,15 +152,22 @@ function stemRole(stemType) {
 export function normalizeStemRecords(projectInput, registry = null) {
   const project = projectBody(projectInput) || {};
   const registryTrackId = String(project.registry_track_id || project.audio_id || "");
-  const registryItems = Array.isArray(registry?.stems)
-    ? registry.stems.filter((stem) => String(stem.parentId || stem.songId || "") === registryTrackId)
-    : [];
-  const registryByType = new Map(
-    registryItems.map((stem) => [normalizedStemType(stem.stemType || stem.kind || stem.title), stem]),
+  const registrySong = (registry?.songs || []).find((song) => String(song.id || "") === registryTrackId);
+  const songTitle = String(project.song_title || registrySong?.title || "");
+  // One stem generation only; several can share a Suno ID (renames, remasters, re-separations).
+  const registryItems = chooseStemSet(
+    Array.isArray(registry?.stems)
+      ? registry.stems.filter((stem) => String(stem.parentId || stem.songId || "") === registryTrackId)
+      : [],
+    { songTitle, preferDirs: [registrySong?.localPath] },
   );
-  const declared = Array.isArray(project.stems_available) ? project.stems_available : [];
+  const registryByType = new Map(
+    registryItems.map((stem) => [normalizedStemType(stemRoleLabel(stem)), stem]),
+  );
+  const declared = (Array.isArray(project.stems_available) ? project.stems_available : [])
+    .filter((item) => isStemRecord(typeof item === "string" ? { stemType: item } : item, songTitle));
   const candidates = declared.map((item) => {
-    const stemType = typeof item === "string" ? item : item.stemType || item.kind || item.title || item.id;
+    const stemType = stemRoleLabel(typeof item === "string" ? { stemType: item } : item);
     const registryStem = registryByType.get(normalizedStemType(stemType));
     return {
       id: String(registryStem?.id || item?.id || `stem:${slug(stemType)}`),
@@ -173,9 +181,9 @@ export function normalizeStemRecords(projectInput, registry = null) {
   });
   for (const registryStem of registryItems) {
     candidates.push({
-      id: String(registryStem.id || `stem:${slug(registryStem.stemType)}`),
-      stemType: String(registryStem.stemType || "Unknown"),
-      role: stemRole(registryStem.stemType),
+      id: String(registryStem.id || `stem:${slug(stemRoleLabel(registryStem))}`),
+      stemType: String(stemRoleLabel(registryStem) || "Unknown"),
+      role: stemRole(stemRoleLabel(registryStem)),
       title: String(registryStem.title || registryStem.stemType || "Unknown stem"),
       duration: round(registryStem.duration || project.duration || 0, 2),
       audioPath: String(registryStem.localPath || ""),

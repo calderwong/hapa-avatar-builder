@@ -123,7 +123,8 @@ export function createEchoPerformancePreparation({ root, runStage = runEchoPrepa
       if (closing) throw failure('echo_preparation_stopping', 'The preparation service is shutting down.', 503);
       if (!input?.songId || !input.masterPath || (input.kind !== 'playback-audio' && !input.graph?.song)) throw failure('echo_preparation_inputs_missing', 'A selected song, exact master and director graph are required.', 422);
       const bytes = JSON.stringify(input);
-      if (Buffer.byteLength(bytes) > 32 * 1024 * 1024 || (input.graph?.stems?.items?.length || 0) > 32) throw failure('echo_preparation_input_budget', 'Preparation exceeds the graph or stem count budget.', 422);
+      // Request-size guard only; stem count is bounded by choosing one stem set per song, not by a cap.
+      if (Buffer.byteLength(bytes) > 32 * 1024 * 1024) throw failure('echo_preparation_input_budget', 'Preparation request exceeds 32 MiB.', 422);
       const key = createHash('sha256').update(bytes).digest('hex');
       const existing = [...jobs.values()].find(job => job.view.key === key && active(job.view));
       if (existing) return publicJob(existing);

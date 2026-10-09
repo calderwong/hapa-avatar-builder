@@ -75,8 +75,6 @@ def canonical_stem_inputs(raw_stems, identity_policy="role"):
             assert_same_stem_source(role, canonical[key].get("audioPath"), item.get("audioPath"))
         canonical[key]["aliases"].append(str(item.get("title") or item.get("stemType") or item.get("id") or role))
         canonical[key]["sourceLineage"].append({"id": item.get("id"), "audioPath": item.get("audioPath")})
-    if len(canonical) > 32:
-        raise ValueError("Stem analysis exceeds the 32-resource budget")
     return canonical, ignored_inputs
 
 

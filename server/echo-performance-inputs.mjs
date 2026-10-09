@@ -3,6 +3,7 @@ import { buildCueGraph, normalizeStemRecords } from '../src/domain/echo-director
 import { normalizeEchoLyricContract } from '../src/domain/echo-lyric-contract.js';
 import { echoProjectAudioRoute } from '../src/domain/echo-audio-route.js';
 import { normalizeHyperFramesStemRole } from '../src/domain/hyperframes-visualizer-runtime.js';
+import { chooseStemSet, stemRoleLabel } from '../src/domain/echo-stem-set.js';
 
 const text = value => String(value ?? '').trim();
 
@@ -12,7 +13,9 @@ function localCustodyStemRecords(project = {}, songStore = null) {
     project.audio_id,
     project.registry_track_id,
   ].map(text).filter(Boolean));
-  const song = (songStore?.songs || []).find(candidate => [
+  // Exact song ID first: renamed duplicates can share a Suno/registry ID.
+  const song = (songStore?.songs || []).find(candidate => text(candidate?.id) && text(candidate.id) === text(project.song_id))
+    || (songStore?.songs || []).find(candidate => [
     candidate?.id,
     candidate?.songId,
     candidate?.registryTrackId,
@@ -20,10 +23,12 @@ function localCustodyStemRecords(project = {}, songStore = null) {
     candidate?.lineage?.registryTrackId,
     candidate?.attribution?.songRegistryTrackId,
   ].map(text).some(identity => identity && projectIds.has(identity)));
-  return (song?.stems || []).map(stem => ({
-    id: text(stem.id) || `stem:${text(stem.stemType || stem.role || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-    stemType: text(stem.stemType || stem.role || stem.title) || 'Unknown',
-    role: normalizeHyperFramesStemRole(stem.stemType || stem.role || stem.title || stem.id),
+  // The song's current set only (one generation, one record per role; WAV preferred via localPath).
+  const current = chooseStemSet(song?.stems || [], { songTitle: song?.title || project.song_title, preferDirs: [song?.audio?.localPath] });
+  return current.map(stem => ({
+    id: text(stem.id) || `stem:${stemRoleLabel(stem).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    stemType: stemRoleLabel(stem) || 'Unknown',
+    role: normalizeHyperFramesStemRole(stemRoleLabel(stem) || stem.id),
     title: text(stem.title || stem.stemType || stem.role) || 'Unknown stem',
     duration: Number(stem.duration || project.duration || 0) || 0,
     audioPath: text(stem.localPath || stem.audioPath || stem.uri),
@@ -41,16 +46,11 @@ export function echoPerformanceInputs({ project: source, variant = null, registr
   const audioUri = echoProjectAudioRoute(project, routeGraph).uri;
   const cues = buildCueGraph(project);
   const lyrics = normalizeEchoLyricContract(project);
-  const registryStems = normalizeStemRecords(project, registry);
-  const stemRole = stem => normalizeHyperFramesStemRole(stem.stemType || stem.role || stem.title || stem.id);
-  for (const localStem of localCustodyStemRecords(project, songStore)) {
-    const existing = registryStems.find(candidate => stemRole(candidate) === stemRole(localStem));
-    if (existing) {
-      if (!existing.audioPath && localStem.audioPath) Object.assign(existing, localStem);
-    } else {
-      registryStems.push(localStem);
-    }
-  }
+  const stemRole = stem => normalizeHyperFramesStemRole(stemRoleLabel(stem) || stem.id);
+  // Exactly one stem set: the Builder's current custody set when it has playable files,
+  // otherwise one Registry generation. Never merge roles across sets or formats.
+  const localStems = localCustodyStemRecords(project, songStore);
+  const registryStems = localStems.some(stem => stem.audioPath) ? localStems : normalizeStemRecords(project, registry);
   const declaredStems = declaredGraph?.stems?.items;
   const stems = declaredStems?.length ? declaredStems.map(stem => {
     if (stem.audioPath) return stem;
