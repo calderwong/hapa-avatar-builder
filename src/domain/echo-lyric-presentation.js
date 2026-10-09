@@ -6,6 +6,10 @@ import { echoProtectedCameraFrame } from "./echo-camera-framing.js";
 export function echoLyricPresentation(contract = {}, profile = {}) {
   const width = Number(profile.width) || 1920, height = Number(profile.height) || 1080;
   const templateId = contract.templateId || 'scanline-phrase-ribbon-v1';
+  const ribbon = templateId === 'scanline-phrase-ribbon-v1';
+  const burst = templateId === 'kinetic-word-burst-v1';
+  const hookEcho = templateId === 'stacked-hook-echo-v1';
+  const orbit = templateId === 'orbit-caption-v1';
   const centerWordFocus = templateId === 'center-word-focus-v1';
   const squareMosaic = templateId === 'square-word-mosaic-v1';
   const verticalPoster = templateId === 'vertical-poster-stack-v1';
@@ -14,32 +18,32 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
   const prismSlam = templateId === 'prism-slam-v1';
   const letterfallTotem = templateId === 'letterfall-totem-v1';
   const singleWordFocus = centerWordFocus || prismSlam || letterfallTotem;
+  // Palettes carry colour only; every template owns its typography. `deep` is
+  // the scrim and legibility-halo colour, so light palettes halo dark ink.
   const palettes = {
-    'neon-cyan': ['#e0faff','#22d3ee','#020617e8','monospace'],
-    'magenta-glow': ['#ffe4f2','#f472b6','#180522e8','monospace'],
-    'gold-caption': ['#fff7dc','#f6c96d','#1f1707e8','Georgia, serif'],
-    'paper-white': ['#101827','#111827','#f7f4ebeF','Georgia, serif'],
-    'minimal-subtitle': ['#ffffff','#ffffff','#000000d9','system-ui, sans-serif'],
+    'neon-cyan': { text:'#f2fcff', accent:'#2ee6ff', secondary:'#ff3d9a', deep:'#020c16' },
+    'magenta-glow': { text:'#fff0f8', accent:'#ff4fb3', secondary:'#8b7bff', deep:'#14041a' },
+    'gold-caption': { text:'#fff8ea', accent:'#f8c25c', secondary:'#ff7a45', deep:'#150d03' },
+    'paper-white': { text:'#17130d', accent:'#c2410c', secondary:'#1d4ed8', deep:'#f6f1e6' },
+    'minimal-subtitle': { text:'#ffffff', accent:'#ffffff', secondary:'#d4d4d8', deep:'#000000' },
   };
-  const [paletteText,paletteAccent,background,themeFontFamily] = palettes[contract.style] || palettes['neon-cyan'];
+  const palette = palettes[contract.style] || palettes['neon-cyan'];
+  const cjk = '"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans CJK JP"';
   const fontFamilies = {
-    sans:'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    serif:'Georgia, "Times New Roman", serif',
-    mono:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-    display:'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif',
+    sans:`"Avenir Next","Helvetica Neue",${cjk},system-ui,sans-serif`,
+    serif:`Didot,"Bodoni 72","Bodoni MT",${cjk},Georgia,serif`,
+    mono:`"SF Mono",Menlo,Monaco,Consolas,${cjk},monospace`,
+    display:`"Avenir Next Condensed","DIN Condensed","Arial Narrow",Impact,${cjk},sans-serif`,
+    geometric:`Futura,"Avenir Next","Century Gothic",${cjk},sans-serif`,
   };
-  const directedThemeFont = squareMosaic || verticalPoster || prismSlam
-    ? fontFamilies.display
-    : letterWave
-      ? fontFamilies.sans
-      : kineticTypewriter
-        ? fontFamilies.mono
-        : letterfallTotem
-          ? fontFamilies.serif
-          : themeFontFamily;
+  const directedThemeFont = centerWordFocus ? fontFamilies.serif
+    : orbit || letterWave ? fontFamilies.geometric
+      : kineticTypewriter ? fontFamilies.mono
+        : burst || hookEcho || squareMosaic || verticalPoster || prismSlam || letterfallTotem ? fontFamilies.display
+          : fontFamilies.sans;
   const fontFamily = fontFamilies[contract.fontFamily] || directedThemeFont;
   const customColor = /^#[0-9a-f]{6}$/i.test(String(contract.textColor || '')) ? String(contract.textColor).toLowerCase() : '';
-  const text = customColor || paletteText,accent = customColor || paletteAccent;
+  const text = customColor || palette.text, accent = customColor || palette.accent, secondary = palette.secondary, deep = palette.deep;
   const fontScale = Number.isFinite(Number(contract.fontScale)) ? Math.max(.5,Math.min(2,Number(contract.fontScale))) : 1;
   const validInset = (value, fallback) => typeof value === 'number' && Number.isFinite(value) ? Math.max(.02, Math.min(.35, value)) : fallback;
   const inset = validInset(contract.safeArea?.titleInset ?? profile.safeArea?.titleInset, .08);
@@ -54,39 +58,50 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
       : prismSlam
         ? width * .9
         : letterfallTotem
-          ? Math.min(width * .28, height * .38)
+          ? Math.min(width * .3, height * .4)
       : width * (singleWordFocus ? .84 : position === 'side-right' ? .5 : side ? .72 : 1-2*inset));
-  const fontRatio = centerWordFocus ? .11 : prismSlam ? .15 : letterfallTotem ? .066 : squareMosaic ? .055 : verticalPoster ? .065 : letterWave ? .072 : kineticTypewriter ? .06 : .052;
+  const fontRatio = centerWordFocus ? .13 : prismSlam ? .15 : letterfallTotem ? .13 : squareMosaic ? .058 : verticalPoster ? .075
+    : letterWave ? .08 : kineticTypewriter ? .058 : burst ? .072 : hookEcho ? .068 : orbit ? .05 : .056;
   const fontSize = Math.round(Math.min(width,height)*fontRatio*fontScale);
-  const panel = { position:'absolute', boxSizing:'border-box', width:maxWidth+'px', padding:'18px 24px',
-    font:`700 ${fontSize}px/1.4 ${fontFamily}`, color:text, background,
-    border:`2px solid ${accent}88`, borderRadius:'8px', textAlign:side ? (/left/.test(position)?'left':'right'):'center',
-    textTransform:'none', textRendering:'geometricPrecision', letterSpacing:'0', whiteSpace:'normal', overflowWrap:'anywhere',
+  const fontWeight = centerWordFocus ? 700 : kineticTypewriter ? 500 : orbit ? 500 : ribbon ? 600 : letterWave ? 700 : 800;
+  const lineHeight = centerWordFocus ? 1.05 : prismSlam ? .9 : letterfallTotem ? .8 : squareMosaic ? .92 : verticalPoster ? .9
+    : letterWave ? 1.12 : burst ? 1.04 : hookEcho ? 1.08 : 1.3;
+  const [padY, padX] = ribbon ? [26, 56] : orbit ? [22, 52] : burst ? [10, 14] : hookEcho ? [16, 22] : letterWave ? [34, 40]
+    : kineticTypewriter ? [24, 30] : verticalPoster ? [24, 30] : squareMosaic ? [18, 18] : letterfallTotem ? [28, 18] : [0, 0];
+  const panel = { position:'absolute', boxSizing:'border-box', width:maxWidth+'px', padding:padY||padX?`${padY}px ${padX}px`:'0',
+    font:`${fontWeight} ${fontSize}px/${lineHeight} ${fontFamily}`, color:text, background:'transparent',
+    border:'0', borderRadius:'0', boxShadow:'none', textAlign:side ? (/left/.test(position)?'left':'right'):'center',
+    textTransform:'none', textRendering:'geometricPrecision', letterSpacing:'0', whiteSpace:'normal', overflowWrap:'anywhere', overflow:'visible',
     left:/left/.test(position)? width*inset+'px':/right/.test(position)?'auto':'50%',
     right:/right/.test(position)?width*inset+'px':'auto',
     top:top?height*inset+'px':center?'50%':'auto', bottom:top||center?'auto':height*bottom+'px',
     transform:`${side?'':'translateX(-50%) '}${center?'translateY(-50%)':''}`.trim() || 'none',
-    textShadow:contract.style === 'paper-white'?'none':'0 2px 4px #000000', pointerEvents:'none' };
-  if(contract.templateId==='kinetic-word-burst-v1')panel.borderLeft=`6px solid ${accent}`;
-  if(contract.templateId==='scanline-phrase-ribbon-v1')panel.backgroundImage='repeating-linear-gradient(0deg,transparent,transparent 3px,#ffffff09 4px)';
-  if(contract.templateId==='stacked-hook-echo-v1')panel.textShadow=`3px 3px 0 ${accent}55,-3px -3px 0 #ec489944`;
-  if(contract.templateId==='orbit-caption-v1')panel.borderRadius='40px';
-  if(centerWordFocus)Object.assign(panel,{padding:'0',font:`800 ${fontSize}px/1.05 ${fontFamily}`,background:'transparent',backgroundImage:'none',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',overflowWrap:'normal',whiteSpace:'nowrap'});
-  if(squareMosaic)Object.assign(panel,{padding:'18px',aspectRatio:'1 / 1',font:`900 ${fontSize}px/.92 ${fontFamily}`,background:'transparent',border:'0',borderRadius:'28px',boxShadow:`0 0 0 2px ${accent}38,0 28px 90px #00000055`,overflow:'visible'});
-  if(verticalPoster)Object.assign(panel,{padding:'24px 32px',font:`900 ${fontSize}px/.88 ${fontFamily}`,background:'transparent',border:'0',borderLeft:`9px solid ${accent}`,borderRadius:'0',boxShadow:`-16px 0 0 ${accent}18`,textAlign:'left',overflow:'visible'});
-  if(letterWave)Object.assign(panel,{padding:'28px 20px',font:`900 ${fontSize}px/1.1 ${fontFamily}`,background:'transparent',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',textShadow:`-4px 0 #f43f5e88,4px 0 ${accent}88,0 12px 30px #000000cc`});
-  if(kineticTypewriter)Object.assign(panel,{padding:'22px 26px',font:`750 ${fontSize}px/1.25 ${fontFamily}`,background:'linear-gradient(90deg,#020617b8,#02061722 72%,transparent)',border:'0',borderLeft:`3px solid ${accent}`,borderTop:`1px solid ${accent}55`,borderBottom:`1px solid ${accent}55`,borderRadius:'0',boxShadow:'none',textAlign:'left',overflow:'visible'});
-  if(prismSlam)Object.assign(panel,{padding:'0',font:`950 ${fontSize}px/.9 ${fontFamily}`,background:'transparent',backgroundImage:'none',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',overflowWrap:'normal',whiteSpace:'nowrap',textTransform:'uppercase',textShadow:`-10px 0 #f43f5e99,10px 0 ${accent}99,0 24px 50px #000000dd`});
-  if(letterfallTotem)Object.assign(panel,{padding:'0',font:`900 ${fontSize}px/.78 ${fontFamily}`,background:'transparent',backgroundImage:'none',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',overflowWrap:'normal',whiteSpace:'nowrap'});
+    textShadow:'none', pointerEvents:'none' };
+  // Cinema ribbon: a soft band that fades out at both ends, hairline rules and faint scanlines.
+  if(ribbon)Object.assign(panel,{background:`linear-gradient(90deg,${accent}00,${accent}b3 50%,${accent}00) top/100% 2px no-repeat,`
+    +`linear-gradient(90deg,${accent}00,${accent}66 50%,${accent}00) bottom/100% 1px no-repeat,`
+    +`repeating-linear-gradient(0deg,#ffffff00 0 3px,#ffffff0a 3px 4px),`
+    +`linear-gradient(90deg,${deep}00,${deep}c4 16%,${deep}d6 50%,${deep}c4 84%,${deep}00)`});
+  if(orbit)Object.assign(panel,{background:`${deep}70`,backdropFilter:'blur(18px) saturate(150%)',WebkitBackdropFilter:'blur(18px) saturate(150%)',
+    border:`1px solid ${text}30`,borderRadius:'999px',boxShadow:`0 24px 70px #00000073,inset 0 1px 0 ${text}26`});
+  if(letterWave)panel.background=`radial-gradient(ellipse at center,${deep}b8 0%,${deep}6b 46%,${deep}00 72%)`;
+  if(kineticTypewriter)Object.assign(panel,{background:`linear-gradient(90deg,${deep}f0,${deep}c2 72%,${deep}00)`,borderLeft:`4px solid ${accent}`,textAlign:'left'});
+  if(verticalPoster)Object.assign(panel,{borderLeft:`10px solid ${accent}`,textAlign:'left'});
+  if(squareMosaic)panel.aspectRatio='1 / 1';
+  if(letterfallTotem)panel.background=`linear-gradient(180deg,${deep}00,${deep}9e 18%,${deep}9e 82%,${deep}00)`;
+  if(singleWordFocus)Object.assign(panel,{overflowWrap:'normal',whiteSpace:'nowrap'});
+  if(prismSlam)panel.textTransform='uppercase';
+  // Set last: a later backgroundImage would erase the scrim declared through `background`.
+  if(panel.background==='transparent')panel.backgroundImage='none';
+  const look = ribbon ? 'ribbon' : orbit ? 'glass' : letterWave ? 'radial' : kineticTypewriter ? 'terminal' : verticalPoster ? 'poster' : letterfallTotem ? 'strip' : 'none';
   const layoutMode = squareMosaic ? 'square-grid' : verticalPoster ? 'poster-stack' : letterfallTotem ? 'glyph-column' : 'flow';
   const letterMotion = letterWave ? 'wave' : kineticTypewriter ? 'typewriter' : prismSlam ? 'prism' : letterfallTotem ? 'letterfall' : 'none';
-  const drawPanel=!singleWordFocus&&!squareMosaic&&!verticalPoster&&!letterWave;
-  const canvasBackground=drawPanel?(kineticTypewriter?'#020617b8':background):'transparent';
-  return { templateId,width,height,fontSize,text,accent,background,canvasBackground,fontFamily,fontWeight:singleWordFocus||squareMosaic||verticalPoster?900:700,
-    lineHeight:singleWordFocus?1.05:1.4,panel,inset,bottom,fixedCenter:singleWordFocus,singleWordOnly:singleWordFocus,drawPanel,
-    layoutMode,letterMotion,paddingX:singleWordFocus?0:squareMosaic?18:verticalPoster?32:letterWave?20:kineticTypewriter?26:24,paddingY:singleWordFocus?0:squareMosaic?18:verticalPoster?24:letterWave?28:kineticTypewriter?22:18,
-    borderWidth:drawPanel?parseFloat(panel.border)||0:0,
-    borderRadius:singleWordFocus?0:parseFloat(panel.borderRadius)||0 };
+  const drawPanel = look !== 'none' && look !== 'poster';
+  const borderLeft = verticalPoster ? 10 : kineticTypewriter ? 4 : 0;
+  return { templateId,width,height,fontSize,text,accent,secondary,deep,background:deep,canvasBackground:drawPanel?deep:'transparent',fontFamily,fontWeight,
+    lineHeight,panel,inset,bottom,fixedCenter:singleWordFocus,singleWordOnly:singleWordFocus,drawPanel,look,
+    layoutMode,letterMotion,paddingX:padX,paddingY:padY,columnWidth:maxWidth-2*padX-borderLeft,
+    borderWidth:orbit?1:0,borderRadius:orbit?999:0 };
 }
 
 /** Camera and source evidence are prepared once, not inferred from media titles.
@@ -170,55 +185,98 @@ export function echoLyricWordArtStyle(word = {}, index = 0, rowCount = 0, presen
   const length=Math.max(1,Array.from(String(word.displayText||'')).length),templateId=presentation.templateId||'';
   if(templateId==='square-word-mosaic-v1'){
     const fontScale=Math.max(.5,Math.min(1.5,7/length));
-    return {fontScale,fontSize:`${fontScale}em`,fontWeight:'950',letterSpacing:length<=3?'.035em':'-.035em',lineHeight:'.86',textTransform:length<=3?'uppercase':'none',borderRadius:index%3===0?'28px 8px 8px 8px':index%3===1?'8px 28px 8px 8px':'8px 8px 28px 8px'};
+    return {fontScale,fontSize:`${fontScale}em`,fontWeight:'800',letterSpacing:'.01em',lineHeight:'.9',textTransform:'uppercase',borderRadius:'6px'};
   }
   if(templateId==='vertical-poster-stack-v1'){
-    const fontScale=Math.max(.68,Math.min(1.28,8/length));
-    return {fontScale,fontSize:`${fontScale}em`,fontWeight:index%3===0?'950':'800',letterSpacing:index%2?'-.025em':'.045em',lineHeight:'.86',justifyContent:index%2?'flex-end':'flex-start',textAlign:index%2?'right':'left',textTransform:index%3===0?'uppercase':'none'};
+    // Each word is sized to fill the poster column, so the stack reads as one typographic block.
+    const column=Number(presentation.columnWidth)||Number(presentation.fontSize||1)*8,size=Number(presentation.fontSize)||1;
+    const fontScale=Math.round(Math.max(.62,Math.min(1.75,column/(size*length*.56)))*1000)/1000;
+    return {fontScale,fontSize:`${fontScale}em`,fontWeight:'800',letterSpacing:'-.012em',lineHeight:'.88',justifyContent:'flex-start',textAlign:'left',textTransform:'uppercase'};
   }
   if(templateId==='prism-slam-v1'){
     const fontScale=Math.max(.55,Math.min(1,10/length));
-    return {fontScale,fontSize:`${fontScale}em`,fontWeight:'950',letterSpacing:length<=4?'.035em':'-.045em',lineHeight:'.86',textTransform:'uppercase'};
+    return {fontScale,fontSize:`${fontScale}em`,fontWeight:'800',letterSpacing:length<=4?'.03em':'-.02em',lineHeight:'.86',textTransform:'uppercase'};
   }
-  if(templateId==='letterfall-totem-v1')return {fontScale:1,fontSize:'1em',fontWeight:'900',letterSpacing:'0',lineHeight:'.76',textTransform:'uppercase'};
-  if(templateId==='letter-wave-v1')return {fontScale:1,fontSize:'1em',fontWeight:'900',letterSpacing:'-.035em',lineHeight:'1'};
-  if(templateId==='kinetic-typewriter-v1')return {fontScale:1,fontSize:'1em',fontWeight:'750',letterSpacing:'.015em',lineHeight:'1.1'};
-  return {fontScale:1,fontSize:'1em',fontWeight:presentation.fontWeight||700,letterSpacing:'0',lineHeight:String(presentation.lineHeight||1.4)};
+  if(templateId==='letterfall-totem-v1')return {fontScale:1,fontSize:'1em',fontWeight:'800',letterSpacing:'0',lineHeight:'.8',textTransform:'uppercase'};
+  if(templateId==='kinetic-word-burst-v1')return {fontScale:1,fontSize:'1em',fontWeight:'800',letterSpacing:'.012em',lineHeight:'1.04',textTransform:'uppercase'};
+  if(templateId==='stacked-hook-echo-v1')return {fontScale:1,fontSize:'1em',fontWeight:'800',letterSpacing:'0',lineHeight:'1.08',textTransform:'uppercase'};
+  if(templateId==='letter-wave-v1')return {fontScale:1,fontSize:'1em',fontWeight:'700',letterSpacing:'-.01em',lineHeight:'1.05'};
+  if(templateId==='kinetic-typewriter-v1')return {fontScale:1,fontSize:'1em',fontWeight:'500',letterSpacing:'0',lineHeight:'1.2'};
+  if(templateId==='orbit-caption-v1')return {fontScale:1,fontSize:'1em',fontWeight:'500',letterSpacing:'.01em',lineHeight:'1.3'};
+  return {fontScale:1,fontSize:'1em',fontWeight:String(presentation.fontWeight||600),letterSpacing:'0',lineHeight:String(presentation.lineHeight||1.3)};
 }
 
-export function echoLyricWordDynamicStyle(word = {}, index = 0, presentation = {}) {
-  const templateId=presentation.templateId||'',active=Boolean(word.active);
-  if(templateId==='square-word-mosaic-v1')return {
-    color:active?'#020617':presentation.text,
-    backgroundColor:active?presentation.accent:index%2?'#02061773':'#ffffff14',
-    border:`2px solid ${active?presentation.accent:index%2?presentation.accent+'55':'#ffffff2b'}`,
-    boxShadow:active?`0 0 0 5px ${presentation.accent}30,0 16px 42px #00000088`:'inset 0 0 0 1px #ffffff0a',
-    backgroundImage:'none',
-  };
-  if(templateId==='vertical-poster-stack-v1')return {
-    color:active?presentation.accent:presentation.text,
-    backgroundColor:active?'#02061799':'transparent',
-    borderBottom:`${active?4:1}px solid ${active?presentation.accent:'#ffffff32'}`,
-    boxShadow:active?`12px 0 0 ${presentation.accent}22`:'none',
-    backgroundImage:'none',
-  };
-  if(templateId==='letter-wave-v1'||templateId==='prism-slam-v1'||templateId==='letterfall-totem-v1')return {color:presentation.text,backgroundColor:'transparent',backgroundImage:'none'};
-  if(templateId==='kinetic-typewriter-v1')return {color:active?presentation.accent:presentation.text,backgroundColor:'transparent',backgroundImage:'none'};
-  return {color:active?presentation.accent:presentation.text,backgroundColor:'transparent'};
+/** One description of how a word is painted for its karaoke state, consumed by
+ * both the DOM surface (as CSS) and the recording canvas, so they cannot drift.
+ * States: active (being sung), sung, upcoming, static (phrase-timed line). */
+export function echoLyricWordPaint(word = {}, index = 0, presentation = {}, mode = 'word') {
+  const templateId=presentation.templateId||'',fs=Number(presentation.fontSize)||56;
+  const text=presentation.text||'#ffffff',accent=presentation.accent||text,secondary=presentation.secondary||accent,deep=presentation.deep||'#000000';
+  const state=presentation.singleWordOnly?'active':mode==='phrase'?'static':word.active?'active':word.completed?'sung':'upcoming';
+  const halo={color:`${deep}e0`,blur:Math.round(fs*.16),offsetY:Math.round(fs*.04)};
+  const paint={state,fill:text,opacity:1,stroke:null,highlight:null,tile:null,ghosts:[],glow:null,shadow:halo,underline:false};
+  if(templateId==='kinetic-word-burst-v1'){
+    if(state==='active')return {...paint,fill:deep,shadow:null,highlight:{color:accent,radius:Math.round(fs*.08),pad:Math.round(fs*.1)}};
+    return {...paint,opacity:state==='upcoming'?.58:1,shadow:{color:`${deep}f0`,blur:Math.round(fs*.1),offsetY:Math.round(fs*.06)}};
+  }
+  if(templateId==='stacked-hook-echo-v1'){
+    if(state==='upcoming')return {...paint,opacity:.38};
+    const step=state==='active'?.075:.05;
+    return {...paint,fill:state==='active'?accent:text,ghosts:[{dx:-fs*step,dy:fs*step,color:`${accent}8c`},{dx:-fs*step*2,dy:fs*step*2,color:`${secondary}55`}]};
+  }
+  if(templateId==='center-word-focus-v1')return {...paint,glow:{color:`${accent}b3`,blur:Math.round(fs*.42)},shadow:{color:`${deep}d9`,blur:Math.round(fs*.1),offsetY:Math.round(fs*.03)}};
+  if(templateId==='square-word-mosaic-v1'){
+    if(state==='active')return {...paint,fill:deep,shadow:null,tile:{fill:accent,border:accent,glow:`${accent}55`}};
+    if(state==='upcoming')return {...paint,opacity:.72,tile:{fill:`${deep}80`,border:`${text}40`,glow:null}};
+    return {...paint,tile:{fill:`${deep}b8`,border:`${text}26`,glow:null}};
+  }
+  if(templateId==='vertical-poster-stack-v1'){
+    if(state==='active')return {...paint,fill:accent};
+    if(state==='upcoming')return {...paint,fill:'transparent',stroke:{width:Math.max(2,Math.round(fs*.028)),color:text}};
+    return paint;
+  }
+  if(['letter-wave-v1','kinetic-typewriter-v1','prism-slam-v1','letterfall-totem-v1'].includes(templateId))return paint;
+  // Cinema ribbon (default) and glass orbit: quiet upcoming words, a lit current word with a sweeping underline.
+  if(state==='active')return {...paint,fill:accent,glow:{color:`${accent}8c`,blur:Math.round(fs*.32)},underline:true};
+  if(state==='upcoming')return {...paint,opacity:templateId==='orbit-caption-v1'?.5:.56};
+  return paint;
+}
+
+export function echoLyricWordPaintCss(paint = {}) {
+  const shadows=[...(paint.ghosts||[]).map(g=>`${Math.round(g.dx*10)/10}px ${Math.round(g.dy*10)/10}px 0 ${g.color}`),
+    ...(paint.glow?[`0 0 ${paint.glow.blur}px ${paint.glow.color}`]:[]),
+    ...(paint.shadow?[`0 ${paint.shadow.offsetY}px ${paint.shadow.blur}px ${paint.shadow.color}`]:[])];
+  const css={color:paint.fill||'inherit',textShadow:shadows.length?shadows.join(','):'none',
+    WebkitTextStroke:paint.stroke?`${paint.stroke.width}px ${paint.stroke.color}`:'0px transparent',paintOrder:'stroke fill',
+    backgroundColor:'transparent',boxShadow:'none',border:'0',borderRadius:'0'};
+  if(paint.highlight)Object.assign(css,{backgroundColor:paint.highlight.color,borderRadius:`${paint.highlight.radius}px`,
+    boxShadow:`0 0 0 ${paint.highlight.pad}px ${paint.highlight.color},0 ${paint.highlight.pad}px ${paint.highlight.pad*4}px #00000080`});
+  if(paint.tile)Object.assign(css,{backgroundColor:paint.tile.fill,border:`2px solid ${paint.tile.border}`,borderRadius:'6px',
+    boxShadow:paint.tile.glow?`0 0 0 6px ${paint.tile.glow},0 18px 44px #0000008c`:'0 10px 30px #00000059'});
+  return css;
+}
+
+// Backwards-compatible CSS view of the word paint for callers that style one word.
+export function echoLyricWordDynamicStyle(word = {}, index = 0, presentation = {}, mode = 'word') {
+  return echoLyricWordPaintCss(echoLyricWordPaint(word,index,presentation,mode));
+}
+
+export function echoLyricGlyphPaint(character = {}, word = {}, index = 0, presentation = {}) {
+  const fs=Number(presentation.fontSize)||56,text=presentation.text||'#ffffff',accent=presentation.accent||text;
+  const secondary=presentation.secondary||accent,deep=presentation.deep||'#000000';
+  const fill=character.colorRole==='accent'?accent:text;
+  const halo={color:`${deep}e6`,blur:Math.round(fs*.14),offsetY:Math.round(fs*.05)};
+  if(character.shadowRole==='prism')return {fill:text,opacity:1,ghosts:[{dx:-fs*.045,dy:0,color:'#f43f5ecc'},{dx:fs*.045,dy:0,color:`${accent}cc`}],glow:null,shadow:{color:`${deep}e6`,blur:Math.round(fs*.16),offsetY:Math.round(fs*.08)}};
+  if(character.shadowRole==='chromatic')return {fill,opacity:1,ghosts:[{dx:-fs*.035,dy:0,color:`${secondary}88`},{dx:fs*.035,dy:0,color:`${accent}88`}],glow:null,shadow:halo};
+  if(character.shadowRole==='vertical')return {fill,opacity:1,ghosts:[],glow:{color:`${accent}99`,blur:Math.round(fs*.3)},shadow:halo};
+  if(character.shadowRole==='caret')return {fill:accent,opacity:1,ghosts:[],glow:{color:`${accent}99`,blur:Math.round(fs*.25)},shadow:null};
+  if(character.colorRole==='muted')return {fill:text,opacity:1,ghosts:[],glow:null,shadow:null};
+  return {fill,opacity:1,ghosts:[],glow:null,shadow:halo};
 }
 
 export function echoLyricGlyphArtStyle(character = {}, word = {}, index = 0, presentation = {}) {
-  const color=character.colorRole==='accent'?presentation.accent:character.colorRole==='muted'?'#ffffff55':presentation.text;
-  const shadow=character.shadowRole==='prism'
-    ? `-9px 0 #f43f5ecc,9px 0 ${presentation.accent}cc,0 18px 34px #000000dd`
-    : character.shadowRole==='chromatic'
-      ? `-4px 0 #f43f5eaa,4px 0 ${presentation.accent}aa,0 10px 24px #000000cc`
-      : character.shadowRole==='vertical'
-        ? `0 7px 0 #020617cc,0 14px 24px ${presentation.accent}55`
-        : character.shadowRole==='caret'
-          ? `0 0 14px ${presentation.accent}88`
-          : '0 4px 12px #000000aa';
-  return {color,textShadow:shadow,zIndex:String(10+index),mixBlendMode:character.shadowRole==='prism'||character.shadowRole==='chromatic'?'screen':'normal'};
+  const paint=echoLyricGlyphPaint(character,word,index,presentation),css=echoLyricWordPaintCss(paint);
+  return {color:css.color,textShadow:css.textShadow,zIndex:String(10+index),mixBlendMode:'normal'};
 }
 
 export function echoLyricWordMeasurementStyle(word = {}, nextWord = null, presentation = {}) {
@@ -272,7 +330,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   const key=JSON.stringify([contract.templateId,contract.style,contract.position,contract.fontFamily,contract.fontScale,contract.textColor,outputProfile.width,outputProfile.height,outputProfile.safeArea,contract.safeArea]);
   if(state.key!==key){state.presentation=echoLyricPresentation(contract,outputProfile);state.key=key;state.layouts.clear();state.contentKey=null;}
   const presentation=state.presentation;
-  element.dataset.timingMode=frame.timingPolicy.mode;element.dataset.timingReason=frame.timingPolicy.reason;element.dataset.templateId=frame.templateId;
+  state.mode=frame.timingPolicy.mode;element.dataset.timingMode=frame.timingPolicy.mode;element.dataset.timingReason=frame.timingPolicy.reason;element.dataset.templateId=frame.templateId;
   const sourceWords=Array.isArray(line.words)?line.words:[],singleWordFocus=Boolean(presentation.singleWordOnly);
   // Every mode lays out one box per word so long phrases wrap inside the panel;
   // a line without word rows is split on whitespace for the same reason.
@@ -318,8 +376,10 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
         if(state.panel.offsetWidth>presentation.width-2*marginX+1||state.panel.offsetHeight>presentation.height-2*marginY+1)return true;
         // Natural (unclamped) word width against the column; glyph letter-spacing
         // and motion overshoot are not layout overflow, so scrollWidth is not used.
+        // Grid tiles are bounded by their own cell, flow words by the text column.
+        const limits=state.nodes.map(node=>presentation.layoutMode==='square-grid'?node.clientWidth:column);
         state.nodes.forEach(node=>{node.style.width='max-content';node.style.maxWidth='none';});
-        const wide=state.nodes.some(node=>node.offsetWidth>column+1);
+        const wide=state.nodes.some((node,index)=>node.offsetWidth>limits[index]+1);
         state.nodes.forEach(node=>{node.style.width='';node.style.maxWidth='100%';});
         return wide;
       };
@@ -350,13 +410,13 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     const word=rows[index],node=state.nodes[index];
     node.dataset.wordActive=String(Boolean(word.active));node.dataset.wordProgress=String(word.progress||0);
     node.dataset.lyricWordActive=node.dataset.wordActive;node.dataset.lyricWordProgress=node.dataset.wordProgress;
-    const art=echoLyricWordArtStyle(word,index,rows.length,presentation),dynamic=echoLyricWordDynamicStyle(word,index,presentation);
-    Object.assign(node.style,{...dynamic,opacity:String(word.opacity??1),fontWeight:art.fontWeight||String(presentation.fontWeight||700),
+    const art=echoLyricWordArtStyle(word,index,rows.length,presentation),paint=echoLyricWordPaint(word,index,presentation,state.mode);
+    Object.assign(node.style,{...echoLyricWordPaintCss(paint),opacity:String((word.opacity??1)*(paint.opacity??1)),fontWeight:art.fontWeight||String(presentation.fontWeight||700),
       transform:fitEchoLyricWordMotion(word,state.layout.boxes[index],{x:-20,y:-14,width:state.layout.width+40,height:state.layout.height+28}),
-      backgroundImage:dynamic.backgroundImage??(singleWordFocus?'none':`linear-gradient(${presentation.accent},${presentation.accent})`),backgroundRepeat:'no-repeat',backgroundPosition:'left bottom',backgroundSize:dynamic.backgroundImage==='none'||singleWordFocus?'0 0':`${(word.underlineProgress||0)*100}% 3px`});
+      backgroundImage:paint.underline?`linear-gradient(${presentation.accent},${presentation.accent})`:'none',backgroundRepeat:'no-repeat',backgroundPosition:'left bottom',backgroundSize:paint.underline?`${(word.underlineProgress||0)*100}% 4px`:'0 0'});
     const glyphs=state.glyphNodes[index]||[],glyphBoxes=state.layout.glyphBoxes?.[index]||[];
     for(let glyphIndex=0;glyphIndex<glyphs.length;glyphIndex+=1){const glyph=glyphs[glyphIndex],character=word.characters?.[glyphIndex],box=glyphBoxes[glyphIndex];if(!character||!box)continue;
-      Object.assign(glyph.style,echoLyricGlyphArtStyle(character,word,glyphIndex,presentation),{opacity:String(character.opacity??1),transform:fitEchoLyricWordMotion(character,box,{x:0,y:0,width:state.layout.boxes[index].width,height:state.layout.boxes[index].height})});
+      Object.assign(glyph.style,echoLyricGlyphArtStyle(character,word,glyphIndex,presentation),{opacity:String((character.opacity??1)*(echoLyricGlyphPaint(character,word,glyphIndex,presentation).opacity??1)),transform:fitEchoLyricWordMotion(character,box,{x:0,y:0,width:state.layout.boxes[index].width,height:state.layout.boxes[index].height})});
     }
     const caret=state.caretNodes[index];
     if(caret){const revealed=Math.max(0,Math.min(glyphBoxes.length,Math.ceil((word.progress||0)*glyphBoxes.length))),box=glyphBoxes[Math.max(0,revealed-1)];
@@ -381,8 +441,8 @@ function echoLyricCanvasRoundRect(context,x,y,width,height,radius){
 }
 
 /** Paint the already-evaluated Preview lyric surface into a recording canvas.
- * This deliberately consumes the same DOM owner's frame and measured layout,
- * so capture does not run a second lyric clock or invent different wrapping. */
+ * This deliberately consumes the same DOM owner's frame, measured layout and
+ * word paint, so capture does not run a second lyric clock or a second style. */
 export function paintEchoLyricSurfaceToCanvas(context,element,{width,height}={}){
   const state=element?.__echoLyricSurface;
   if(!context||!state?.frame?.visible||!state.line||element?.style?.visibility==='hidden')return {drawn:false,reason:'lyrics-not-visible'};
@@ -393,71 +453,106 @@ export function paintEchoLyricSurfaceToCanvas(context,element,{width,height}={})
   const scaleX=outputWidth/presentation.width,scaleY=outputHeight/presentation.height;
   const panelX=Number(placement.x||0),panelY=Number(placement.y||0),panelWidth=parseFloat(presentation.panel.width)||Number(placement.width||0),panelHeight=Number(layout.panelHeight||0);
   const wordsX=panelX+Number(layout.wordsOffsetX??presentation.paddingX??0),wordsY=panelY+Number(layout.wordsOffsetY??presentation.paddingY??0);
+  const templateId=String(state.contract?.templateId||''),mode=state.mode||'word';
+  const text=presentation.text||'#ffffff',accent=presentation.accent||text,deep=presentation.deep||'#000000';
+  const linear=(x0,y0,x1,y1,stops)=>{
+    if(typeof context.createLinearGradient!=='function')return stops[Math.floor(stops.length/2)][1];
+    const gradient=context.createLinearGradient(x0,y0,x1,y1);for(const [at,color] of stops)gradient.addColorStop(at,color);return gradient;
+  };
+  const resetShadow=()=>{context.shadowColor='transparent';context.shadowBlur=0;context.shadowOffsetX=0;context.shadowOffsetY=0;};
   context.save();context.scale(scaleX,scaleY);
-  const templateId=String(state.contract?.templateId||''),drawPanel=presentation.drawPanel!==undefined?presentation.drawPanel:!presentation.fixedCenter&&templateId!=='vertical-poster-stack-v1';
-  if(drawPanel&&panelWidth>0&&panelHeight>0){
-    echoLyricCanvasRoundRect(context,panelX,panelY,panelWidth,panelHeight,presentation.borderRadius||0);
-    let panelFill=presentation.canvasBackground||presentation.background;
-    if((templateId==='square-word-mosaic-v1'||templateId==='letter-wave-v1')&&typeof context.createLinearGradient==='function'){
-      const gradient=context.createLinearGradient(panelX,panelY,panelX+panelWidth,panelY+panelHeight);gradient.addColorStop(0,presentation.background);gradient.addColorStop(1,'#020617b8');panelFill=gradient;
-    }
-    context.fillStyle=panelFill;context.fill();
-    if(presentation.borderWidth>0){context.strokeStyle=`${presentation.accent}88`;context.lineWidth=presentation.borderWidth;context.stroke();}
-    if(state.contract?.templateId==='scanline-phrase-ribbon-v1'){
-      context.save();context.globalAlpha=.08;context.fillStyle='#ffffff';
-      for(let y=panelY+4;y<panelY+panelHeight;y+=4)context.fillRect(panelX,y,panelWidth,1);
-      context.restore();
+  const look=presentation.look||(presentation.drawPanel===false||presentation.fixedCenter?'none':'legacy');
+  if(panelWidth>0&&panelHeight>0){
+    if(look==='ribbon'){
+      context.fillStyle=linear(panelX,0,panelX+panelWidth,0,[[0,`${deep}00`],[.16,`${deep}c4`],[.5,`${deep}d6`],[.84,`${deep}c4`],[1,`${deep}00`]]);
+      context.fillRect(panelX,panelY,panelWidth,panelHeight);
+      context.save();context.globalAlpha=.04;context.fillStyle='#ffffff';for(let y=panelY+3;y<panelY+panelHeight;y+=4)context.fillRect(panelX,y,panelWidth,1);context.restore();
+      context.fillStyle=linear(panelX,0,panelX+panelWidth,0,[[0,`${accent}00`],[.5,`${accent}b3`],[1,`${accent}00`]]);context.fillRect(panelX,panelY,panelWidth,2);
+      context.fillStyle=linear(panelX,0,panelX+panelWidth,0,[[0,`${accent}00`],[.5,`${accent}66`],[1,`${accent}00`]]);context.fillRect(panelX,panelY+panelHeight-1,panelWidth,1);
+    }else if(look==='glass'){
+      echoLyricCanvasRoundRect(context,panelX,panelY,panelWidth,panelHeight,panelHeight/2);
+      context.fillStyle=`${deep}a6`;context.fill();context.strokeStyle=`${text}30`;context.lineWidth=1;context.stroke();
+    }else if(look==='terminal'){
+      context.fillStyle=linear(panelX,0,panelX+panelWidth,0,[[0,`${deep}f0`],[.72,`${deep}c2`],[1,`${deep}00`]]);context.fillRect(panelX,panelY,panelWidth,panelHeight);
+      context.fillStyle=accent;context.fillRect(panelX,panelY,4,panelHeight);
+    }else if(look==='radial'){
+      if(typeof context.createRadialGradient==='function'){
+        context.save();context.translate(panelX+panelWidth/2,panelY+panelHeight/2);context.scale(1,panelHeight/Math.max(1,panelWidth));
+        const gradient=context.createRadialGradient(0,0,0,0,0,panelWidth*.72);
+        gradient.addColorStop(0,`${deep}b8`);gradient.addColorStop(.64,`${deep}6b`);gradient.addColorStop(1,`${deep}00`);
+        context.fillStyle=gradient;context.fillRect(-panelWidth/2,-panelWidth/2,panelWidth,panelWidth);context.restore();
+      }
+    }else if(look==='strip'){
+      context.fillStyle=linear(0,panelY,0,panelY+panelHeight,[[0,`${deep}00`],[.18,`${deep}9e`],[.82,`${deep}9e`],[1,`${deep}00`]]);context.fillRect(panelX,panelY,panelWidth,panelHeight);
+    }else if(look==='poster'){
+      context.fillStyle=accent;context.fillRect(panelX,panelY,10,panelHeight);
+    }else if(look==='legacy'){
+      echoLyricCanvasRoundRect(context,panelX,panelY,panelWidth,panelHeight,presentation.borderRadius||0);
+      context.fillStyle=presentation.canvasBackground||presentation.background;context.fill();
+      if(presentation.borderWidth>0){context.strokeStyle=`${accent}88`;context.lineWidth=presentation.borderWidth;context.stroke();}
     }
   }
-  if(templateId==='vertical-poster-stack-v1'){
-    context.fillStyle=presentation.accent;context.fillRect(panelX,panelY,8,panelHeight);
-  }
+  const drawText=(value,x,y,paint,alpha)=>{
+    for(const ghost of paint.ghosts||[]){resetShadow();context.globalAlpha=alpha;context.fillStyle=ghost.color;context.fillText(value,x+ghost.dx,y+ghost.dy);}
+    context.globalAlpha=alpha*(Number.isFinite(Number(paint.opacity))?Number(paint.opacity):1);
+    const fill=paint.fill&&paint.fill!=='transparent'?paint.fill:null;
+    if(paint.glow&&fill){context.shadowColor=paint.glow.color;context.shadowBlur=paint.glow.blur;context.shadowOffsetX=0;context.shadowOffsetY=0;context.fillStyle=fill;context.fillText(value,x,y);}
+    if(paint.shadow){context.shadowColor=paint.shadow.color;context.shadowBlur=paint.shadow.blur;context.shadowOffsetX=0;context.shadowOffsetY=paint.shadow.offsetY;}else resetShadow();
+    if(paint.stroke&&typeof context.strokeText==='function'){context.lineWidth=paint.stroke.width;context.lineJoin='round';context.strokeStyle=paint.stroke.color;context.strokeText(value,x,y);}
+    if(fill){context.fillStyle=fill;context.fillText(value,x,y);}
+    resetShadow();
+  };
   const area={x:-20,y:-14,width:Number(layout.width||panelWidth)+40,height:Number(layout.height||panelHeight)+28};
-  context.textBaseline='top';context.textAlign='left';
+  context.textBaseline='middle';context.textAlign='center';
   for(let index=0;index<rows.length;index+=1){
     const row=rows[index],box=layout.boxes?.[index],node=state.nodes?.[index];
     if(!box||!node)continue;
-    const label=String(node.textContent||row.displayText||'');if(!label)continue;
-    if(templateId==='square-word-mosaic-v1'){
-      context.save();echoLyricCanvasRoundRect(context,wordsX+box.x,wordsY+box.y,box.width,box.height,index%3===0?28:8);
-      context.fillStyle=row.active?presentation.accent:index%2?'#020617b8':'#ffffff18';context.fill();context.strokeStyle=row.active?presentation.accent:`${presentation.accent}55`;context.lineWidth=2;context.stroke();context.restore();
-    }
-    const art=echoLyricWordArtStyle(row,index,rows.length,presentation),motion=echoLyricWordMotionValues(row,box,area),centerX=wordsX+box.x+box.width/2,centerY=wordsY+box.y+box.height/2;
+    const art=echoLyricWordArtStyle(row,index,rows.length,presentation),paint=echoLyricWordPaint(row,index,presentation,mode);
+    const upper=art.textTransform==='uppercase'||presentation.panel?.textTransform==='uppercase';
+    const raw=String(node.textContent||row.displayText||'');if(!raw)continue;
+    const label=upper?raw.toLocaleUpperCase():raw;
+    const motion=echoLyricWordMotionValues(row,box,area),centerX=wordsX+box.x+box.width/2,centerY=wordsY+box.y+box.height/2;
+    const alpha=Number.isFinite(Number(row.opacity))?Number(row.opacity):1,fontPx=layout.fontSize*Number(art.fontScale||1);
     context.save();context.translate(centerX+motion.translateX,centerY+motion.translateY);context.rotate(motion.rotation*Math.PI/180);context.scale(motion.scale,motion.scale);
-    context.globalAlpha=Number.isFinite(Number(row.opacity))?Number(row.opacity):1;
-    context.font=`${art.fontWeight||presentation.fontWeight} ${layout.fontSize*Number(art.fontScale||1)}px ${presentation.fontFamily}`;
-    context.fillStyle=templateId==='square-word-mosaic-v1'&&row.active?'#020617':row.active?presentation.accent:presentation.text;
-    context.shadowColor=state.contract?.style==='paper-white'?'transparent':'#000000';context.shadowBlur=4;context.shadowOffsetY=2;
+    context.font=`${art.fontWeight||presentation.fontWeight} ${fontPx}px ${presentation.fontFamily}`;
+    if('letterSpacing' in context)context.letterSpacing=`${(parseFloat(art.letterSpacing)||0)*fontPx}px`;
+    if(paint.tile){
+      context.globalAlpha=alpha*(paint.opacity??1);echoLyricCanvasRoundRect(context,-box.width/2,-box.height/2,box.width,box.height,6);
+      context.fillStyle=paint.tile.fill;context.fill();context.strokeStyle=paint.tile.border;context.lineWidth=2;context.stroke();
+    }
+    if(paint.highlight){
+      const pad=paint.highlight.pad;context.globalAlpha=alpha;echoLyricCanvasRoundRect(context,-box.width/2-pad,-box.height/2-pad,box.width+2*pad,box.height+2*pad,paint.highlight.radius+pad);
+      context.fillStyle=paint.highlight.color;context.fill();
+    }
     const characters=Array.isArray(row.characters)?row.characters:[],glyphBoxes=layout.glyphBoxes?.[index]||[];
     if(characters.length&&glyphBoxes.length===characters.length){
       for(let glyphIndex=0;glyphIndex<characters.length;glyphIndex+=1){const character=characters[glyphIndex],glyphBox=glyphBoxes[glyphIndex];
         const glyphMotion=echoLyricWordMotionValues(character,glyphBox,{x:0,y:0,width:box.width,height:box.height});
         const glyphX=-box.width/2+glyphBox.x+glyphBox.width/2,glyphY=-box.height/2+glyphBox.y+glyphBox.height/2;
         context.save();context.translate(glyphX+glyphMotion.translateX,glyphY+glyphMotion.translateY);context.rotate(glyphMotion.rotation*Math.PI/180);context.scale(glyphMotion.scale,glyphMotion.scale);
-        context.globalAlpha=(Number.isFinite(Number(row.opacity))?Number(row.opacity):1)*(Number.isFinite(Number(character.opacity))?Number(character.opacity):1);
-        const glyphText=String(character.text||''),glyphColor=character.colorRole==='accent'?presentation.accent:character.colorRole==='muted'?'#ffffff55':presentation.text;
-        if(character.shadowRole==='prism'||character.shadowRole==='chromatic'){
-          context.shadowColor='transparent';context.fillStyle='#f43f5e99';context.fillText(glyphText,-glyphBox.width/2-6,-glyphBox.height/2);
-          context.fillStyle=`${presentation.accent}aa`;context.fillText(glyphText,-glyphBox.width/2+6,-glyphBox.height/2);
-        }
-        context.fillStyle=glyphColor;context.shadowColor='#000000aa';context.shadowBlur=6;context.fillText(glyphText,-glyphBox.width/2,-glyphBox.height/2);context.restore();
+        const glyphText=upper?String(character.text||'').toLocaleUpperCase():String(character.text||'');
+        drawText(glyphText,0,0,echoLyricGlyphPaint(character,row,glyphIndex,presentation),alpha*(Number.isFinite(Number(character.opacity))?Number(character.opacity):1));
+        context.restore();
       }
-    }else context.fillText(label,-box.width/2+2,-box.height/2);
+    }else if(presentation.layoutMode==='poster-stack'){
+      // Poster words are left-set inside their full-column box (measurement padding 10px).
+      context.textAlign='left';drawText(label,-box.width/2+10,0,paint,alpha);context.textAlign='center';
+    }else drawText(label,0,0,paint,alpha);
     if(templateId==='kinetic-typewriter-v1'&&row.active&&glyphBoxes.length){const revealed=Math.max(0,Math.min(glyphBoxes.length,Math.ceil((row.progress||0)*glyphBoxes.length))),caretBox=glyphBoxes[Math.max(0,revealed-1)];
-      context.shadowColor='transparent';context.fillStyle=presentation.accent;context.globalAlpha=Math.floor((row.progress||0)*glyphBoxes.length*3)%2?.42:1;context.fillRect(-box.width/2+(caretBox?caretBox.x+caretBox.width:0)+3,-box.height/2+(caretBox?.y||0),4,caretBox?.height||box.height);
+      resetShadow();context.fillStyle=accent;context.globalAlpha=Math.floor((row.progress||0)*glyphBoxes.length*3)%2?.42:1;context.fillRect(-box.width/2+(caretBox?caretBox.x+caretBox.width:0)+3,-box.height/2+(caretBox?.y||0),4,caretBox?.height||box.height);
     }
     const underline=Number(row.underlineProgress||0);
-    if(!presentation.fixedCenter&&underline>0){context.shadowColor='transparent';context.fillStyle=presentation.accent;context.fillRect(-box.width/2,box.height/2-3,Math.max(0,Math.min(1,underline))*box.width,3);}
+    if(paint.underline&&underline>0){resetShadow();context.globalAlpha=alpha;context.fillStyle=accent;context.fillRect(-box.width/2,box.height/2-4,Math.max(0,Math.min(1,underline))*box.width,4);}
     context.restore();
   }
   const accentCanvas=state.panel?.querySelector?.('[data-echo-lyric-accents]');
   if(accentCanvas&&Number(accentCanvas.width||0)>0&&Number(accentCanvas.height||0)>0){
-    context.globalAlpha=1;context.shadowColor='transparent';context.drawImage(accentCanvas,panelX,panelY,panelWidth,panelHeight);
+    context.globalAlpha=1;resetShadow();context.drawImage(accentCanvas,panelX,panelY,panelWidth,panelHeight);
   }
   context.restore();
   return {drawn:true,wordCount:rows.length,templateId:String(state.contract?.templateId||'')};
 }
 
 export function echoLyricPresentationBrowserSource() {
-  return [echoLyricPresentation,prepareEchoLyricObstacles,chooseEchoLyricPlacement,echoLyricWordMotionValues,fitEchoLyricWordMotion,echoLyricWordArtStyle,echoLyricWordDynamicStyle,echoLyricGlyphArtStyle,echoLyricWordMeasurementStyle,echoLyricWordsLayoutStyle,echoLyricGlyphMeasurementStyle,echoLyricGlyphMeasurementBox,renderEchoLyricSurface,sizeEchoLyricSurface].map(fn=>fn.toString()).join('\n');
+  return [echoLyricPresentation,prepareEchoLyricObstacles,chooseEchoLyricPlacement,echoLyricWordMotionValues,fitEchoLyricWordMotion,echoLyricWordArtStyle,echoLyricWordPaint,echoLyricWordPaintCss,echoLyricWordDynamicStyle,echoLyricGlyphPaint,echoLyricGlyphArtStyle,echoLyricWordMeasurementStyle,echoLyricWordsLayoutStyle,echoLyricGlyphMeasurementStyle,echoLyricGlyphMeasurementBox,renderEchoLyricSurface,sizeEchoLyricSurface].map(fn=>fn.toString()).join('\n');
 }

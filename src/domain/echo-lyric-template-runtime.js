@@ -134,7 +134,7 @@ export function echoLyricCharacterFrames({
       return {
         index,
         text: character,
-        opacity: lyricRound(word.completed || completed ? 1 : .12 + local * .88),
+        opacity: lyricRound(word.completed || completed ? 1 : .3 + local * .7),
         scale: lyricRound(.82 + local * .18),
         translateX: lyricRound((index % 2 ? 1 : -1) * (1 - local) * 24 * intensity),
         translateY: lyricRound((1 - local) * -28 * intensity),
@@ -147,7 +147,7 @@ export function echoLyricCharacterFrames({
     return {
       index,
       text: character,
-      opacity: lyricRound(word.completed || completed ? 1 : 0.16 + local * 0.84),
+      opacity: lyricRound(word.completed || completed ? 1 : 0.3 + local * 0.7),
       scale: lyricRound(1 + (active ? (1 - local) * 0.13 * intensity : 0)),
       translateX: lyricRound(active ? (1 - local) * 5 * intensity : 0),
       translateY: lyricRound(active ? (1 - local) * 10 * intensity : 0),
