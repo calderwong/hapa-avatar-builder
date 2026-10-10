@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Krea-2 Alternative Run — Human Review</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box;margin:0}
+body{background:#0d0f14;color:#e8e6df;font:14px/1.5 -apple-system,'Segoe UI',sans-serif;padding:20px;max-width:1500px;margin:auto}
+h1{font-size:20px}h1 span{color:#ff8a7a}
+.sub{color:#8b8fa3;font-size:12px;margin:6px 0 18px}
+.opt{display:grid;grid-template-columns:minmax(320px,1fr) 380px;gap:16px;background:#141824;border:1px solid #262b3b;border-radius:12px;padding:14px;margin-bottom:16px}
+.opt img{width:100%;border-radius:8px;cursor:zoom-in;background:#000}
+.opt h3{margin-bottom:4px}.opt h3 em{color:#ffcf4d;font-style:normal}
+.opt .tag{font-size:11px;color:#8b8fa3;text-transform:uppercase;letter-spacing:.1em}
+.opt pre{white-space:pre-wrap;font:11.5px/1.55 ui-monospace,monospace;color:#aab0c5;background:#10131c;border:1px solid #1e2330;border-radius:8px;padding:10px;margin:8px 0;max-height:150px;overflow:auto}
+.meta{font-size:12px;color:#8b8fa3}
+.votes{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.votes button{background:#1e2330;border:1px solid #333a4e;color:#cfd3e0;border-radius:18px;padding:5px 14px;cursor:pointer;font-size:12px}
+.votes button:hover{background:#2a3145}
+.votes button.sel{background:#2c4234;border-color:#7fd1ae;color:#7fd1ae}
+#save{position:fixed;bottom:16px;right:16px;background:#7fd1ae;color:#0d0f14;border:0;border-radius:22px;padding:10px 20px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+#lb{position:fixed;inset:0;background:rgba(5,6,9,.94);display:none;align-items:center;justify-content:center;z-index:40;padding:20px}
+#lb.open{display:flex}#lb img{max-width:96%;max-height:92%;border-radius:8px}
+.note{font-size:12px;color:#8b8fa3;background:#11141c;border:1px solid #1e2330;border-radius:8px;padding:10px;margin-bottom:16px}
+</style></head>
+<body>
+<h1><span>◈</span> KREA-2 ALTERNATIVE RUN — Human Review</h1>
+<div class="sub">Song: <b>I Knew a Bella</b> · no avatar refs — pure Hapa Aesthetic interpreting the song's symbols (born wild · yearning to be free · Bella Ciao · purple &amp; gold dawn · planting rights like seeds · Everyman rises · gold never quits on the dawn)</div>
+<div class="note">Pick your winner(s) and optional direction notes, then press <b>Save ballot</b> — it writes <code>ballot.json</code> into the tracker folder and Conviction reads it back to lock the Krea-2 house style.</div>
+<div id="opts"></div>
+<button id="save" onclick="saveBallot()">Save ballot ↓</button>
+<div id="lb" onclick="this.classList.remove('open')"><img id="lbimg"></div>
+<script src="alt-data.js"></script>
+<script>
+const A=window.ALTS||[];
+const votes=JSON.parse(localStorage.getItem('krea2ballot')||'{}');
+document.getElementById('opts').innerHTML=A.map(o=>`
+<div class="opt">
+ <img src="${o.img}" onclick="document.getElementById('lbimg').src='${o.img}';document.getElementById('lb').classList.add('open')">
+ <div>
+  <div class="tag">Option ${o.id}</div><h3><em>${o.label}</em></h3>
+  <div class="meta">${o.sec}s · seed 31337 · krea2_turbo_bf16 · 1344×768 · 8 steps</div>
+  <pre>${o.prompt}</pre>
+  <div class="votes">
+   ${['🏆 winner','✨ promising','🎨 mix-in','🗑️ reject'].map(v=>`<button class="${votes[o.id]===v?'sel':''}" onclick="vote('${o.id}','${v}',this)">${v}</button>`).join('')}
+  </div>
+ </div>
+</div>`).join('');
+function vote(id,v,btn){votes[id]=v;localStorage.setItem('krea2ballot',JSON.stringify(votes));btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('sel'));btn.classList.add('sel')}
+function saveBallot(){
+ const data={ballot:votes,notes:'',engine:'krea2-turbo-bf16',at:new Date().toISOString()};
+ fetch('ballot.json',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data,null,1)})
+  .then(()=>alert('ballot saved ✓')).catch(()=>prompt('Copy this ballot to Conviction:',JSON.stringify(votes)));
+}
+</script></body></html>

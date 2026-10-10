@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hapa Echo Render Tracker</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box;margin:0}
+body{background:#0d0f14;color:#e8e6df;font:14px/1.5 -apple-system,'Segoe UI',sans-serif;padding:18px}
+h1{font-size:20px;letter-spacing:.06em}
+h1 span{color:#ffcf4d}
+.sub{color:#8b8fa3;font-size:12px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.stat{background:#161a24;border:1px solid #262b3b;border-radius:10px;padding:12px 14px}
+.stat b{display:block;font-size:26px;color:#7fd1ae}
+.stat.err b{color:#ff8a7a}.stat.warn b{color:#ffcf4d}
+.stat.krea b{color:#c9a2ff}
+.stat small{color:#8b8fa3}
+h2{font-size:13px;color:#8b8fa3;text-transform:uppercase;letter-spacing:.12em;margin:18px 0 8px}
+#runs table,#songs table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:5px 8px;border-bottom:1px solid #1e2330;text-align:left}
+th{color:#8b8fa3;font-weight:500;font-size:11px;text-transform:uppercase}
+.bar{height:7px;background:#262b3b;border-radius:4px;overflow:hidden;min-width:80px}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,#7fd1ae,#5ab4e0)}
+.bar.k i{background:linear-gradient(90deg,#c9a2ff,#ffcf4d)}
+.pill{display:inline-block;padding:1px 8px;border-radius:9px;font-size:11px;background:#1e2a24;color:#7fd1ae}
+.pill.zero{background:#241d1d;color:#8b8fa3}
+.pill.krea{background:#2a2140;color:#c9a2ff}
+.lanefilter{display:inline-flex;gap:6px;margin-left:12px;vertical-align:middle}
+.lanefilter button{background:#161a24;color:#8b8fa3;border:1px solid #262b3b;border-radius:14px;padding:2px 12px;font-size:11px;cursor:pointer}
+.lanefilter button.on{background:#2a2140;color:#c9a2ff;border-color:#4a3a70}
+.badge{display:inline-block;padding:0 6px;border-radius:8px;font-size:10px;margin-right:4px}
+.badge.flux{background:#12303a;color:#5ab4e0}
+.badge.krea2{background:#2a2140;color:#c9a2ff}
+#strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
+#strip figure{background:#161a24;border:1px solid #262b3b;border-radius:8px;overflow:hidden;cursor:zoom-in}
+#strip figure.krea{border-color:#3a2f55}
+#strip img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#000}
+#strip figcaption{font-size:11px;color:#8b8fa3;padding:4px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#more{display:block;margin:12px auto;padding:8px 22px;background:#1e2a24;color:#7fd1ae;border:1px solid #2c4234;border-radius:20px;cursor:pointer;font-size:13px}
+#more:hover{background:#263a2e}
+/* lightbox */
+#lb{position:fixed;inset:0;background:rgba(5,6,9,.93);display:none;z-index:50;flex-direction:column}
+#lb.open{display:flex}
+#lb .stage{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:12px}
+#lb img{max-width:100%;max-height:100%;border-radius:8px;box-shadow:0 10px 50px #000}
+#lb .bar{display:flex;align-items:center;gap:14px;padding:10px 16px;color:#cfd3e0;font-size:13px}
+#lb .bar .meta{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#8b8fa3}
+#lb .bar .meta b{color:#e8e6df;font-weight:600}
+#lb button{background:#1e2330;color:#e8e6df;border:1px solid #333a4e;border-radius:8px;padding:6px 16px;font-size:15px;cursor:pointer}
+#lb button:hover{background:#2a3145}
+#lb .idx{color:#7fd1ae;font-variant-numeric:tabular-nums;min-width:70px;text-align:center}
+#live{display:inline-block;width:8px;height:8px;border-radius:50%;background:#666;margin-right:6px}
+#live.on{background:#7fd1ae;animation:pulse 1.6s infinite}
+@keyframes pulse{50%{opacity:.35}}
+#log{max-height:180px;overflow:auto;font:11px/1.7 ui-monospace,monospace;color:#8b8fa3;background:#11141c;border:1px solid #1e2330;border-radius:8px;padding:8px 10px}
+</style>
+</head>
+<body>
+<h1><span>◈</span> HAPA ECHO RENDER TRACKER <span id="live"></span></h1>
+<div class="sub" id="stamp">loading…</div>
+<div class="grid" id="stats"></div>
+<h2>Runs</h2><div id="runs"></div>
+<h2>Songs (hero-frame plan coverage)</h2><div id="songs"></div>
+<h2>Latest frames
+ <span class="lanefilter">
+  <button id="lane-all" class="on" onclick="setLane('all')">all</button>
+  <button id="lane-flux" onclick="setLane('flux')">Flux/Klein</button>
+  <button id="lane-krea2" onclick="setLane('krea2')">Krea-2 alt</button>
+ </span>
+</h2><div id="strip"></div>
+<button id="more" onclick="loadOlder()">← load older frames</button>
+<h2>Queue log tail</h2><div id="log">tail served from queue log</div>
+
+<div id="lb" onclick="if(event.target===this||event.target.id==='lb')closeLB()">
+ <div class="stage"><img id="lbimg" src="" alt=""></div>
+ <div class="bar">
+  <button onclick="nav(-1)" title="older (←)">←</button>
+  <span class="idx" id="lbidx"></span>
+  <button onclick="nav(1)" title="newer (→)">→</button>
+  <span class="meta" id="lbmeta"></span>
+  <button onclick="closeLB()" title="close (Esc)">✕</button>
+ </div>
+</div>
+
+<script src="tracker-data.js"></script>
+<script>
+let D=window.TRACKER||{frames:[],songs:[],runs:[]};
+let shown=0, lbIdx=-1, lane='all';
+const PAGE=24;
+function titleOf(id){const s=D.songs.find(x=>x.songId===id);return s?s.title:id.replace('dear-papa-song-','')}
+function laneOf(f){return f.lane||'flux'}
+function imgSrc(f){return `${f.dir||(laneOf(f)==='krea2'?'shots-krea2':'shots')}/${f.file}`}
+function visibleFrames(){return lane==='all'?D.frames:D.frames.filter(f=>laneOf(f)===lane)}
+function setLane(l){
+ lane=l;
+ ['all','flux','krea2'].forEach(x=>document.getElementById('lane-'+x).className=(x===l?'on':''));
+ renderStrip(true);
+}
+function renderStats(){
+ const totalPlan=D.songs.reduce((n,s)=>n+s.plan,0)||1;
+ const totalDone=D.songs.reduce((n,s)=>n+s.done,0);
+ const k2Done=D.songs.reduce((n,s)=>n+(s.krea2_done||0),0);
+ const alive=(Date.now()-new Date(D.generated).getTime())<8*60*1000;
+ document.getElementById('live').className=alive?'on':'';
+ document.getElementById('stamp').textContent=`updated ${D.generated.replace('T',' ').slice(0,19)} · ${alive?'LIVE':'snapshot (refresh: python3 scripts/build_render_tracker.py)'}`;
+ document.getElementById('stats').innerHTML=`
+  <div class="stat"><b>${totalDone}</b><small>hero frames done / ${totalPlan} planned (${(100*totalDone/totalPlan).toFixed(1)}%)</small></div>
+  <div class="stat krea"><b>${k2Done}</b><small>Krea-2 alt lane heroes</small></div>
+  <div class="stat"><b>${D.runs.length}</b><small>render run${D.runs.length>1?'s':''}</small></div>
+  <div class="stat err"><b>${D.frames.filter(f=>!f.ok).length}</b><small>errors</small></div>
+  <div class="stat warn"><b>${D.disk_free_gb} GB</b><small>disk free</small></div>
+  <div class="stat"><b>${D.songs.filter(s=>s.done>0).length}/${D.songs.length}</b><small>songs touched</small></div>`;
+ document.getElementById('runs').innerHTML='<table><tr><th>date</th><th>window</th><th>ok</th><th>err</th><th>krea-2 ok</th><th>avg s/frame</th><th>songs</th></tr>'+
+  D.runs.map(r=>`<tr><td>${r.date}</td><td>${r.first}→${r.last}</td><td>${r.ok}</td><td>${r.err}</td><td>${r.krea2_ok||0}</td><td>${r.avg}</td><td>${r.songs}</td></tr>`).join('')+'</table>';
+ document.getElementById('songs').innerHTML='<table><tr><th>#</th><th>song</th><th style="width:36%">coverage</th><th>flux done/plan</th><th>krea-2</th><th>last</th></tr>'+
+  D.songs.map(s=>`<tr><td>${s.track}</td><td>${s.title}</td><td><div class="bar"><i style="width:${s.plan?100*s.done/s.plan:0}%"></i></div></td><td>${s.done?'<span class="pill">'+s.done+'/'+s.plan+'</span>':'<span class="pill zero">0/'+s.plan+'</span>'}</td><td>${s.krea2_done?'<span class="pill krea">'+s.krea2_done+'</span>':'<span class="pill zero">0</span>'}</td><td>${s.last||''}</td></tr>`).join('')+'</table>';
+}
+function renderStrip(reset){
+ const vis=visibleFrames();
+ if(reset)shown=0;
+ const next=vis.slice(shown,shown+PAGE);
+ const strip=document.getElementById('strip');
+ if(reset)strip.innerHTML='';
+ next.forEach((f,i)=>{
+  const idx=shown+i;
+  const ln=laneOf(f);
+  const fig=document.createElement('figure');
+  if(ln==='krea2')fig.className='krea';
+  fig.innerHTML=`<img loading="lazy" src="${imgSrc(f)}" onerror="this.style.opacity=.15"><figcaption><span class="badge ${ln}">${ln==='krea2'?'KREA-2':'FLUX'}</span>${f.song.replace('dear-papa-song-','')} · shot ${f.shot} · ${f.at}</figcaption>`;
+  fig.onclick=()=>openLB(idx);
+  strip.appendChild(fig);
+ });
+ shown+=next.length;
+ const btn=document.getElementById('more');
+ btn.style.display=shown>=vis.length?'none':'block';
+ btn.textContent=`← load older frames (${vis.length-shown} older)`;
+}
+function loadOlder(){renderStrip(false)}
+function openLB(i){lbIdx=i;paintLB();document.getElementById('lb').classList.add('open')}
+function closeLB(){document.getElementById('lb').classList.remove('open')}
+function nav(d){const vis=visibleFrames();lbIdx=Math.min(vis.length-1,Math.max(0,lbIdx+d));paintLB()}
+function paintLB(){
+ const vis=visibleFrames();
+ const f=vis[lbIdx];if(!f)return;
+ document.getElementById('lbimg').src=imgSrc(f);
+ document.getElementById('lbidx').textContent=`${lbIdx+1} / ${vis.length}`;
+ const ln=laneOf(f);
+ document.getElementById('lbmeta').innerHTML=`<span class="badge ${ln}">${ln==='krea2'?'KREA-2 ALT':'FLUX/KLEIN'}</span><b>${titleOf(f.song)}</b> · shot ${f.shot} · ${f.sec}s · ${f.at}${f.ok?'':' · <span style="color:#ff8a7a">ERROR</span>'}`;
+}
+document.addEventListener('keydown',e=>{
+ if(!document.getElementById('lb').classList.contains('open'))return;
+ if(e.key==='Escape')closeLB();
+ else if(e.key==='ArrowLeft')nav(-1);   // older
+ else if(e.key==='ArrowRight')nav(1);   // newer
+});
+renderStats();renderStrip(true);
+// dynamic refresh every 60s (keeps lightbox position + loaded history)
+setInterval(()=>{
+ const s=document.createElement('script');
+ s.src='tracker-data.js?t='+Date.now();
+ s.onload=()=>{D=window.TRACKER;renderStats();renderStrip(true);if(document.getElementById('lb').classList.contains('open'))paintLB();};
+ document.head.appendChild(s);
+},60000);
+</script>
+</body>
+</html>

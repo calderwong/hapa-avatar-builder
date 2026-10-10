@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Krea-2 Alternative Run — Human Review</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box;margin:0}
+body{background:#0d0f14;color:#e8e6df;font:14px/1.5 -apple-system,'Segoe UI',sans-serif;padding:20px;max-width:1500px;margin:auto}
+h1{font-size:20px}h1 span{color:#ff8a7a}
+.sub{color:#8b8fa3;font-size:12px;margin:6px 0 18px}
+.card{background:#141824;border:1px solid #262b3b;border-radius:12px;margin-bottom:22px;overflow:hidden}
+.card .head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #262b3b}
+.card .head b{font-size:15px}
+.tag{font-size:11px;padding:2px 9px;border-radius:10px;background:#1e2a24;color:#7fd1ae}
+.tag.alt{background:#2a241e;color:#ffcf4d}
+.card img{width:100%;display:block;background:#000;cursor:zoom-in}
+.card .body{padding:12px 14px}
+.card .meaning{color:#7fd1ae;font-size:13px;margin-bottom:8px}
+details{margin-top:6px}summary{cursor:pointer;color:#8b8fa3;font-size:12px}
+pre{white-space:pre-wrap;font-size:11px;color:#aab0c4;background:#11141c;padding:10px;border-radius:8px;margin-top:6px;border:1px solid #1e2330}
+.votes{display:flex;gap:8px;margin-top:10px}
+.votes button{background:#1e2330;border:1px solid #333a4e;color:#e8e6df;border-radius:8px;padding:5px 14px;cursor:pointer;font-size:13px}
+.votes button.on{background:#2c4234;border-color:#7fd1ae;color:#7fd1ae}
+#lb{position:fixed;inset:0;background:rgba(5,6,9,.94);display:none;align-items:center;justify-content:center;z-index:9;flex-direction:column;gap:10px;padding:16px}
+#lb.open{display:flex}
+#lb img{max-width:100%;max-height:88vh;border-radius:8px}
+#lb .cap{color:#8b8fa3;font-size:13px}
+#lb button{background:#1e2330;border:1px solid #333a4e;color:#e8e6df;border-radius:8px;padding:6px 16px;cursor:pointer}
+</style>
+</head>
+<body>
+<h1><span>◈</span> KREA-2 ALTERNATIVE RUN — “I Knew a Bella” <span style="font-size:13px;color:#8b8fa3">· no Builder characters · pure Hapa aesthetic + lyric symbols</span></h1>
+<div class="sub">7 prompt variants · Krea-2 Turbo bf16 · 1344×768 · seed-paired 4200+i · click image to enlarge · cast your votes, they save to <code>alt-votes.json</code></div>
+<div id="grid">loading alt-ledger.json…</div>
+<div id="lb" onclick="this.classList.remove('open')"><img id="lbimg"><div class="cap" id="lbcap"></div><button>close ✕</button></div>
+<script>
+const META={
+ 'A-symbolic-stilllife-max':['Max aesthetic block · open cage, ribbon, orchids, cracked glass','born wild · farewell · chance taken'],
+ 'B-wild-landscape':['Lyrical vista · wild horse leaping the last ridge','born wild, yearned to be free'],
+ 'C-uso-stage-memory':['1940s USO stage after the last dance, one spotlight','the song she sang — Chiao Baby Chiao'],
+ 'D-abstract-emotion':['Pure abstraction · heart breaking through glass, silk torrent','breakthrough / release'],
+ 'E-poster-emblem':['Cover emblem · songbird rising from cracked teacup','icon for the album track'],
+ 'F-symbolic-stilllife-minimal':['Same cage scene, MINIMAL aesthetic block','tests how little style-text still nails the look'],
+ 'G-symbolic-max-8steps':['A at 8 steps instead of 5','tests if extra steps earn their +60% time'],
+};
+fetch('alt-ledger.json').then(r=>r.json()).then(rows=>{
+ document.getElementById('grid').innerHTML=rows.filter(r=>r.ok).map(r=>{
+  const m=META[r.variant]||['',''];
+  return `<div class="card"><div class="head"><b>${r.variant}</b><span class="tag">${r.steps} steps</span><span class="tag alt">${r.seconds}s</span></div>
+  <img src="shots/${r.files[0]}" onclick="zoom(this.src,'${r.variant}')">
+  <div class="body"><div class="meaning">◈ ${m[1]}</div><div>${m[0]}</div>
+  <details><summary>view exact prompt</summary><pre>${r.prompt||''}</pre></details>
+  <div class="votes"><button onclick="vote('${r.variant}',1,this)">👍 keep</button><button onclick="vote('${r.variant}',0,this)">meh</button><button onclick="vote('${r.variant}',2,this)">⭐ favorite</button></div>
+  </div></div>`}).join('');
+});
+function zoom(src,cap){document.getElementById('lbimg').src=src;document.getElementById('lbcap').textContent=cap;document.getElementById('lb').classList.add('open')}
+function vote(id,v,btn){btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('on'));btn.classList.add('on');
+ const v_=JSON.parse(localStorage.getItem('hapa-alt-votes')||'{}');v_[id]=v;localStorage.setItem('hapa-alt-votes',JSON.stringify(v_));
+ fetch('/save-vote',{method:'POST',body:JSON.stringify({variant:id,vote:v})}).catch(()=>{});}
+</script>
+</body>
+</html>
