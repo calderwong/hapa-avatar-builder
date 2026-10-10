@@ -31,6 +31,37 @@ def write(file, data):
     tmp.write_text(json.dumps(data, allow_nan=False, separators=(',',':')))
     tmp.replace(file)
 
+WHISPER_RETRY_GAINS = (1.0, .5, .25)
+
+def finite_json(value):
+    """Raw evidence stays JSON-compliant: non-finite model scalars become null."""
+    if isinstance(value, dict): return {k: finite_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)): return [finite_json(v) for v in value]
+    if isinstance(value, (float, np.floating)): return float(value) if np.isfinite(value) else None
+    if isinstance(value, np.integer): return int(value)
+    return value
+
+def nonfinite_segments(transcript):
+    return [s for s in transcript.get('segments', []) if not np.isfinite(float(s.get('avg_logprob', 0.)))]
+
+def transcribe_finite(transcribe, samples, gains=WHISPER_RETRY_GAINS):
+    """The 4-bit Whisper decoder can emit NaN logits for particular 30 s windows
+    (token 0 "!" loops with avg_logprob NaN). That is input-exact, so a quieter
+    copy of the same audio decodes normally. Keep the attempt with the fewest
+    NaN windows, then drop any that remain instead of publishing their junk."""
+    best = None; attempts = []
+    for gain in gains:
+        transcript = transcribe(samples if gain == 1.0 else samples * np.float32(gain))
+        bad = len(nonfinite_segments(transcript)); attempts.append({'input_gain': gain, 'nonfinite_segments': bad})
+        if best is None or bad < best[1]: best = (transcript, bad, gain)
+        if not bad: break
+    transcript, _, gain = best
+    dropped = nonfinite_segments(transcript)
+    dropped_ids = {id(s) for s in dropped}
+    transcript = {**transcript, 'segments': [s for s in transcript.get('segments', []) if id(s) not in dropped_ids]}
+    if dropped: transcript['text'] = ''.join(s.get('text', '') for s in transcript['segments'])
+    return transcript, {'input_gain': gain, 'attempts': attempts, 'dropped_nonfinite_segments': len(dropped)}
+
 def features(pcm, sr):
     hop = max(1, round(sr / 10))
     frames = []
@@ -191,11 +222,13 @@ def main():
             socket.socket.connect=denied
             import mlx_whisper
             from importlib.metadata import version
-            transcript=mlx_whisper.transcribe(samples,path_or_hf_repo=str(model_path),word_timestamps=True,language='en',temperature=0.,condition_on_previous_text=False,verbose=None)
+            transcript,decode=transcribe_finite(lambda audio: mlx_whisper.transcribe(audio,path_or_hf_repo=str(model_path),word_timestamps=True,language='en',temperature=0.,condition_on_previous_text=False,verbose=None),samples)
+            transcript=finite_json(transcript)
             write(out/'whisper-raw.json',transcript)
             words=[]
             for segment in transcript.get('segments',[]):
                 for word in segment.get('words',[]):
+                    if word.get('start') is None or word.get('end') is None: continue
                     start=round(float(word['start'])*asset['sample_rate_hz']);end=round(float(word['end'])*asset['sample_rate_hz'])
                     if not 0<=start<end<=asset['sample_count']: continue
                     observation={'id':f"{asset['id']}:word:{len(words)}",'kind':'hapa.audio.word_candidate','claim_type':'model_inferred',
@@ -208,7 +241,7 @@ def main():
             result['observations'].extend(words)
             result['transcript_candidate']={'text':transcript.get('text',''),'source_asset_id':asset['id'],'word_count':len(words),
               'method':'mlx-whisper word timestamps','model_revision':model['revision'],'weights_sha256':model['weights_sha256'],
-              'package_version':version('mlx-whisper'),'language':'en','quality_qualified':False,'network':'disabled','source_timeline_only':True}
+              'package_version':version('mlx-whisper'),'language':'en','quality_qualified':False,'network':'disabled','source_timeline_only':True,'decode':decode}
             result['coverage']['word_timing']={'state':'candidate','method':'MLX Whisper word timestamps','new_inference':True,'human_reviewed':False,'phoneme_or_syllable_timing':False}
         except Exception as e:
             result['coverage']['word_timing']={'state':'failed','error':str(e)[:500],'imported_candidates_preserved':True}

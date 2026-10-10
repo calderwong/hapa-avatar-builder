@@ -26,4 +26,16 @@ class Measurements(unittest.TestCase):
   r=reconstruction_waveform_alignment(x,y,8000)
   self.assertEqual(r['status'],'consistent-reconstruction-lag');self.assertAlmostEqual(r['proposedGroupOriginSeconds'],-.02,places=4)
   self.assertFalse(r['individualStemOriginsVerified'])
+ def test_nan_whisper_windows_retry_quieter_then_drop(self):
+  nan=float('nan');calls=[]
+  def seg(text,logprob,start=0.):return {'text':text,'avg_logprob':logprob,'start':start,'words':[{'word':text,'start':start,'end':start+1,'probability':.9}]}
+  def fake(audio):
+   calls.append(float(np.max(audio)))
+   return {'text':'x','segments':[seg(' ok',-.2),seg('!',nan,30.)]} if len(calls)<3 else {'text':' ok fixed','segments':[seg(' ok',-.2),seg(' fixed',-.3,30.)]}
+  t,d=worker.transcribe_finite(fake,np.ones(4,dtype=np.float32))
+  self.assertEqual(calls,[1.,.5,.25]);self.assertEqual(d['input_gain'],.25);self.assertEqual(d['dropped_nonfinite_segments'],0)
+  self.assertEqual([s['text'] for s in t['segments']],[' ok',' fixed'])
+  t,d=worker.transcribe_finite(lambda a:{'text':'x','segments':[seg(' ok',-.2),seg('!',nan,30.)]},np.ones(4,dtype=np.float32))
+  self.assertEqual(d['dropped_nonfinite_segments'],1);self.assertEqual(t['text'],' ok');self.assertEqual(len(d['attempts']),3)
+  self.assertEqual(worker.finite_json({'a':[nan,np.float32(1.5),float('inf')]}),{'a':[None,1.5,None]})
 if __name__=='__main__':unittest.main()
