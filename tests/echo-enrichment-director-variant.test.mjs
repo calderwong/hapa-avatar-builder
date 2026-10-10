@@ -2103,12 +2103,13 @@ test("replacements that change source orientation receive a selected-media camer
   assert.equal(shot.media_orientation, "portrait");
   assert.deepEqual(shot.media_dimensions, { width: 720, height: 1280, maxDimension: 1280 });
   assert.equal(framing.schemaVersion, ECHO_ASSET_CAMERA_FRAMING_SCHEMA);
-  assert.equal(framing.reason, "selected-media-orientation-changed");
+  // A tall clip in a landscape cut ends on the full-height scan contract.
+  assert.equal(framing.reason, "portrait-source-in-landscape-output-full-height-scan");
+  assert.equal(shot.camera_motion, "scan-down");
   assert.equal(framing.mediaId, mediaId);
   assert.equal(framing.path.mediaId, mediaId);
   assert.equal(shot.decision_evidence.preservedDirection.camera, false);
-  assert.equal(shot.decision_evidence.cameraFraming.status, "rederived-for-selected-media");
-  assert.notEqual(shot.camera_motion, "static");
+  assert.equal(shot.decision_evidence.cameraFraming.status, "rederived-by-horizontal-portrait-camera-doctrine");
   assert.equal(variant.validation.ok, true);
   for (const corridor of framing.path.corridors) {
     for (const crop of [corridor.startCrop, corridor.endCrop]) {

@@ -5,6 +5,7 @@ import {applyEchoRecutTreatment,echoRecipeOperatorLocks} from './echo-recipe-rec
 import { NARRATIVE_VARIANT_RECIPES } from "./echo-director-recipes.js";
 import { sequenceEchoNarrative } from "./echo-narrative-sequencer.js";
 import { mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
+import { applyEchoPortraitScanCamera } from "./echo-horizontal-portrait-camera-doctrine.js";
 
 const mediaFields = ["media_id", "media_title", "media_uri", "runtime_media_uri", "media_thumbnail", "media_contract", "media_card_id", "media_card_kind", "media_card_ref", "media_card_title", "characterIds", "sceneIds", "cast", "identityEvidence", "contentEvidence", "canonicalMediaIds", "shotRoles", "paletteFamily", "comicId", "panelIndex", "roi", "technical", "availability", "cropCoverage", "sourcePolicy", "sourceAllowed", "origin", "banned", "metadata"];
 
@@ -172,6 +173,8 @@ export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks
   const treatment=applyEchoRecutTreatment(next,{recipe,locks,seed,windows:!atomic.groups.length&&start===0&&end===Number(project.duration)&&changeAmount===1?[{startSeconds:start,endSeconds:end}]:sequence.slots.filter(slot=>treatmentIndices.has(slot.sourceShotIndex))});
   if (atomic.groups.length) treatment.receipt.limitations.push("source-declared-transition-sequences-and-overlapping-global-treatments-preserved");
   next=treatment.project;
+  // Tall clips that land in a landscape cut scan their full height unless the operator locked camera.
+  if (!cameraLocked) next = { ...next, timeline: applyEchoPortraitScanCamera({ project: next }).timeline };
   const receipt = { ...sequence.receipt, atomicTransitions: {policy:"preserve-complete-source-declared-sequences",groups:atomic.groups,excludedFromOrdinaryPool:atomic.protectedIndices.size,certificationRevalidated:false}, trackEditMaterialization: materialized.receipt ? {patchHash:materialized.receipt.patchHash,changedRows:materialized.receipt.changedRows,projectionPreserved:true} : null, treatment: treatment.receipt, parentCutId: project.active_direction_script_variant?.id || "legacy", range: { startSeconds: start, endSeconds: end },
     controls: { changeAmount, requiredCharacterIds: [...requiredCharacterIds], requiredSceneIds: [...requiredSceneIds], locks: structuredClone(locks), timingMode },
     changeBudget: { editableShots: editable.length, selectedShots: selected.size, policy: "seeded-ceiling-of-editable-whole-shots" },

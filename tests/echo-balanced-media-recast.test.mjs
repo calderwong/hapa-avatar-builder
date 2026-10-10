@@ -479,3 +479,25 @@ test("balanced selection is byte-identical when candidates carry no visual telem
   assert.deepEqual(second.selectionEvidence.map((selection) => selection.technicalIdentity), first.selectionEvidence.map((selection) => selection.technicalIdentity));
   assert.deepEqual(second.timeline.map((shot) => shot.media_id), first.timeline.map((shot) => shot.media_id));
 });
+
+test("balanced recast gives tall clips in a landscape cut a full-height scan and keeps frame-filling clips' camera", () => {
+  const sourceGroups = ["avatar", "deevid"];
+  const candidates = [
+    { ...candidate("avatar", "loop", 30), width: 1080, height: 1920 },
+    { ...candidate("deevid", "loop", 31), width: 1920, height: 1080 },
+    { ...candidate("avatar", "transition", 32), width: 768, height: 1168 },
+    { ...candidate("deevid", "transition", 33), width: 1920, height: 1080 },
+  ];
+  const project = { ...projectWithShots(4), output_profile: { id: "landscape", width: 1920, height: 1080, fps: 30 } };
+  const variant = recastBalancedEchoDirectorProject(project, candidates, {
+    variantId: "portrait-scan-fixture", allowedSourceGroups: sourceGroups, sourcePattern: sourceGroups,
+    rotateSourcePattern: false, createdAt: "2026-10-09T12:00:00.000Z", seed: "portrait-scan-fixture",
+  });
+  const rows = variant.timeline.map((shot) => [shot.media_contract.dimensions.height > shot.media_contract.dimensions.width, shot.camera_motion]);
+  for (const [tall, motion] of rows) assert.ok(tall ? /^scan-(down|up)$/u.test(motion) : !motion.startsWith("scan-"));
+  assert.deepEqual(rows.filter(([tall]) => tall).map(([, motion]) => motion), ["scan-down", "scan-up"]);
+  assert.equal(variant.telemetry.portraitScan.reframedShots, 2);
+  assert.equal(variant.preservation.cameraMovement, "preserved-except-full-height-portrait-scan");
+  assert.match(variant.hyperframe_script, /scan-down/u);
+  assert.deepEqual(validateBalancedDirectorRevision(variant), { ok: true, timelineShots: 4, replacementShots: 4 });
+});

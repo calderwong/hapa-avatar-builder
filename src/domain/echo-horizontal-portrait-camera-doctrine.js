@@ -4,28 +4,38 @@ import { validateSafeCameraPath } from "./media-role-camera.js";
 export const ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINE_SCHEMA =
   "hapa.echo.horizontal-portrait-camera-doctrine.v1";
 
+// A tall source (portrait or square) shown in a landscape frame with
+// `object-fit: cover` loses most of its height. Locking or zooming that crop cuts
+// heads and action off, so every such shot scans the full source height: from the
+// very top down, or from the very bottom up. `scan-down`/`scan-up` are rendered by
+// echoCameraMotionPresentation with no extra zoom and independent of intensity.
 export const ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINES = Object.freeze([
   Object.freeze({
+    id: "alternating-full-height-scan-v2",
+    label: "Full-Height Scan · Alternating Down/Up",
+    cutOrdinal: 3,
+    firstMotion: "scan-down",
+    alternate: true,
+  }),
+  Object.freeze({
     id: "top-first-fast-scan-v1",
-    label: "Top First · Fast Full-Height Scan",
+    label: "Top First · Full-Height Scan Down",
     cutOrdinal: 1,
-    motion: "pan-up",
-    speed: 2.4,
-    intensity: 0,
-    startAnchor: "top",
-    endAnchor: "bottom",
+    firstMotion: "scan-down",
+    alternate: false,
   }),
   Object.freeze({
     id: "top-arrival-fast-scan-v1",
-    label: "Top Arrival · Fast Full-Height Scan",
+    label: "Bottom First · Full-Height Scan Up",
     cutOrdinal: 2,
-    motion: "pan-down",
-    speed: 2.4,
-    intensity: 0,
-    startAnchor: "bottom",
-    endAnchor: "near-top",
+    firstMotion: "scan-up",
+    alternate: false,
   }),
 ]);
+
+export const ECHO_PORTRAIT_SCAN_DEFAULT_DOCTRINE_ID = "alternating-full-height-scan-v2";
+// Scan when the landscape cover crop would hide at least 35% of the source height.
+export const ECHO_PORTRAIT_SCAN_MAX_VISIBLE_HEIGHT = 0.65;
 
 function clone(value) {
   if (value === undefined) return undefined;
@@ -67,14 +77,15 @@ function shotDimensions(shot = {}) {
   return width && height ? { width, height, maxDimension: Math.max(width, height) } : null;
 }
 
-function isVideoShot(shot = {}) {
-  const kind = text(shot.media_contract?.type || shot.mediaContract?.type).toLowerCase();
-  if (kind) return kind === "video";
-  return /\.(?:mp4|mov|m4v|webm)(?:$|\?)/iu.test(text(
-    shot.runtime_media_uri
-    || shot.media_contract?.runtimeUri
-    || shot.media_uri,
-  ));
+function hasPlayableMedia(shot = {}) {
+  const id = text(shot.media_id || shot.mediaId);
+  if (id === "none") return false;
+  return Boolean(id || text(shot.runtime_media_uri || shot.media_contract?.runtimeUri || shot.media_uri));
+}
+
+function hasProtectedCropPath(shot = {}) {
+  const keyframes = Array.isArray(shot.cameraKeyframes) ? shot.cameraKeyframes : [];
+  return keyframes.some((row) => ["protected-v2", "section-crop-v1"].includes(row?.crop?.cameraModel));
 }
 
 function isCertifiedAtomicShot(shot = {}) {
@@ -90,23 +101,37 @@ function isCertifiedAtomicShot(shot = {}) {
     );
 }
 
-function coverCrop(sourceAspect, targetAspect, doctrine) {
+function coverCrop(sourceAspect, targetAspect, motion) {
   const width = sourceAspect >= targetAspect ? targetAspect / sourceAspect : 1;
   const height = sourceAspect >= targetAspect ? 1 : sourceAspect / targetAspect;
   const maxX = Math.max(0, 1 - width);
   const maxY = Math.max(0, 1 - height);
-  if (maxY <= 0.000001) {
-    const centered = { x: round(maxX / 2), y: 0, width: round(width), height: round(height) };
-    return { startCrop: centered, endCrop: clone(centered) };
-  }
-  const top = 0;
-  const nearTop = Math.min(maxY, maxY * 0.015);
-  const startY = doctrine.startAnchor === "top" ? top : maxY;
-  const endY = doctrine.endAnchor === "bottom" ? maxY : nearTop;
-  return {
-    startCrop: { x: round(maxX / 2), y: round(startY), width: round(width), height: round(height) },
-    endCrop: { x: round(maxX / 2), y: round(endY), width: round(width), height: round(height) },
-  };
+  const x = round(maxX / 2);
+  const top = { x, y: 0, width: round(width), height: round(height) };
+  const bottom = { x, y: round(maxY), width: round(width), height: round(height) };
+  return motion === "scan-up" ? { startCrop: bottom, endCrop: top } : { startCrop: top, endCrop: bottom };
+}
+
+/** Fraction of the source height a cover crop shows in the output frame. */
+export function echoCoverVisibleHeightFraction(sourceAspect, outputAspect) {
+  const source = positive(sourceAspect), output = positive(outputAspect);
+  if (!source || !output) return 1;
+  return Math.min(1, source / output);
+}
+
+/** Why a shot does or does not need a full-height scan in this output. */
+export function echoShotPortraitScanEligibility(shot = {}, outputProfile = {}) {
+  const width = positive(outputProfile.width), height = positive(outputProfile.height);
+  if (!(width > height)) return { eligible: false, reason: "non-landscape-output" };
+  if (!hasPlayableMedia(shot)) return { eligible: false, reason: "no-media" };
+  const dimensions = shotDimensions(shot);
+  if (!dimensions) return { eligible: false, reason: "dimensions-unknown" };
+  const visibleHeightFraction = echoCoverVisibleHeightFraction(dimensions.width / dimensions.height, width / height);
+  if (visibleHeightFraction >= ECHO_PORTRAIT_SCAN_MAX_VISIBLE_HEIGHT) return { eligible: false, reason: "fits-frame", visibleHeightFraction };
+  if (isCertifiedAtomicShot(shot)) return { eligible: false, reason: "certified-atomic-transition", visibleHeightFraction };
+  if ((Array.isArray(shot.locks) ? shot.locks : []).includes("camera")) return { eligible: false, reason: "camera-locked", visibleHeightFraction };
+  if (hasProtectedCropPath(shot)) return { eligible: false, reason: "protected-crop-path", visibleHeightFraction };
+  return { eligible: true, reason: "tall-source-in-landscape", visibleHeightFraction, dimensions };
 }
 
 export function resolveEchoHorizontalPortraitCameraDoctrine(value) {
@@ -116,7 +141,26 @@ export function resolveEchoHorizontalPortraitCameraDoctrine(value) {
   return doctrine;
 }
 
-function applyDoctrineToShot(shot, doctrine, outputProfile, index) {
+// Compact mode: playback is driven by camera_motion alone, so drop any stale
+// framing contract (it described a different camera) and keep small evidence.
+function applyCompactScanToShot(shot, doctrine, motion, visibleHeightFraction) {
+  const next = clone(shot);
+  delete next.camera_framing_contract;
+  delete next.cameraFramingContract;
+  const decisionEvidence = clone(shot.decision_evidence || shot.decisionEvidence || {});
+  decisionEvidence.preservedDirection = { ...(decisionEvidence.preservedDirection || {}), camera: false };
+  decisionEvidence.cameraFraming = {
+    status: "rederived-by-horizontal-portrait-camera-doctrine",
+    reason: "portrait-source-in-landscape-output-full-height-scan",
+    doctrineId: doctrine.id,
+    motion,
+    previousMotion: text(shot.camera_motion, "auto"),
+    visibleHeightFraction: round(visibleHeightFraction),
+  };
+  return { ...next, camera_motion: motion, camera_intensity: 1, camera_speed: 1, camera_focus: "vertical-scan", decision_evidence: decisionEvidence };
+}
+
+function applyDoctrineToShot(shot, doctrine, outputProfile, index, motion, visibleHeightFraction) {
   const dimensions = shotDimensions(shot);
   const sourceAspect = dimensions.width / dimensions.height;
   const targetAspect = outputProfile.width / outputProfile.height;
@@ -139,7 +183,7 @@ function applyDoctrineToShot(shot, doctrine, outputProfile, index) {
   const endSeconds = Number(shot.end_sec ?? shot.endSeconds ?? startSeconds);
   const corridors = targetAspects.map((aspect) => ({
     targetAspect: aspect,
-    ...coverCrop(sourceAspect, aspect, doctrine),
+    ...coverCrop(sourceAspect, aspect, motion),
     fullBleed: true,
     blackMatExposure: false,
   }));
@@ -155,7 +199,7 @@ function applyDoctrineToShot(shot, doctrine, outputProfile, index) {
     },
     subjectROI,
     easing: "linear",
-    zoomLimits: { min: 1, max: 1.18, startCloseCrop: true },
+    zoomLimits: { min: 1, max: 1, startCloseCrop: true },
     corridors,
     keyframes: [
       { offset: 0, crop: clone(corridors[0].startCrop), zoom: 1 },
@@ -191,18 +235,19 @@ function applyDoctrineToShot(shot, doctrine, outputProfile, index) {
       orientation: "landscape",
     },
     cropPolicy: "aspect-cover-full-height-portrait-scan",
-    motion: doctrine.motion,
-    intensity: doctrine.intensity,
-    speed: doctrine.speed,
-    focus: doctrine.endAnchor === "near-top" ? "top-center" : "center",
+    motion,
+    intensity: 1,
+    speed: 1,
+    focus: "vertical-scan",
     shotRole: path.shotRole,
     subjectROI: clone(subjectROI),
     doctrine: {
       schemaVersion: ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINE_SCHEMA,
       id: doctrine.id,
       label: doctrine.label,
-      startAnchor: doctrine.startAnchor,
-      endAnchor: doctrine.endAnchor,
+      startAnchor: motion === "scan-up" ? "bottom" : "top",
+      endAnchor: motion === "scan-up" ? "top" : "bottom",
+      visibleHeightFraction: round(visibleHeightFraction),
       fullHeightCoverage: true,
     },
     path,
@@ -219,13 +264,16 @@ function applyDoctrineToShot(shot, doctrine, outputProfile, index) {
     doctrineId: doctrine.id,
     sourceOrientation: "portrait",
     outputOrientation: "landscape",
+    motion,
+    previousMotion: text(shot.camera_motion, "auto"),
+    visibleHeightFraction: round(visibleHeightFraction),
     mediaId,
   };
   return {
     ...clone(shot),
-    camera_motion: doctrine.motion,
-    camera_intensity: doctrine.intensity,
-    camera_speed: doctrine.speed,
+    camera_motion: motion,
+    camera_intensity: 1,
+    camera_speed: 1,
     camera_focus: contract.focus,
     camera_framing_contract: contract,
     decision_evidence: decisionEvidence,
@@ -235,39 +283,44 @@ function applyDoctrineToShot(shot, doctrine, outputProfile, index) {
 export function applyEchoHorizontalPortraitCameraDoctrine({
   project = {},
   timeline = project.timeline || [],
-  doctrine: doctrineValue,
+  doctrine: doctrineValue = ECHO_PORTRAIT_SCAN_DEFAULT_DOCTRINE_ID,
+  outputProfile: outputProfileValue = null,
+  contractMode = "full",
 } = {}) {
   const doctrine = resolveEchoHorizontalPortraitCameraDoctrine(doctrineValue);
   const outputProfile = resolveEchoOutputProfile(
-    project.output_profile || project.outputProfile || project,
+    outputProfileValue || project.output_profile || project.outputProfile || project,
   );
+  const rows = Array.isArray(timeline) ? timeline : [];
   if (!(outputProfile.width > outputProfile.height)) {
     return {
       doctrine,
       outputProfile,
-      timeline: clone(timeline),
-      telemetry: {
-        totalShots: Array.isArray(timeline) ? timeline.length : 0,
-        portraitVideoShots: 0,
-        reframedShots: 0,
-        certifiedAtomicShotsPreserved: 0,
-        skippedNonLandscapeOutput: true,
-      },
+      timeline: clone(rows),
+      telemetry: { totalShots: rows.length, tallMediaShots: 0, reframedShots: 0, skipped: {}, skippedNonLandscapeOutput: true },
     };
   }
-  let portraitVideoShots = 0;
+  const skipped = {};
+  let tallMediaShots = 0;
   let reframedShots = 0;
-  let certifiedAtomicShotsPreserved = 0;
-  const nextTimeline = (Array.isArray(timeline) ? timeline : []).map((shot, index) => {
-    const dimensions = shotDimensions(shot);
-    if (!dimensions || !(dimensions.height > dimensions.width) || !isVideoShot(shot)) return clone(shot);
-    portraitVideoShots += 1;
-    if (isCertifiedAtomicShot(shot)) {
-      certifiedAtomicShotsPreserved += 1;
+  let scans = 0;
+  const motions = { "scan-down": 0, "scan-up": 0 };
+  const nextTimeline = rows.map((shot, index) => {
+    const eligibility = echoShotPortraitScanEligibility(shot, outputProfile);
+    if (eligibility.visibleHeightFraction !== undefined && eligibility.visibleHeightFraction < ECHO_PORTRAIT_SCAN_MAX_VISIBLE_HEIGHT) tallMediaShots += 1;
+    if (!eligibility.eligible) {
+      if (eligibility.reason !== "fits-frame" && eligibility.reason !== "no-media") skipped[eligibility.reason] = (skipped[eligibility.reason] || 0) + 1;
       return clone(shot);
     }
+    // Alternate down/up so consecutive tall shots hand off top-to-bottom-to-top.
+    const opposite = doctrine.firstMotion === "scan-down" ? "scan-up" : "scan-down";
+    const motion = doctrine.alternate && scans % 2 ? opposite : doctrine.firstMotion;
+    scans += 1;
     reframedShots += 1;
-    return applyDoctrineToShot(shot, doctrine, outputProfile, index);
+    motions[motion] += 1;
+    return contractMode === "compact"
+      ? applyCompactScanToShot(shot, doctrine, motion, eligibility.visibleHeightFraction)
+      : applyDoctrineToShot(shot, doctrine, outputProfile, index, motion, eligibility.visibleHeightFraction);
   });
   return {
     doctrine,
@@ -275,13 +328,22 @@ export function applyEchoHorizontalPortraitCameraDoctrine({
     timeline: nextTimeline,
     telemetry: {
       totalShots: nextTimeline.length,
-      portraitVideoShots,
+      tallMediaShots,
+      portraitVideoShots: tallMediaShots,
       reframedShots,
-      certifiedAtomicShotsPreserved,
+      motions,
+      skipped,
+      certifiedAtomicShotsPreserved: skipped["certified-atomic-transition"] || 0,
       skippedNonLandscapeOutput: false,
-      speed: doctrine.speed,
-      intensity: doctrine.intensity,
+      maxVisibleHeightFraction: ECHO_PORTRAIT_SCAN_MAX_VISIBLE_HEIGHT,
       fullHeightCoverage: true,
     },
   };
+}
+
+/** Director entry point: give every tall shot in a landscape cut a full-height scan.
+ * Compact by default (camera_motion drives every renderer); pass contractMode
+ * "full" where a validator requires a complete asset camera framing contract. */
+export function applyEchoPortraitScanCamera({ project = {}, timeline = project.timeline || [], outputProfile = null, contractMode = "compact" } = {}) {
+  return applyEchoHorizontalPortraitCameraDoctrine({ project, timeline, outputProfile, doctrine: ECHO_PORTRAIT_SCAN_DEFAULT_DOCTRINE_ID, contractMode });
 }

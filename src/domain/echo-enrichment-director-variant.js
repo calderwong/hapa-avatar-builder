@@ -5,6 +5,7 @@ import {
 } from "./echo-direction-variants.js";
 import { generateEchoHyperframeScript } from "./echo-hyperframe-script.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
+import { applyEchoPortraitScanCamera, echoShotPortraitScanEligibility } from "./echo-horizontal-portrait-camera-doctrine.js";
 import {
   buildSafeCameraPath,
   classifyMediaRole,
@@ -2420,7 +2421,7 @@ function validateAssetCameraFramingContract(contract = {}, shot = {}) {
   return { ok: reasons.length === 0, reasons: uniqueStrings(reasons) };
 }
 
-function cameraReframeRequirement(parentShot = {}, nextShot = {}) {
+function cameraReframeRequirement(parentShot = {}, nextShot = {}, outputProfile = null) {
   const replacement = firstText(parentShot.media_technical_identity, parentShot.media_id, parentShot.media_uri)
     !== firstText(nextShot.media_technical_identity, nextShot.media_id, nextShot.media_uri);
   const parentOrientation = shotMediaOrientation(parentShot);
@@ -2430,18 +2431,23 @@ function cameraReframeRequirement(parentShot = {}, nextShot = {}) {
     && parentOrientation !== "unknown"
     && selectedOrientation !== "unknown"
     && parentOrientation !== selectedOrientation;
+  // A tall clip in a landscape frame always scans its full height, whatever camera the parent shot had.
+  const tallScan = Boolean(outputProfile) && echoShotPortraitScanEligibility(nextShot, outputProfile).eligible;
   return {
-    required: orientationChanged || replacesNonMedia,
+    required: orientationChanged || replacesNonMedia || tallScan,
     replacement,
     replacesNonMedia,
     orientationChanged,
+    tallScan,
     parentOrientation,
     selectedOrientation,
     reason: replacesNonMedia
       ? "replaces-generated-visualizer-or-no-media"
       : orientationChanged
         ? "selected-media-orientation-changed"
-        : "parent-camera-compatible",
+        : tallScan
+          ? "tall-source-full-height-scan"
+          : "parent-camera-compatible",
   };
 }
 
@@ -2454,7 +2460,7 @@ function deriveAssetCameraFraming({
   outputProfile,
   forceStaticAtomicTransition = false,
 } = {}) {
-  const derivedRequirement = cameraReframeRequirement(parentShot, nextShot);
+  const derivedRequirement = cameraReframeRequirement(parentShot, nextShot, outputProfile);
   const requirement = forceStaticAtomicTransition ? {
     ...derivedRequirement,
     required: true,
@@ -2747,6 +2753,7 @@ export function validateEchoEnrichmentDirectorVariant({ parentProject = {}, pare
   const reasons = [];
   const sourceTimeline = list(parentProject.timeline);
   const nextTimeline = list(variant.timeline);
+  const validationOutputProfile = resolveEchoOutputProfile(parentProject.output_profile || parentProject.outputProfile || parentProject);
   const requiresVisualCertification = variant.lineage?.compiler === ECHO_ENRICHMENT_DIRECTOR_COMPILER
     && nextTimeline.some((shot) => (
       shot?.decision_evidence?.atomicTransition?.role === "authored-transition"
@@ -2777,15 +2784,16 @@ export function validateEchoEnrichmentDirectorVariant({ parentProject = {}, pare
     }
     const atomic = nextTimeline[index]?.decision_evidence?.atomicTransition || null;
     const cameraRequirement = atomic ? {
-      ...cameraReframeRequirement(sourceTimeline[index], nextTimeline[index]),
+      ...cameraReframeRequirement(sourceTimeline[index], nextTimeline[index], validationOutputProfile),
       required: true,
       reason: "certified-atomic-transition-centered-framing",
-    } : cameraReframeRequirement(sourceTimeline[index], nextTimeline[index]);
+    } : cameraReframeRequirement(sourceTimeline[index], nextTimeline[index], validationOutputProfile);
     const cameraChanged = stableEchoEnrichmentStringify(cameraState(sourceTimeline[index]))
       !== stableEchoEnrichmentStringify(cameraState(nextTimeline[index]));
     const framingContract = nextTimeline[index]?.camera_framing_contract;
     if (cameraRequirement.required) {
-      if (!cameraChanged && !atomic) reasons.push(`shot-${index}-camera-not-rederived`);
+      // A parent that already scanned the same way is a correct, unchanged scan.
+      if (!cameraChanged && !atomic && !cameraRequirement.tallScan) reasons.push(`shot-${index}-camera-not-rederived`);
       const framingValidation = validateAssetCameraFramingContract(framingContract, nextTimeline[index]);
       for (const reason of framingValidation.reasons) reasons.push(`shot-${index}-camera-${reason}`);
       if (nextTimeline[index]?.decision_evidence?.preservedDirection?.camera !== false) {
@@ -3270,7 +3278,12 @@ export function compileEchoEnrichmentDirectorVariant({
       referenceId: continuity.referenceId,
     } : null;
   }
-  const timeline = selections.map((selection) => selection.shot);
+  // Tall (portrait/square) clips in a landscape cut scan their full height, top-down or bottom-up.
+  const timeline = applyEchoPortraitScanCamera({
+    project: parentProject,
+    timeline: selections.map((selection) => selection.shot),
+    contractMode: "full",
+  }).timeline;
   const projectPatch = pickEchoDirectionVariantProjectPatch(parentProject);
   const visualizerTimeline = clone(parentProject.visualizer_timeline || []);
   const persistentShaderSlots = clone(parentProject.persistent_shader_slots || []);

@@ -1111,6 +1111,8 @@ const CAMERA_MOTION_OPTIONS = [
   { value: "slow-pull-out", label: "Slow pull out" },
   { value: "pan-up", label: "Pan up" },
   { value: "pan-down", label: "Pan down" },
+  { value: "scan-down", label: "Scan down · full height (tall clips)" },
+  { value: "scan-up", label: "Scan up · full height (tall clips)" },
   { value: "pan-up-left", label: "Up + left" },
   { value: "pan-up-right", label: "Up + right" },
   { value: "pan-down-left", label: "Down + left" },

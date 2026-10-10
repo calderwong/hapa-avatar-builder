@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyEchoHorizontalPortraitCameraDoctrine,
+  applyEchoPortraitScanCamera,
+  echoShotPortraitScanEligibility,
   ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINES,
 } from "../src/domain/echo-horizontal-portrait-camera-doctrine.js";
 import { projectToEditorGraph } from "../src/domain/multitrack-editor.js";
+import { echoCameraCoverSourceRect, echoCameraMotionPresentation } from "../src/domain/echo-camera-framing.js";
 
 function portraitShot(overrides = {}) {
   return {
@@ -46,7 +49,7 @@ function landscapeProject(timeline = [portraitShot()]) {
   };
 }
 
-test("the two landscape doctrines scan full portrait height in opposite directions", () => {
+test("top-first and bottom-first doctrines scan the full portrait height in opposite directions", () => {
   const project = landscapeProject();
   const topFirst = applyEchoHorizontalPortraitCameraDoctrine({
     project,
@@ -60,14 +63,15 @@ test("the two landscape doctrines scan full portrait height in opposite directio
   const arrivalCorridor = topArrival.timeline[0].camera_framing_contract.path.corridors[0];
   const maximumY = 1 - firstCorridor.startCrop.height;
 
-  assert.equal(ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINES.length, 2);
+  assert.equal(ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINES.length, 3);
   assert.equal(firstCorridor.startCrop.y, 0);
   assert.ok(Math.abs(firstCorridor.endCrop.y - maximumY) < 0.000001);
   assert.ok(Math.abs(arrivalCorridor.startCrop.y - maximumY) < 0.000001);
-  assert.ok(arrivalCorridor.endCrop.y <= maximumY * 0.015001);
-  assert.equal(topFirst.timeline[0].camera_speed, 2.4);
-  assert.equal(topArrival.timeline[0].camera_speed, 2.4);
-  assert.equal(topFirst.timeline[0].camera_intensity, 0);
+  assert.equal(arrivalCorridor.endCrop.y, 0);
+  assert.equal(topFirst.timeline[0].camera_motion, "scan-down");
+  assert.equal(topArrival.timeline[0].camera_motion, "scan-up");
+  assert.equal(topFirst.timeline[0].camera_speed, 1);
+  assert.equal(topFirst.timeline[0].camera_intensity, 1);
   assert.equal(topFirst.telemetry.reframedShots, 1);
   assert.equal(topArrival.telemetry.reframedShots, 1);
 });
@@ -87,7 +91,7 @@ test("editor projection preserves the declared full-height doctrine corridor", (
   assert.deepEqual(rebound.corridors[0].startCrop, declared.startCrop);
   assert.deepEqual(rebound.corridors[0].endCrop, declared.endCrop);
   assert.deepEqual(frames.map((row) => row.crop), [declared.startCrop, declared.endCrop]);
-  assert.ok(frames.every((row) => row.speed === 2.4 && row.intensity === 0));
+  assert.ok(frames.every((row) => row.speed === 1 && row.intensity === 1));
 });
 
 test("certified atomic transition framing remains byte-identical", () => {
@@ -130,4 +134,58 @@ test("vertical output is outside the horizontal-cut doctrine", () => {
   assert.deepEqual(result.timeline, project.timeline);
   assert.equal(result.telemetry.skippedNonLandscapeOutput, true);
   assert.equal(result.telemetry.reframedShots, 0);
+});
+
+test("the Director policy scans every tall clip, alternating down then up, and leaves frame-filling clips alone", () => {
+  const tall = (index, width, height, extra = {}) => portraitShot({
+    shot_index: index, start_sec: index * 6, end_sec: index * 6 + 6, media_id: `clip-${index}`, media_uri: `/media/clip-${index}.mp4`,
+    camera_motion: "static", camera_intensity: 0, media_contract: { type: "video", dimensions: { width, height } }, ...extra,
+  });
+  const project = landscapeProject([
+    tall(0, 1080, 1920),
+    tall(1, 1920, 1080),
+    tall(2, 1024, 1024),
+    tall(3, 768, 1168, { media_contract: { type: "image", dimensions: { width: 768, height: 1168 } } }),
+    tall(4, 1440, 1080),
+    tall(5, 720, 1280, { locks: ["camera"] }),
+  ]);
+  const result = applyEchoPortraitScanCamera({ project });
+  assert.deepEqual(result.timeline.map((shot) => shot.camera_motion), ["scan-down", "static", "scan-up", "scan-down", "static", "static"]);
+  assert.equal(result.telemetry.reframedShots, 3);
+  assert.deepEqual(result.telemetry.skipped, { "camera-locked": 1 });
+  assert.equal(echoShotPortraitScanEligibility(project.timeline[4], project.output_profile).reason, "fits-frame");
+  for (const shot of result.timeline.filter((row) => row.camera_motion.startsWith("scan-"))) {
+    assert.equal(shot.camera_focus, "vertical-scan");
+    assert.equal(shot.decision_evidence.preservedDirection.camera, false);
+    assert.equal(shot.decision_evidence.cameraFraming.previousMotion, "static");
+  }
+});
+
+test("scan motions travel from the exact top to the exact bottom with no zoom, even at zero intensity", () => {
+  const sample = (motion, timeSeconds) => {
+    const presentation = echoCameraMotionPresentation({ startSeconds: 0, endSeconds: 4, timeSeconds, motion, intensity: 0, isPortrait: true });
+    return { presentation, rect: echoCameraCoverSourceRect({ sourceWidth: 1080, sourceHeight: 1920, outputWidth: 1920, outputHeight: 1080, presentation }) };
+  };
+  const visible = 1080 * 1080 / 1920;
+  const down = [0, 2, 4].map((t) => sample("scan-down", t));
+  assert.deepEqual(down.map(({ presentation }) => presentation.scale), [1, 1, 1]);
+  assert.equal(down[0].rect.y, 0);
+  assert.ok(Math.abs(down[1].rect.y - (1920 - visible) / 2) < 1e-6);
+  assert.ok(Math.abs(down[2].rect.y - (1920 - visible)) < 1e-6);
+  assert.ok(Math.abs(down[0].rect.height - visible) < 1e-6);
+  const up = [0, 4].map((t) => sample("scan-up", t).rect.y);
+  assert.ok(Math.abs(up[0] - (1920 - visible)) < 1e-6);
+  assert.equal(up[1], 0);
+  assert.equal(sample("portrait-scan-down", 0).presentation.motion, "scan-down");
+});
+
+test("compact Director mode drops stale framing contracts and keeps small scan evidence", () => {
+  const shot = portraitShot({ camera_motion: "slow-push-in", camera_framing_contract: { cropPolicy: "aspect-cover-full-bleed", motion: "slow-push-in" } });
+  const result = applyEchoPortraitScanCamera({ project: landscapeProject([shot]) });
+  const next = result.timeline[0];
+  assert.equal(next.camera_motion, "scan-down");
+  assert.equal(next.camera_framing_contract, undefined);
+  assert.equal(next.decision_evidence.cameraFraming.reason, "portrait-source-in-landscape-output-full-height-scan");
+  assert.equal(next.decision_evidence.cameraFraming.previousMotion, "slow-push-in");
+  assert.ok(JSON.stringify(next.decision_evidence.cameraFraming).length < 400);
 });

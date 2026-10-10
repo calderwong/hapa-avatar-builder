@@ -166,3 +166,25 @@ test("fails closed instead of silently dropping malformed or path-mismatched cut
     /declares parent\.songId song-b/u
   );
 });
+
+test("index rows keep small source-policy fields and stub oversized ones so catalogs stay bounded", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "variant-index-compact-"));
+  try {
+    const qualityPolicy = { accepted: Array.from({ length: 4000 }, (_, index) => ({ id: `media-${index}`, grade: 3 })) };
+    fs.mkdirSync(path.join(root, "song-a"), { recursive: true });
+    fs.writeFileSync(path.join(root, "song-a", "cut-a.json"), JSON.stringify({
+      id: "cut-a", status: "ready", schemaVersion: "hapa.echo.direction-script-variant.v1", createdAt: "2026-10-09T00:00:00.000Z", parent: { songId: "song-a" },
+      sourcePolicy: { mode: "balanced-mixed-library-allowlist", allowedSourceGroups: ["human-accepted", "reference"], humanAccepted: { acceptedStateOnly: true, qualityPolicy } },
+      timeline: [],
+    }));
+    const [row] = discoverDirectionVariantIndexRows({ variantsDirectory: root });
+    assert.equal(row.sourcePolicy.mode, "balanced-mixed-library-allowlist");
+    assert.deepEqual(row.sourcePolicy.allowedSourceGroups, ["human-accepted", "reference"]);
+    assert.equal(row.sourcePolicy.humanAccepted.acceptedStateOnly, true);
+    assert.equal(row.sourcePolicy.humanAccepted.qualityPolicy.accepted.omittedFromIndex, true);
+    assert.match(row.sourcePolicy.humanAccepted.qualityPolicy.accepted.sha256, /^[a-f0-9]{64}$/u);
+    assert.ok(JSON.stringify(row).length < 3000);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

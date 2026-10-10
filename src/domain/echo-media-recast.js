@@ -1,4 +1,5 @@
 import { generateEchoHyperframeScript } from "./echo-hyperframe-script.js";
+import { applyEchoPortraitScanCamera } from "./echo-horizontal-portrait-camera-doctrine.js";
 import { hasExcludedEchoDirectorOrigin } from "./builder-direction-candidates.js";
 import { evaluateEchoMediaEligibility, echoMediaConstraintError, mergeEchoMediaConstraints, echoMediaEligibilityFields, ECHO_MEDIA_ELIGIBILITY_FIELDS, inspectEchoTimelineMediaEligibility } from "./echo-media-eligibility.js";
 
@@ -1037,6 +1038,10 @@ export function recastEchoDirectorProject(project = {}, candidateEntries = [], o
 
   const rejected = inspectEchoTimelineMediaEligibility(timeline, policy.mediaConstraints).filter(row => !row.eligible);
   if (rejected.length) throw echoMediaConstraintError(rejected, { stage: "scroll-recast-output" });
+  // Tall (portrait/square) clips in a landscape cut scan their full height,
+  // top-down or bottom-up, instead of inheriting a locked or zooming crop.
+  const portraitScan = applyEchoPortraitScanCamera({ project, timeline });
+  timeline.splice(0, timeline.length, ...portraitScan.timeline);
   const scriptProject = { ...project, timeline };
   const createdAt = options.createdAt || new Date().toISOString();
   const variant = {
@@ -1066,13 +1071,14 @@ export function recastEchoDirectorProject(project = {}, candidateEntries = [], o
       lyricTiming: "inherited-unchanged",
       stems: "preserved",
       audioBindings: "preserved",
-      cameraMovement: "preserved",
+      cameraMovement: portraitScan.telemetry.reframedShots ? "preserved-except-full-height-portrait-scan" : "preserved",
       transitions: "preserved",
       visualizerTimeline: "inherited-unchanged",
       legacyTimeline: "untouched",
       legacyHyperframeScript: "untouched",
     },
     telemetry: {
+      portraitScan: portraitScan.telemetry,
       sourceCandidates: candidates.length,
       replacementShots: selections.length,
       rootSelections: selections.filter((selection) => candidates.find((item) => item.id === selection.mediaId)?.cohort === "root").length,
@@ -1281,6 +1287,10 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
   )).length;
   const promotedToMedia = selections.filter((selection) => selection.densityAction === "visualizer-to-media").length;
   const retainedOriginalMedia = selections.filter((selection) => selection.originalMediaPresent).length;
+  // Tall (portrait/square) clips in a landscape cut scan their full height,
+  // top-down or bottom-up, instead of inheriting a locked or zooming crop.
+  const portraitScan = applyEchoPortraitScanCamera({ project, timeline });
+  timeline.splice(0, timeline.length, ...portraitScan.timeline);
   const scriptProject = { ...project, timeline };
   const variant = {
     schemaVersion: SCROLL_FAL_DIRECTION_VARIANT_VERSION,
@@ -1327,13 +1337,14 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
       lyricTiming: "inherited-unchanged",
       stems: "preserved",
       audioBindings: "preserved",
-      cameraMovement: "preserved",
+      cameraMovement: portraitScan.telemetry.reframedShots ? "preserved-except-full-height-portrait-scan" : "preserved",
       transitions: "preserved",
       visualizerTimeline: "inherited-unchanged",
       legacyTimeline: "untouched",
       legacyHyperframeScript: "untouched",
     },
     telemetry: {
+      portraitScan: portraitScan.telemetry,
       selectionMode: BALANCED_RECAST_SELECTION_MODE,
       sourceCandidates: candidates.length,
       sourceCandidatesByGroup,

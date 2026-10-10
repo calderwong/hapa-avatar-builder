@@ -101,6 +101,10 @@ export function echoCameraMotionPresentation({
     "slow-pull": "slow-pull-out",
     "pull-out": "slow-pull-out",
     "static-shot": "static",
+    "portrait-scan-down": "scan-down",
+    "portrait-scan-up": "scan-up",
+    "full-height-scan-down": "scan-down",
+    "full-height-scan-up": "scan-up",
   };
   const normalizedMotion = motionAliases[declaredMotion] || declaredMotion;
   const autoMotions = isPortrait ? PORTRAIT_AUTO_MOTIONS : LANDSCAPE_AUTO_MOTIONS;
@@ -163,6 +167,17 @@ export function echoCameraMotionPresentation({
   } else if (resolvedMotion === "drift-diagonal") {
     setDirectionalPan(1, -1);
     scale = baseScale + (0.07 * resolvedIntensity);
+  } else if (resolvedMotion === "scan-down" || resolvedMotion === "scan-up") {
+    // Full-height scan for a tall source in a wider frame: start exactly at one
+    // edge of the source and travel to the other with no extra zoom, so heads and
+    // action are always shown. Independent of intensity/speed by design; the
+    // smootherstep lingers briefly on the top and bottom framings.
+    const travel = rawProgress * rawProgress * rawProgress * (rawProgress * (rawProgress * 6 - 15) + 10);
+    scale = 1;
+    translateXPercent = 0;
+    translateYPercent = 0;
+    objectPositionXPercent = 50;
+    objectPositionYPercent = resolvedMotion === "scan-down" ? travel * 100 : (1 - travel) * 100;
   } else if (resolvedMotion === "handheld-float") {
     translateXPercent = Math.sin(rawProgress * Math.PI * 4) * 3.4 * resolvedIntensity * resolvedSpeed;
     translateYPercent = Math.cos(rawProgress * Math.PI * 3) * 2.8 * resolvedIntensity * resolvedSpeed;

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -61,6 +62,19 @@ function compactRow(row) {
   return Object.fromEntries(Object.entries(row).filter(([, value]) => value !== undefined));
 }
 
+// Index rows are a catalog, not the cut. Small policy fields stay inline; an
+// oversized nested value (e.g. a full human-quality policy) becomes a size and
+// digest stub so every catalog response stays bounded. The cut file keeps it all.
+const INDEX_POLICY_VALUE_LIMIT = 4096;
+function compactIndexPolicyValue(value, limit = INDEX_POLICY_VALUE_LIMIT) {
+  const json = JSON.stringify(value);
+  if (json === undefined || json.length <= limit) return cloneJsonValue(value);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, compactIndexPolicyValue(child, limit)]));
+  }
+  return { omittedFromIndex: true, bytes: json.length, sha256: createHash("sha256").update(json).digest("hex") };
+}
+
 function summarizeDirectionVariant(variant, { directoryName, fileName }) {
   if (!object(variant) || variant.schemaVersion !== DIRECTION_VARIANT_SCHEMA) {
     throw new Error(`Direction Variant ${directoryName}/${fileName} does not use ${DIRECTION_VARIANT_SCHEMA}.`);
@@ -90,7 +104,7 @@ function summarizeDirectionVariant(variant, { directoryName, fileName }) {
     cut: cloneJsonValue(variant.cut),
     densityProfile: cloneJsonValue(variant.densityProfile),
     coveragePass: cloneJsonValue(variant.coveragePass),
-    sourcePolicy: cloneJsonValue(variant.sourcePolicy),
+    sourcePolicy: compactIndexPolicyValue(variant.sourcePolicy),
     replacementShots: finiteNumber(telemetry.replacementShots),
     sourceSelections: cloneJsonValue(variantSourceSelections(telemetry)),
     uniqueMedia: finiteNumber(telemetry.uniqueMedia),

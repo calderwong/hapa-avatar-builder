@@ -23,8 +23,9 @@ import { selectLatestEchoDirectionScriptVariant } from "../src/domain/echo-recor
 import { generateEchoHyperframeScript } from "../src/domain/echo-hyperframe-script.js";
 import {
   applyEchoHorizontalPortraitCameraDoctrine,
-  ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINES,
   ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINE_SCHEMA,
+  ECHO_PORTRAIT_SCAN_DEFAULT_DOCTRINE_ID,
+  resolveEchoHorizontalPortraitCameraDoctrine,
 } from "../src/domain/echo-horizontal-portrait-camera-doctrine.js";
 import {
   resolveEchoEnrichmentVariantPath,
@@ -32,11 +33,11 @@ import {
 } from "../src/domain/echo-enrichment-path-safety.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const COMPILER = "hapa-echo-horizontal-portrait-camera-doctrine-v1";
+const COMPILER = "hapa-echo-horizontal-portrait-camera-doctrine-v2";
 const VARIANT_SCHEMA = "hapa.echo.direction-script-variant.v1";
 const VARIATION_SET = Object.freeze({
-  id: "echo-horizontal-portrait-full-height-scan-v1",
-  label: "Echo Horizontal Cuts · Full-Height Portrait Scan V1",
+  id: "echo-horizontal-portrait-full-height-scan-v2",
+  label: "Echo Horizontal Cuts · Full-Height Portrait Scan V2",
   appendOnly: true,
 });
 
@@ -78,8 +79,12 @@ function parseArguments(argv = process.argv.slice(2)) {
     "--variants",
     path.join(ROOT, "data/music-video-project-variants"),
   ));
+  // One alternating full-height scan cut per landscape song unless doctrines are named.
+  const doctrines = text(option(argv, "--doctrines", ECHO_PORTRAIT_SCAN_DEFAULT_DOCTRINE_ID))
+    .split(",").map((id) => resolveEchoHorizontalPortraitCameraDoctrine(id.trim()));
   return {
     apply: argv.includes("--apply"),
+    doctrines,
     songId,
     expectedProjectCount,
     projectsDirectory: path.resolve(option(
@@ -185,6 +190,7 @@ function compileVariant({ projectRow, sourceVariant, doctrine }) {
     project: parentProject,
     timeline: parentProject.timeline,
     doctrine,
+    contractMode: "compact",
   });
   const parentFingerprint = echoDirectionVariantFingerprint(sourceVariant);
   const parentProjectSha256 = sha256(projectRow.bytes);
@@ -235,9 +241,9 @@ function compileVariant({ projectRow, sourceVariant, doctrine }) {
       mediaSelectionPreserved: true,
       timingPreserved: true,
       outputScope: "landscape-only",
-      portraitVideoPolicy: "full-height-cover-scan",
+      portraitVideoPolicy: doctrine.alternate ? "full-height-cover-scan-alternating" : `full-height-cover-${doctrine.firstMotion}`,
+      tallSourceThreshold: "cover crop hides at least 35% of source height",
       certifiedAtomicTransitionsPreserved: true,
-      cameraSpeed: doctrine.speed,
     },
     preservation: {
       baseProjectMutated: false,
@@ -343,7 +349,7 @@ export async function runHorizontalPortraitCameraDoctrinePass(options = parseArg
     const rows = await readSongVariants(options.variantsDirectory, projectRow.songId);
     immutableVariantPaths.push(...rows.map((row) => row.filePath));
     const sourceVariant = sourceVariantForProject(rows, projectRow.project);
-    for (const doctrine of ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINES) {
+    for (const doctrine of options.doctrines) {
       const variant = compileVariant({ projectRow, sourceVariant, doctrine });
       const variantPath = resolveEchoEnrichmentVariantPath(
         options.variantsDirectory,
@@ -362,8 +368,8 @@ export async function runHorizontalPortraitCameraDoctrinePass(options = parseArg
     }
   }
   const immutableVariantSnapshot = await snapshot(immutableVariantPaths);
-  if (generated.length !== projects.length * ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINES.length) {
-    throw new Error("Two-cuts-per-landscape-video coverage invariant failed.");
+  if (generated.length !== projects.length * options.doctrines.length) {
+    throw new Error("One-cut-per-doctrine-per-landscape-video coverage invariant failed.");
   }
   const report = {
     schemaVersion: "hapa.echo.horizontal-portrait-camera-doctrine-report.v1",
@@ -379,26 +385,26 @@ export async function runHorizontalPortraitCameraDoctrinePass(options = parseArg
     },
     coverage: {
       landscapeProjects: projects.length,
-      doctrines: ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINES.length,
+      doctrines: options.doctrines.map((doctrine) => doctrine.id),
       cuts: generated.length,
-      exactlyTwoCutsPerProject: generated.length === projects.length * 2,
+      exactlyOneCutPerDoctrinePerProject: generated.length === projects.length * options.doctrines.length,
       projectsWithPortraitVideoShots: new Set(generated
         .filter((row) => row.variant.telemetry.portraitVideoShots > 0)
         .map((row) => row.songId)).size,
       projectsWithoutPortraitVideoShots: [...new Set(generated
         .filter((row) => row.variant.telemetry.portraitVideoShots === 0)
         .map((row) => row.songId))].sort(),
-      portraitVideoShotsPerDoctrine: Object.fromEntries(ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINES.map((doctrine) => [
+      portraitVideoShotsPerDoctrine: Object.fromEntries(options.doctrines.map((doctrine) => [
         doctrine.id,
         generated.filter((row) => row.doctrineId === doctrine.id)
           .reduce((sum, row) => sum + row.variant.telemetry.portraitVideoShots, 0),
       ])),
-      reframedShotsPerDoctrine: Object.fromEntries(ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINES.map((doctrine) => [
+      reframedShotsPerDoctrine: Object.fromEntries(options.doctrines.map((doctrine) => [
         doctrine.id,
         generated.filter((row) => row.doctrineId === doctrine.id)
           .reduce((sum, row) => sum + row.variant.telemetry.reframedShots, 0),
       ])),
-      certifiedAtomicShotsPreservedPerDoctrine: Object.fromEntries(ECHO_HORIZONTAL_PORTRAIT_CAMERA_DOCTRINES.map((doctrine) => [
+      certifiedAtomicShotsPreservedPerDoctrine: Object.fromEntries(options.doctrines.map((doctrine) => [
         doctrine.id,
         generated.filter((row) => row.doctrineId === doctrine.id)
           .reduce((sum, row) => sum + row.variant.telemetry.certifiedAtomicShotsPreserved, 0),
