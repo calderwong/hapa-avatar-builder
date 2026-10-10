@@ -62,3 +62,23 @@ test('section camera limits constrain actual interpolated crop motion, including
   const spanning=echoSectionCameraBudgetForWindow([{id:'peak',type:'chorus',start:0,end:2},{id:'quiet',type:'outro',start:2,end:4}],1,3);
   assert.equal(spanning.maxCameraAcceleration,echoSectionVisualBudget({type:'outro'}).maxCameraAcceleration);
 });
+
+test("a Director full-height scan survives the section motion budget: exact top to exact bottom, no zoom", () => {
+  const budget = { maxCameraVelocity: 0.02, maxCameraAcceleration: 0.01 };
+  const common = { mediaId: "tall", technical: { width: 1080, height: 1920 }, analysis: { subjectROI: { x: 0.25, y: 0.2, width: 0.5, height: 0.6 } },
+    role: "hold", phraseCue: { id: "cue" }, targetAspects: [16 / 9], durationSeconds: 4, motionBudget: budget };
+  const down = buildSafeCameraPath({ ...common, scan: "scan-down" });
+  const visible = (1080 / 1920) / (16 / 9);
+  assert.equal(down.scan, "scan-down");
+  assert.deepEqual(down.zoomLimits, { min: 1, max: 1, startCloseCrop: true });
+  assert.equal(down.keyframes[0].crop.y, 0);
+  assert.ok(Math.abs(down.keyframes[1].crop.y - (1 - visible)) < 1e-9, "the budget must not clamp the travel short of the bottom");
+  assert.equal(down.keyframes[0].crop.cameraModel, "section-crop-v1");
+  assert.ok(Math.abs(down.keyframes[0].crop.height - visible) < 1e-9);
+  assert.deepEqual(validateSafeCameraPath(down).errors, []);
+  const up = buildSafeCameraPath({ ...common, scan: "scan-up" });
+  assert.equal(up.keyframes[1].crop.y, 0);
+  assert.notEqual(up.id, down.id);
+  const unscanned = buildSafeCameraPath(common);
+  assert.ok(Math.abs(unscanned.keyframes[1].crop.y - unscanned.keyframes[0].crop.y) < 0.1, "ordinary section paths still drift within budget");
+});

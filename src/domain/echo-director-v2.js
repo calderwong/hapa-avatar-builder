@@ -1264,6 +1264,9 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       phraseCue,
       durationSeconds: Number(slot.endSeconds) - Number(slot.startSeconds),
       motionBudget: slot.locks?.includes('camera') ? null : sectionCameraBudget,
+      // A Director full-height scan must survive compilation; a centered section
+      // crop would otherwise replace it and cut off heads in tall sources.
+      scan: /^scan-(down|up)$/u.test(String(slot.camera?.motion || "")) ? String(slot.camera.motion) : null,
       // The first corridor drives camera keyframes. Keep it aligned with the
       // selected export profile while retaining the alternate crop plans.
       targetAspects: cameraTargetAspects,

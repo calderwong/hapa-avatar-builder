@@ -104,10 +104,23 @@ function centeredCrop(roi, crop) {
   return { x: clamp(centerX - crop.width / 2, 0, 1 - crop.width), y: clamp(centerY - crop.height / 2, 0, 1 - crop.height), width: crop.width, height: crop.height };
 }
 
-export function buildSafeCameraPath({ mediaId, technical, analysis, role, phraseCue, targetAspects = [16 / 9, 9 / 16, 1], durationSeconds = null, motionBudget = null } = {}) {
+export function buildSafeCameraPath({ mediaId, technical, analysis, role, phraseCue, targetAspects = [16 / 9, 9 / 16, 1], durationSeconds = null, motionBudget = null, scan = null } = {}) {
   const sourceAspect = Number(technical.width) / Math.max(1, Number(technical.height));
   const roi = analysis.subjectROI || { x: 0.25, y: 0.2, width: 0.5, height: 0.6 };
+  // Full-height scan (tall source in a wider frame): travel from the exact top to
+  // the exact bottom, or the reverse, at cover size with no zoom. Deliberately not
+  // clamped by the section motion budget - showing the whole source is the point.
+  const scanMotion = scan === "scan-down" || scan === "scan-up" ? scan : null;
   const corridors = targetAspects.map((targetAspect) => {
+    if (scanMotion) {
+      const width = sourceAspect >= targetAspect ? targetAspect / sourceAspect : 1;
+      const height = sourceAspect >= targetAspect ? 1 : sourceAspect / targetAspect;
+      const x = (1 - width) / 2, maxY = Math.max(0, 1 - height);
+      const top = { x, y: 0, width, height }, bottom = { x, y: maxY, width, height };
+      const [from, to] = scanMotion === "scan-down" ? [top, bottom] : [bottom, top];
+      const model = motionBudget ? { cameraModel: 'section-crop-v1', fit: 'cover' } : {};
+      return { targetAspect, startCrop: { ...from, ...model }, endCrop: { ...to, ...model }, fullBleed: true, blackMatExposure: false, scan: scanMotion };
+    }
     const startCrop = centeredCrop(roi, coverCrop(sourceAspect, targetAspect, 0.9));
     let endCrop = centeredCrop({ ...roi, x: clamp(Number(roi.x) + Number(roi.width) * 0.08, 0, 1), y: clamp(Number(roi.y) + Number(roi.height) * 0.05, 0, 1) }, coverCrop(sourceAspect, targetAspect, 0.97));
     let measured = {};
@@ -123,7 +136,7 @@ export function buildSafeCameraPath({ mediaId, technical, analysis, role, phrase
     return { targetAspect, startCrop: motionBudget ? { ...startCrop, cameraModel: 'section-crop-v1', fit: 'cover' } : startCrop, endCrop: motionBudget ? { ...endCrop, cameraModel: 'section-crop-v1', fit: 'cover' } : endCrop, fullBleed: true, blackMatExposure: false, ...measured };
   });
   return {
-    id: `camera-path:${hash([mediaId, role, phraseCue?.id, ...(motionBudget ? [durationSeconds, motionBudget] : [])]).slice(0, 16)}`,
+    id: `camera-path:${hash([mediaId, role, phraseCue?.id, ...(motionBudget ? [durationSeconds, motionBudget] : []), ...(scanMotion ? [scanMotion] : [])]).slice(0, 16)}`,
     schemaVersion: MEDIA_CAMERA_SCHEMA,
     mediaId,
     shotRole: role,
@@ -131,9 +144,12 @@ export function buildSafeCameraPath({ mediaId, technical, analysis, role, phrase
     subjectROI: { ...roi, status: analysis.status || "unknown", evidence: analysis.evidence || "center-safe-fallback", faceCount: analysis.faceCount || 0 },
     easing: motionBudget ? 'smootherstep' : role === "reveal" ? "power3.out" : role === "ringout" ? "sine.inOut" : "power2.inOut",
     ...(motionBudget ? { sectionMotionBudget: { ...motionBudget }, durationSeconds } : {}),
-    zoomLimits: { min: 1.03, max: 1.18, startCloseCrop: true },
+    zoomLimits: scanMotion ? { min: 1, max: 1, startCloseCrop: true } : { min: 1.03, max: 1.18, startCloseCrop: true },
+    ...(scanMotion ? { scan: scanMotion } : {}),
     corridors,
-    keyframes: [{ offset: 0, crop: corridors[0].startCrop, zoom: 1.12 }, { offset: 1, crop: corridors[0].endCrop, zoom: 1.05 }],
+    keyframes: scanMotion
+      ? [{ offset: 0, crop: corridors[0].startCrop, zoom: 1 }, { offset: 1, crop: corridors[0].endCrop, zoom: 1 }]
+      : [{ offset: 0, crop: corridors[0].startCrop, zoom: 1.12 }, { offset: 1, crop: corridors[0].endCrop, zoom: 1.05 }],
   };
 }
 

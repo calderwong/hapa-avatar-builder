@@ -65,6 +65,8 @@ test("discovers every authoritative per-song cut without consulting stale index.
     songId: "song-b",
     variantId: "cut-z",
     title: "Newest cut",
+    schemaVersion: "hapa.echo.direction-script-variant.v1",
+    createdAt: "2026-08-01T00:00:00.000Z",
     relativePath: "song-b/cut-z.json",
     parentProjectSha256: "sha256:song-b",
     variationSet: "wide-coverage-v1",
@@ -178,6 +180,10 @@ test("index rows keep small source-policy fields and stub oversized ones so cata
       timeline: [],
     }));
     const [row] = discoverDirectionVariantIndexRows({ variantsDirectory: root });
+    // Disk rows must carry readiness and time so catalog selection can pick them as newest.
+    assert.equal(row.status, "ready");
+    assert.equal(row.createdAt, "2026-10-09T00:00:00.000Z");
+    assert.equal(row.schemaVersion, "hapa.echo.direction-script-variant.v1");
     assert.equal(row.sourcePolicy.mode, "balanced-mixed-library-allowlist");
     assert.deepEqual(row.sourcePolicy.allowedSourceGroups, ["human-accepted", "reference"]);
     assert.equal(row.sourcePolicy.humanAccepted.acceptedStateOnly, true);

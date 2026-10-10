@@ -98,6 +98,11 @@ function summarizeDirectionVariant(variant, { directoryName, fileName }) {
     songId,
     variantId,
     title: text(variant.title) || variantId,
+    // Catalog selection ranks ready cuts by time; a row without these fields
+    // reads as not-ready and can never become a song's newest cut.
+    schemaVersion: text(variant.schemaVersion) || undefined,
+    status: text(variant.status) || undefined,
+    createdAt: text(variant.createdAt) || undefined,
     relativePath: path.posix.join(songId, fileName),
     parentProjectSha256: text(variant.parent?.projectSha256) || undefined,
     variationSet: cloneJsonValue(variant.variationSet),
