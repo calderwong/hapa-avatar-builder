@@ -535,6 +535,9 @@ function rebuildMediaCameraBindings(graph, timeline, outputProfile, track) {
           targetAspects,
           durationSeconds: endSeconds - startSeconds,
           motionBudget,
+          // Full-height scans must survive the editor projection too; otherwise
+          // a tall clip falls back to a centered, budget-clamped crop.
+          scan: /^scan-(down|up)$/u.test(String(camera.motion || "")) ? String(camera.motion) : null,
         });
       }
     }

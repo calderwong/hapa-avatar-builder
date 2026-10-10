@@ -189,3 +189,16 @@ test("compact Director mode drops stale framing contracts and keeps small scan e
   assert.equal(next.decision_evidence.cameraFraming.previousMotion, "slow-push-in");
   assert.ok(JSON.stringify(next.decision_evidence.cameraFraming).length < 400);
 });
+
+test("the editor projection plays a compact scan as a full-height crop path, not a centered crop", () => {
+  const project = landscapeProject([portraitShot({ camera_motion: "slow-push-in" })]);
+  const scanned = applyEchoPortraitScanCamera({ project }).timeline;
+  assert.equal(scanned[0].camera_framing_contract, undefined);
+  const graph = projectToEditorGraph({ ...project, timeline: scanned });
+  const frames = graph.directorV2.cameraKeyframes.filter((row) => row.crop);
+  assert.ok(frames.length >= 2, "the projection must emit crop keyframes for the tall shot");
+  const visible = (768 / 1168) / (1920 / 1080);
+  assert.equal(frames[0].crop.y, 0);
+  assert.ok(Math.abs(frames.at(-1).crop.y - (1 - visible)) < 1e-6, "scan-down must end on the exact bottom");
+  assert.ok(Math.abs(frames[0].crop.height - visible) < 1e-6, "no zoom beyond cover");
+});
