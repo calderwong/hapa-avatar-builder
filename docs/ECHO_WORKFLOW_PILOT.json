@@ -806,7 +806,7 @@
     "docs/postmortems/2026-09-08-echo-lyric-corrections.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Use the current prepared full-song selected project and verified stems for actual managed Song Card output; do not retry the rejected short/full-master fixture. Retain five full-frame color differences, then consolidate ECHO-06. Human onset/preference and later requirements remain open.",
+  "nextAction": "Finish the exact UI-created full-song managed render and inspect encoded checks. Preserve the rejected observer-contaminated output. Complete remaining ECHO-06 template/output and ECHO-05 onset review; later composition/editing/human requirements remain open.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
@@ -1266,7 +1266,7 @@
       "later direction/editor/performance/human gates"
     ]
   },
-  "latestPostmortem": "postmortems/2026-09-08-echo-encoded-typography.md",
+  "latestPostmortem": "postmortems/2026-09-08-echo-managed-planning-render.md",
   "latestUpdate": {
     "at": "2026-09-08T13:30:07.575115+00:00",
     "kind": "A2-encoded-typography-progress",
@@ -1325,5 +1325,989 @@
     "acceptedRequirements": [],
     "humanAccepted": false,
     "scope": "Native synthetic all-template/aspect/motion parity; unchanged real CLI MP4s compared against corrected Preview; no completed managed render or acoustic acceptance"
+  },
+  "latestManagedPlanning": {
+    "status": "progress-final-managed-render-running",
+    "requirements": [
+      "ECHO-06",
+      "ECHO-17",
+      "ECHO-18"
+    ],
+    "jsonBytes": 15116724,
+    "wireBytes": 2052011,
+    "storedInputsIdentical": true,
+    "actualUi": {
+      "pass": true,
+      "wireBytes": 2177089,
+      "selectedCutPreserved": true
+    },
+    "checksPassed": 26,
+    "build": true,
+    "nativePixelFrames": 52,
+    "pixelAdmissionRepair": "source-declared section policy; rejects incorrect budget/extra/reordered/missing layers",
+    "contaminatedAttempt": "Puppeteer default diagnostic attachment changed viewport to800x600; isolated reproduction confirms; MP4 rejected",
+    "observerGuard": "no diagnostic attachment during capture; qualify defaultViewport:null separately",
+    "finalManagedAttempt": "exact UI-created plan;25-minute supervisor; no browser attachment",
+    "humanAccepted": false,
+    "acceptedRequirements": []
+  },
+  "audioAtlas20260927": {
+    "status": "scoped-prototype-verified-repository-acceptance-blocked",
+    "source": "docs/audio-atlas/VERIFICATION.md",
+    "runId": "af324ed0-1e0e-40e3-abd2-92f68c5c95b0",
+    "focusedPass": 18,
+    "dspPass": 4,
+    "apiPass": 14,
+    "overcardPass": 54,
+    "build": true,
+    "repositoryPass": 2428,
+    "repositoryFail": 11,
+    "humanAccepted": false,
+    "acceptedRequirements": [],
+    "scope": "Real Brave Tongues master and12stems; word, beat, downbeat and CLAP candidates;200-song local format inventory; original lyrics and Director cuts unchanged"
+  },
+  "audioAtlasUi20260927": {
+    "status": "ui-review-ready-repository-acceptance-blocked",
+    "source": "docs/audio-atlas/UI_VERIFICATION.md",
+    "targetedPass": 77,
+    "repositoryPass": 2433,
+    "repositoryFail": 11,
+    "sameFailureNamesAsPrior": true,
+    "build": true,
+    "browserReview": true,
+    "humanAccepted": false,
+    "acceptedRequirements": []
+  },
+  "audioAtlasCorrectionQuery20260927": {
+    "status": "scoped-verified-review-pending",
+    "card": "atlas-gap-correction-query",
+    "source": "docs/audio-atlas/CORRECTION_QUERY_VERIFICATION.md",
+    "focusedPass": 27,
+    "build": true,
+    "browserRead": true,
+    "realHumanReviewCreated": false,
+    "broadSuiteRepeated": false,
+    "humanAccepted": false,
+    "acceptedRequirements": []
+  },
+  "audioAtlasContracts20260927": {
+    "status": "prototype-foundation-accepted",
+    "card": "atlas-gap-contracts",
+    "source": "docs/audio-atlas/CONTRACT.md",
+    "focusedPass": 38,
+    "liveApiPass": 4,
+    "build": true,
+    "realObservations": 8333,
+    "originalResultAndReviewsUnchanged": true,
+    "humanAccepted": true,
+    "broadSuiteRepeated": false,
+    "acceptedRequirements": [],
+    "acceptanceScope": "Prototype identity/timing foundation; no model-accuracy or broader requirement acceptance"
+  },
+  "audioAtlasAcceptanceRepairs20260927": {
+    "status": "three-repairs-verified-runtime-prerequisite-open",
+    "focusedPass": 40,
+    "focusedFail": 1,
+    "source": "docs/audio-atlas/ACCEPTANCE_REPAIRS.md",
+    "broadSuiteRepeated": false,
+    "applicationCodeChanged": false,
+    "humanAccepted": false,
+    "acceptedRequirements": []
+  },
+  "audioAtlasMissingMedia20260927": {
+    "status": "bounded-reconciliation-verified-inputs-remain",
+    "songs": 200,
+    "wav": 61,
+    "mp3": 200,
+    "completeStemSets": 137,
+    "missingWav": 139,
+    "missingDeclaredStems": 12,
+    "noDeclaredStemRoles": 62,
+    "focusedPass": 16,
+    "sourceMediaWritten": false,
+    "repairedSongs": [
+      "dear-papa-song-zerbini"
+    ],
+    "humanAccepted": false
+  },
+  "audioUploads20260927": {
+    "status": "browser-verified-review-pending-repository-gates",
+    "source": "docs/audio-atlas/AUDIO_UPLOADS.md",
+    "focusedPass": 50,
+    "overcardPass": 54,
+    "build": true,
+    "browserFilesSaved": 4,
+    "testSong": "Gnow Her (isolated store)",
+    "canonicalSongStoreUnchanged": true,
+    "humanAccepted": false,
+    "acceptedRequirements": [],
+    "repositoryPass": 2467,
+    "repositoryFail": 8,
+    "completionCommit": false,
+    "nativeAccepted": false
+  },
+  "audioAtlasWordAlignment20260927": {
+    "status": "integrated-excerpt-workflow-verified-quality-pending",
+    "card": "atlas-gap-word-alignment",
+    "source": "docs/audio-atlas/WORD_ALIGNMENT.md",
+    "focusedPass": 11,
+    "realIntervalCandidates": 37,
+    "realUnresolvedWords": 2,
+    "silenceCandidates": 0,
+    "sourceUnchanged": true,
+    "uiApiCliIntegrated": true,
+    "qualityQualified": false,
+    "broadSuiteRepeated": false,
+    "acceptedRequirements": [],
+    "focusedJsPass": 38,
+    "build": true,
+    "actualRun": "b4513c7b-2875-4419-9434-9a55ac90a5b0",
+    "browserRun": "778dc024-fdbd-4f6a-8b51-dc4300bfdd83",
+    "browserVerified": true,
+    "cacheReuseVerified": true,
+    "completionCommit": false
+  },
+  "audioAtlasTimingReferences20260927": {
+    "status": "workflow-verified-quality-pending",
+    "focusedDistinctPass": 60,
+    "build": true,
+    "uiApiCli": true,
+    "humanReferences": 0,
+    "qualityQualified": false,
+    "broadRerun": false,
+    "nativeAccepted": false,
+    "completionCommit": false,
+    "docs": "docs/audio-atlas/TIMING_REFERENCES.md"
+  },
+  "audioAtlasStructure20260927": {
+    "status": "integrated-acoustic-evidence-quality-pending",
+    "focusedJsPass": 47,
+    "focusedPythonPass": 29,
+    "build": true,
+    "uiApiCli": true,
+    "browserVerified": true,
+    "runId": "df7d0d39-b320-4556-a828-8c91a4cb388e",
+    "boundaries": 14,
+    "regions": 15,
+    "transitions": 19,
+    "repeats": 0,
+    "qualityQualified": false,
+    "broadRerun": false,
+    "nativeAccepted": false,
+    "completionCommit": false,
+    "docs": "docs/audio-atlas/STRUCTURE.md"
+  },
+  "audioAtlasTextSearch20260927": {
+    "status": "integrated-local-relevance-unqualified",
+    "focusedJsPass": 41,
+    "build": true,
+    "uiApiCli": true,
+    "runId": "af324ed0-1e0e-40e3-abd2-92f68c5c95b0",
+    "controlMaxError": 1.043081283569336e-07,
+    "queryElapsedSeconds": 2.7701720419572666,
+    "qualityQualified": false,
+    "broadRerun": false,
+    "nativeAccepted": false,
+    "completionCommit": false,
+    "docs": "docs/audio-atlas/TEXT_SEARCH.md",
+    "browserVerified": true,
+    "browserCueSeconds": 60,
+    "cliCacheVerified": true
+  },
+  "audioAtlasSpectrogram20260927": {
+    "status": "implemented-source-bound-review",
+    "focusedJsPass": 50,
+    "focusedPythonPass": 36,
+    "build": true,
+    "browserVerified": true,
+    "uiApiCli": true,
+    "runId": "4eef59d7-ec6b-4147-93a3-713fac1be1ce",
+    "elapsedSeconds": 21.431126875,
+    "spectralBytes": 14373720,
+    "broadRerun": false,
+    "nativeAccepted": false,
+    "completionCommit": false,
+    "docs": "docs/audio-atlas/SPECTROGRAM.md"
+  },
+  "audioAtlasTechnical20260928": {
+    "status": "in_progress-isolated-noise-and-broader-qualification-open",
+    "focusedJsPass": 47,
+    "focusedPythonPass": 46,
+    "build": true,
+    "browserVerified": true,
+    "uiApiCli": true,
+    "runId": "668f53ed-8a18-49cf-848e-6c3140c862c7",
+    "elapsedSeconds": 132.920025334,
+    "broadRerun": false,
+    "nativeAccepted": false,
+    "completionCommit": false,
+    "docs": "docs/audio-atlas/TECHNICAL_AUDIO.md"
+  },
+  "audioAtlasNoiseReference20260928": {
+    "status": "implemented-method-qualified-reference; review",
+    "focusedJsPass": 86,
+    "build": true,
+    "browserPreviewVerified": true,
+    "actualHumanReferenceSaved": false,
+    "sourcePcmMaxErrorDb": 1.3500311979441904e-13,
+    "broadRerun": false,
+    "nativeAccepted": false,
+    "completionCommit": false,
+    "docs": "docs/audio-atlas/NOISE_REFERENCE.md"
+  },
+  "audioAtlasPitch20260928": {
+    "status": "implemented-candidate; qualification-open",
+    "focusedJsPass": 96,
+    "focusedPythonPass": 11,
+    "build": true,
+    "browserVerified": true,
+    "runId": "bc67ea7f-1a93-42fc-aa2f-822af16d934a",
+    "pitchElapsedSeconds": 64.52520354103763,
+    "humanQualityQualified": false,
+    "broadRerun": false,
+    "nativeAccepted": false,
+    "completionCommit": false,
+    "docs": "docs/audio-atlas/PITCH.md"
+  },
+  "audioAtlasRhythm20260928": {
+    "status": "implemented-candidate; musical-qualification-open",
+    "focusedJsPass": 102,
+    "focusedPythonPass": 7,
+    "build": true,
+    "browserVerified": true,
+    "runId": "e2c13270-33e7-49e8-992d-3bf4005e37a6",
+    "rhythmElapsedSeconds": 1.223279417026788,
+    "humanQualityQualified": false,
+    "broadRerun": false,
+    "nativeAccepted": false,
+    "completionCommit": false,
+    "docs": "docs/audio-atlas/RHYTHM.md"
+  },
+  "audioAtlasNotes20260928": {
+    "status": "derived-candidates; musical-qualification-open",
+    "focusedJsPass": 108,
+    "syntheticPyiNProbes": 3,
+    "build": true,
+    "browserVerified": true,
+    "runId": "e2c13270-33e7-49e8-992d-3bf4005e37a6",
+    "sourceNoteCandidates": 410,
+    "humanQualityQualified": false,
+    "broadRerun": false,
+    "nativeAccepted": false,
+    "completionCommit": false,
+    "docs": "docs/audio-atlas/NOTES.md"
+  },
+  "audioAtlasHarmony20260928": {
+    "status": "implemented-candidates; human-harmonic-qualification-open",
+    "focusedJsPass": 114,
+    "focusedPythonPass": 6,
+    "build": true,
+    "browserVerified": true,
+    "runId": "8018fabb-8514-45e3-bc11-a42ea8ee3ab2",
+    "harmonyElapsedSeconds": 1.9925936249783263,
+    "humanQualityQualified": false,
+    "broadRerun": false,
+    "nativeAccepted": false,
+    "completionCommit": false,
+    "docs": "docs/audio-atlas/HARMONY.md"
+  },
+  "audioAtlasActivity20260928": {
+    "status": "energy-candidates; instrument-family-and-role-qualification-open",
+    "focusedJsPass": 55,
+    "build": true,
+    "browserVerified": true,
+    "runId": "8018fabb-8514-45e3-bc11-a42ea8ee3ab2",
+    "newInferenceRuns": 0,
+    "humanQualityQualified": false,
+    "broadRerun": false,
+    "nativeAccepted": false,
+    "completionCommit": false,
+    "docs": "docs/audio-atlas/ACTIVITY.md"
+  },
+  "audioAtlasSemantic20260928": {
+    "status": "in_progress",
+    "card": "atlas-gap-semantic",
+    "evidence": "docs/audio-atlas/SEMANTIC.md",
+    "focused_checks": 8,
+    "real_probe_cases": 3,
+    "offline_execution_verified": true,
+    "silence_hallucination_rejected": true,
+    "quality_qualified": false,
+    "ui_api_cli_integrated": false,
+    "remaining": [
+      "supplemental job lifecycle and UI/API/CLI",
+      "source-observation citations",
+      "representative musical/human qualification",
+      "broad/native acceptance and completion commit"
+    ]
+  },
+  "livingLightIntegration20261006": {
+    "date": "2026-10-06",
+    "status": "implemented-uncommitted-batch-incomplete",
+    "boardProjectId": "hapa-living-light-avatar-builder",
+    "cards": [
+      "LL-001",
+      "LL-002",
+      "LL-003",
+      "LL-004",
+      "LL-033"
+    ],
+    "ownerTaskId": "01a1146f-fe68-76b3-a736-473042c3818c",
+    "authorization": "Calder explicitly requested a goal to drain the board and start implementation after planning.",
+    "sourceRebuild": "byte-identical",
+    "sourceChecks": {
+      "passed": 113,
+      "total": 113,
+      "scope": "pure source/geometry; not GPU"
+    },
+    "targetedChecks": {
+      "passed": 75,
+      "total": 75,
+      "scope": "fresh portable/archive/presets/foundations/notes/Journey/editor/fork checks"
+    },
+    "nativeEvidence": {
+      "scope": "Fractal and Cathedral sampled neutral studies, actual canonical audio clock; no measured feature qualification",
+      "backend": "WebGL2 / ANGLE Metal / Apple M3 Ultra",
+      "canvasCount": 1,
+      "viewOwnedAudioContexts": 0,
+      "canvasAfterUnmount": 0
+    },
+    "catalog": {
+      "songs": 200,
+      "completeMp3StemSets": 137,
+      "pathsExposed": false,
+      "sourceStoreUnchanged": true
+    },
+    "docs": "docs/LIVING_LIGHT_INTEGRATION.md",
+    "remaining": [
+      "focused source commits and unfinished requirement acceptance",
+      "full current109 reference browser QA",
+      "qualified source/feature/alignment admission",
+      "legacy Standard/take conversion and durable unresolved attachment",
+      "full readiness, package-owned Hand and outbox parity",
+      "multi-instance/tour rendering and album-wide qualification",
+      "Calder creative review and separately scoped immersive work"
+    ],
+    "overcardChecks": {
+      "passed": 54,
+      "total": 54
+    },
+    "tarotSmoke": {
+      "status": "passed",
+      "nonblankCanvas": true
+    },
+    "repositorySuite": {
+      "tests": 2683,
+      "passed": 2682,
+      "failed": 0,
+      "skipped": 1,
+      "scope": "all test files, serial no-isolation runner",
+      "processBaselineRestored": true,
+      "remainingKnownFailures": 0
+    },
+    "sourceCommit": {
+      "state": "pending",
+      "reason": "Baseline repaired; focused commits and remaining requirement acceptance still needed."
+    },
+    "documentationCommit": "4c0960c",
+    "checkpoint": "2026-10-07-album-baseline-repair",
+    "primaryBatch": [
+      "LL-005",
+      "LL-006",
+      "LL-007",
+      "LL-008"
+    ],
+    "targetedTests": 132,
+    "discussionTests": 12,
+    "sourceEvidenceTests": 6,
+    "existingAtlas": {
+      "ownerJobs": 16,
+      "completedAccepted": 15,
+      "coveredSongs": 1,
+      "songsWithoutJobs": 199,
+      "analysisStarted": false,
+      "alignmentApplied": false
+    },
+    "uiProbe": {
+      "surface": "temporary-loopback Builder",
+      "width": 390,
+      "height": 844,
+      "humanNoteSubmitted": false,
+      "canonicalDesktopBackendLoaded": false
+    },
+    "next": "Connect exact prepared master/stem source semantics, existing clock and bounded preparation; keep authoring/parity/route gates open",
+    "postmortem": "docs/postmortems/2026-10-07-living-light-album-baseline-repair.md",
+    "journeyStoreTests": 8,
+    "journeyEditorTests": 4,
+    "journeyUIProbe": {
+      "draftDurationSeconds": 163.68,
+      "routeOrderAndUndoRedo": true,
+      "narrowContentWidth": 263,
+      "narrowViewportWidth": 390,
+      "successfulKeyboardUnmountCanvasCount": 0,
+      "humanSaveSubmitted": false,
+      "canonicalBackendLoaded": false
+    },
+    "noteDraftTests": 4,
+    "loopbackSocketTests": 6,
+    "desktopRoutingTests": 4,
+    "desktopRealApiTests": 1,
+    "discussionUIProbe": {
+      "surface": "isolated synthetic fixture importing canonical Builder components",
+      "syntheticHumanWritesOnly": true,
+      "canonicalHumanWrite": false,
+      "savedTourSeconds": 20,
+      "cueRangeSeconds": [
+        1,
+        2
+      ],
+      "historyRevisionsAfterRetraction": 3,
+      "editReloadRecovered": true,
+      "recipeNoteCountRefreshed": 2,
+      "dirtyNewRecipeComparison": true,
+      "narrowViewport": 390,
+      "narrowPageContent": 375,
+      "narrowInspectorWidth": 327,
+      "narrowInspectorScrollWidth": 327,
+      "temporaryViewportReset": true,
+      "fixtureChildExited": true,
+      "fixturePortsReleased": true,
+      "fixtureRootAbsent": true,
+      "canonicalDesktopBackendLoaded": false
+    },
+    "forkTests": 7,
+    "forkDraftTests": 2,
+    "forkUIProbe": {
+      "synthetic": true,
+      "canonicalHumanWrite": false,
+      "sourceSeconds": 20,
+      "forkPlannedSeconds": 40,
+      "retainedBridgeSeconds": 8,
+      "sourceNoteCount": 1,
+      "newForkNoteCount": 0,
+      "comparisonAndDirtyDraftReload": true,
+      "targetSongReopen": true,
+      "invalidSevenSecondRouteRejected": true,
+      "narrowViewport": 390,
+      "narrowPageClient": 375,
+      "narrowPageScroll": 375,
+      "narrowPanelClient": 307,
+      "narrowPanelScroll": 307,
+      "temporaryViewportReset": true,
+      "cleanup": "child/ports/temp/process-baseline verified",
+      "canonicalDesktopBackendLoaded": false,
+      "scope": "native proof before stricter recovery extraction; final recovery covered by two targeted checks"
+    },
+    "presetTests": 10,
+    "presetUIProbe": {
+      "synthetic": true,
+      "canonicalHumanWrite": false,
+      "oldPinnedSpeed": 1.5,
+      "latestPresetSpeed": 0.7,
+      "reloadPreservedOldRecipe": true,
+      "explicitUpgradeAndUndo": true,
+      "presetNoteCount": 1,
+      "narrowViewport": 390,
+      "narrowPageClient": 375,
+      "narrowPageScroll": 375,
+      "narrowPanelWidths": [
+        279,
+        301,
+        301
+      ],
+      "temporaryViewportReset": true,
+      "cleanup": "child/ports/temp/process-baseline verified",
+      "canonicalDesktopBackendLoaded": false,
+      "scope": "native proof before final semantic digest/parent metadata refinement; final service tests cover both"
+    },
+    "archiveTests": 7,
+    "archiveUIProbe": {
+      "synthetic": true,
+      "canonicalHumanWrite": false,
+      "savedRecipeSpeed": 1.5,
+      "latestPresetSpeed": 0.7,
+      "presetNoteCount": 1,
+      "archiveReloadRestorePreservedPins": true,
+      "historicalInspectorRevision": 1,
+      "visibilityEvents": 2,
+      "definitionRevisions": 2,
+      "narrowPageWidths": [
+        375,
+        375
+      ],
+      "narrowInspectorWidths": [
+        327,
+        327
+      ],
+      "narrowHistoryWidths": [
+        303,
+        303
+      ],
+      "duplicateInspectorCorrection": "distinct sibling section keys; verified native reload/full flow",
+      "cleanup": "registered SIGTERM after closed stdin; child/ports/temp/process-baseline verified",
+      "canonicalDesktopBackendLoaded": false
+    },
+    "portableTests": 8,
+    "portableUIProbe": {
+      "synthetic": true,
+      "canonicalHumanWrite": false,
+      "sourceDurationUs": 20000000,
+      "sourceObservations": 1,
+      "nativeImportedNotes": 0,
+      "uiToCliToUi": true,
+      "reExportRetainsForeignNotes": true,
+      "draftPreserved": true,
+      "narrowPageWidths": [
+        375,
+        375
+      ],
+      "narrowPortableWidths": [
+        [
+          307,
+          307
+        ],
+        [
+          329,
+          329
+        ]
+      ],
+      "cliAliasEntry": "actual executable help verified after realpath correction",
+      "cleanup": "child/three ports/temp/process-baseline verified",
+      "canonicalDesktopBackendLoaded": false
+    },
+    "baselineRepair": {
+      "projects": 200,
+      "passing": 200,
+      "unresolvedMedia": 0,
+      "recoveredLibraryRecords": 159,
+      "sourceCardsWritten": 0,
+      "authoredTimelinePreserved": true,
+      "songStorePreserved": true,
+      "proxyTemps": 0,
+      "prematureAggregateChecks": "69/71 then affected10/10 after compile completion"
+    },
+    "masterTourCheckpoint": {
+      "date": "2026-10-07",
+      "state": "in_progress",
+      "postmortem": "docs/postmortems/2026-10-07-living-light-master-response-native-tours.md",
+      "distinctFocusedTests": 48,
+      "buildPassed": true,
+      "processBaselineRestored": true,
+      "actualDesktopReloaded": false,
+      "allStemQualified": false,
+      "sourceCommitted": false
+    },
+    "schemaCompletion": {
+      "date": "2026-10-07",
+      "requirement": "LL-003",
+      "state": "done",
+      "commit": "18da06f",
+      "focusedAcceptanceTests": 6,
+      "documentation": "docs/living-light/SCHEMA_IMPLEMENTATION.md"
+    },
+    "stemLifecycleCheckpoint": {
+      "date": "2026-10-07",
+      "state": "in_progress",
+      "postmortem": "docs/postmortems/2026-10-07-living-light-stem-audition-and-lifecycle.md",
+      "stemApiTests": 56,
+      "schemaRuntimeTests": 27,
+      "nativeCycles": 20,
+      "buildPassed": true,
+      "processBaselineRestored": true,
+      "actualDesktopReloaded": false,
+      "allStemQualified": false,
+      "sharedSourceCommitted": false
+    },
+    "authoringCompletion": {
+      "date": "2026-10-07",
+      "requirements": [
+        "LL-013",
+        "LL-016"
+      ],
+      "state": "done",
+      "commit": "d54f09e",
+      "focusedChecks": 62,
+      "documentation": "docs/living-light/AUTHORING_IMPLEMENTATION.md",
+      "sharedAppMountCommitted": false,
+      "actualDesktopReloaded": false
+    },
+    "exactAssetSignalCheckpoint": {
+      "date": "2026-10-07",
+      "state": "in_progress",
+      "requirements": [
+        "LL-006",
+        "LL-007"
+      ],
+      "focusedChecks": 52,
+      "buildPassed": true,
+      "processBaselineRestored": true,
+      "documentation": "docs/living-light/EXACT_ASSET_SIGNALS.md",
+      "interactiveStemSignalsQualified": false,
+      "actualDesktopReloaded": false,
+      "sharedApiMountCommitted": false
+    },
+    "signalsHostCheckpoint": {
+      "date": "2026-10-07",
+      "state": "in_progress",
+      "requirements": [
+        "LL-006",
+        "LL-007"
+      ],
+      "commit": "f63d538",
+      "focusedChecks": 52,
+      "buildPassed": true,
+      "processBaselineRestored": true,
+      "documentation": "docs/living-light/SIGNALS_HOST.md",
+      "interactivePreparationVerified": true,
+      "nativeMasterResponseVerified": true,
+      "hostAssetCountVerified": 32,
+      "interactiveStemSignalsQualified": false,
+      "sourceMapsApplied": false,
+      "actualDesktopReloaded": false,
+      "sharedApiMountCommitted": false
+    },
+    "realSongSignalCheckpoint": {
+      "date": "2026-10-07",
+      "state": "in_progress",
+      "requirements": [
+        "LL-006",
+        "LL-007",
+        "LL-008",
+        "LL-021"
+      ],
+      "focusedChecks": 13,
+      "isolatedApiChecks": 1,
+      "realSongs": [
+        "dear-papa-song-brave-tongues",
+        "dear-papa-song-gnow-her"
+      ],
+      "realAvailableAssetCounts": [
+        12,
+        9
+      ],
+      "sourceHashesPreserved": true,
+      "temporaryOutputsRemoved": true,
+      "processBaselineRestored": true,
+      "buildPassed": true,
+      "documentation": "docs/living-light/REAL_SONG_SIGNALS.md",
+      "sourceMapsApplied": false,
+      "actualDesktopReloaded": false,
+      "sharedApiMountCommitted": false,
+      "commit": "a6da875"
+    },
+    "signalRoutingCheckpoint": {
+      "state": "source-checkpoint; original acceptance remains open",
+      "sourceCommit": "a467f6c",
+      "signalBindingSchema": "hapa.living-light.signal-binding.v1",
+      "exactTypedRefs": true,
+      "perUseChoices": [
+        "energy",
+        "onset"
+      ],
+      "aggregation": [
+        "max",
+        "mean",
+        "weighted-sum"
+      ],
+      "unavailablePolicies": [
+        "neutral",
+        "block",
+        "explicit-master-energy"
+      ],
+      "checks": {
+        "livingLightIntegration": 140,
+        "routing": 7,
+        "distinct": 141,
+        "productionBuild": true,
+        "ownedCleanup": true
+      },
+      "nativeSynthetic": {
+        "savedWeights": [
+          0.25,
+          0.75
+        ],
+        "masterNamedStemSeparate": true,
+        "ownerSavedReopened": true,
+        "neutralFallbackBlock": true,
+        "canvasCount": 1,
+        "additionalAudioContexts": 0,
+        "viewport390": true
+      },
+      "appliedAlbumMaps": false,
+      "synchronizedAlbumStemPainting": false,
+      "runningDesktopReloaded": false,
+      "sharedApiMount": "working-tree verified outside focused commit",
+      "documentation": "docs/living-light/SIGNAL_ROUTING.md"
+    },
+    "cardLibraryCheckpoint": {
+      "state": "source-checkpoint; LL-018 remains in progress",
+      "sourceCommit": "7bdad94",
+      "filters": [
+        "all",
+        "tunnels",
+        "locations",
+        "journeys",
+        "readiness",
+        "tags",
+        "search"
+      ],
+      "journeys": "current Song owner pages, exact inspection and existing dirty-draft loader",
+      "usedIn": "exact Journey revision links",
+      "checks": {
+        "targeted": 41,
+        "productionBuild": true,
+        "nativeSyntheticUI": true,
+        "ownedCleanup": true
+      },
+      "sourceCounts": {
+        "tunnels": 27,
+        "locations": 23
+      },
+      "capturedThumbnails": false,
+      "runningDesktopReloaded": false,
+      "documentation": "docs/living-light/CARD_LIBRARY.md"
+    },
+    "stillPreviewCheckpoint": {
+      "state": "source-checkpoint; LL-018 remains in progress",
+      "sourceCommit": "8a9b018",
+      "runtime": "single native canvas; disposable CPU capture",
+      "capturedSourceThings": 50,
+      "decodedNativeImages": 50,
+      "captureSize": [
+        320,
+        180
+      ],
+      "cache": {
+        "maxEntries": 64,
+        "encodedAndReceiptBytes": 8388608,
+        "perImageEncodedBytes": 262144,
+        "persistence": "view-session-only"
+      },
+      "savedJourney": "exact owner revision verified; dirty studies refuse",
+      "checks": {
+        "targeted": 20,
+        "productionBuild": true,
+        "nativeSyntheticUI": true,
+        "ownedCleanup": true
+      },
+      "readinessChanged": false,
+      "runningDesktopReloaded": false,
+      "documentation": "docs/living-light/CARD_LIBRARY.md",
+      "remaining": [
+        "complete Use-instance semantics",
+        "full Hand/R11",
+        "parent acceptance"
+      ]
+    },
+    "passageUseCheckpoint": {
+      "state": "source-checkpoint; original board acceptance remains open",
+      "sourceCommit": "4ff6f68",
+      "actualPassageUse": [
+        "create-explicit-tour",
+        "extend-with-chosen-location",
+        "replace-chosen-connection"
+      ],
+      "exactRevisionRefs": true,
+      "endpointsAndIntervalsPreservedOnReplacement": true,
+      "checks": {
+        "actualTargeted": 10,
+        "productionBuild": true,
+        "nativeSynthetic": true,
+        "ownedCleanup": true
+      },
+      "fullHandAcceptance": false,
+      "appliedAlbumMaps": false,
+      "runningDesktopReloaded": false,
+      "documentation": "docs/living-light/CARD_LIBRARY.md"
+    },
+    "sharedHandCheckpoint": {
+      "state": "source-checkpoint; LL-017/018 and original dependencies remain open",
+      "sourceCommit": "5bf3fef",
+      "checks": {
+        "sharedAndAffected": 113,
+        "protectedHost": 28,
+        "productionBuild": true,
+        "nativeSyntheticSharedHost": true,
+        "keyboard390px": true,
+        "ownedCleanup": true
+      },
+      "fullAppTarotReturnAccepted": false,
+      "apiMountCommitted": false,
+      "apiDependency": "separate uncommitted Audio Atlas owner modules",
+      "runningDesktopReloaded": false,
+      "appliedAlbumMaps": false,
+      "creativeAcceptance": false,
+      "documentation": "docs/living-light/SHARED_HAND.md"
+    }
+  },
+  "audioAtlasDirectorBenchmark20261007": {
+  "status": "benchmark-prototype-pilot-saved-independent-readback-agent-draft-disposition-runtime-unqualified",
+  "ownerTaskId": "01a114a2-38f0-7083-a818-6dc2670f646d",
+  "checkpointAt": "2026-10-08T01:20:47.584Z",
+  "source": "docs/audio-atlas/ALBUM_MEDIA_SELECTION_20261007.md",
+  "postmortem": "docs/postmortems/2026-10-07-echo-atlas-media-selection.md",
+  "catalog": {
+    "totalCandidates": 3637,
+    "humanAcceptedGeneral": 2310,
+    "sameSongReferences": 1327,
+    "scope": "frozen byte-qualified snapshot, not entire live manual review history",
+    "generalEligibility": "full-pool",
+    "numericGrades": "optional preferences with separate human and agent attribution"
+  },
+  "editorialBriefs": {
+    "total": 192,
+    "fullLyricInterpretation": 175,
+    "limitedSourceInterpretation": 17,
+    "humanApproval": false
+  },
+  "pilot": {
+    "songs": 6,
+    "verifiedCuts": 12,
+    "selections": 717,
+    "distinctPhysicalClips": 429,
+    "inCutRepeats": 0,
+    "nativeIdentityMismatches": 0,
+    "preparedUriMismatches": 0,
+    "sameSongScopeMismatches": 0,
+    "positiveConceptSelections": 717,
+    "avoidMatches": 0,
+    "independentContextualReview": "agent disposition supports benchmark-draft append with explicit creative refinements; not full playback or human approval",
+    "ownerSaveState": "appended-with-owner-readback",
+    "humanAccepted": false,
+    "renderAccepted": false,
+    "savedAt": "2026-10-08T01:19:39.126Z",
+    "savedSongs": 6,
+    "savedCuts": 12,
+    "readbackVerified": true,
+    "originalProjectsMutated": 0,
+    "independentLiveApiAudit": {
+      "ok": true,
+      "checkedAt": "2026-10-08T01:20:47.584Z",
+      "variants": 12,
+      "authoredShots": 795,
+      "humanMediaSelections": 668,
+      "sameSongReferenceSelections": 49,
+      "sourceBoundShaderHydrations": 168,
+      "parentsPreserved": 6,
+      "preexistingCutsPreserved": 205,
+      "receiptSha256": "7f0da76723b1a803672b261be5cd5d03041fe26683d1f797d8eb3b820f79151f"
+    },
+    "runtimeQualified": false,
+    "liveGraphStatus": "preparing",
+    "liveGraphReason": "server_restart_required",
+    "creativeRefinements": [
+      "Dear Papa fantasy-to-cat transition",
+      "Brave Tongues technical family-tree opening",
+      "Death Ground battle-to-node-diagram clip with optional agent-origin grade 2",
+      "static cards, page layouts and substantial within-clip transformations"
+    ]
+  },
+  "history": {
+    "narrowPoolSavedSongs": 22,
+    "narrowPoolSavedCuts": 44,
+    "narrowPoolDisposition": "superseded benchmark, receipts preserved",
+    "v3v4Disposition": "technically verified, held unsaved for creative-fit failures"
+  },
+  "existingAnalysisFollower": {
+    "pollMs": 30000,
+    "maxMs": 43200000,
+    "startsAnalysis": false,
+    "automaticRetries": 0,
+    "defaultAppend": false,
+    "explicitApply": "may save qualified Director cuts through existing owner",
+    "recordedStateProvesLiveness": false
+  },
+  "acceptedRequirements": [],
+  "workflowCountsChanged": false,
+  "sourceDelivery": "workspace prototype; not committed owner implementation",
+  "broadSuiteRepeatedForDocumentation": false,
+  "remaining": [
+    "active 19-song expansion and subsequent qualified Atlas/Director coverage",
+    "separately scoped live-runtime hold",
+    "complete playback and named creative refinements",
+    "limited-context source gaps",
+    "final render and human preference acceptance",
+    "scoped source delivery"
+  ],
+  "expansion": {
+    "songs": 19,
+    "state": "active; not complete",
+    "analysis": "reuse saved original core-qualified results",
+    "newAnalysisStarted": false
+  },
+  "successorV6": {
+    "checkpointAt": "2026-10-08T01:43:37.369170+00:00",
+    "retainedV5": {
+      "savedSongs": 25,
+      "savedCuts": 50,
+      "selections": 2767,
+      "distinctPhysicalClips": 1167,
+      "endedAt": "2026-10-08T01:31:05.479Z"
+    },
+    "reviewFinding": "Old Trouble Performance had 36 of 81 slots without positive authored concepts; old pair preserved as superseded history after its replacement saved.",
+    "replacement": {
+      "savedSongs": 1,
+      "savedCuts": 2,
+      "savedAt": "2026-10-08T01:41:56.256Z",
+      "readbackVerified": true,
+      "selected": 125,
+      "positive": 125,
+      "activeSection": 118,
+      "distinctPhysicalClips": 83,
+      "avoidMatches": 0,
+      "inCutRepeats": 0,
+      "historicalCutsCounted": 50,
+      "briefsChanged": 1,
+      "otherBriefsUnchanged": 191,
+      "maximumOtherSongPairOverlap": {
+        "clips": 15,
+        "fraction": 0.24193548387096775,
+        "song": "Foreign Hawties"
+      },
+      "humanAccepted": false,
+      "renderAccepted": false
+    },
+    "preSaveReview": {
+      "minimumPositiveFraction": 0.9,
+      "maximumAvoidMatches": 0,
+      "exactBriefContextMethodBinding": true,
+      "holdsBeforeAppend": true,
+      "continueOtherQualifiedSongs": true,
+      "automaticHeldRetry": false,
+      "claim": "Metadata coverage, not visual or human acceptance"
+    },
+    "remainingDirector": {
+      "songs": 167,
+      "pipelineId": "atlas-pipeline-cb09babe-a22d-4067-8626-f28dd4016e72",
+      "planSha256": "1799be9654a8b9ca2f5eb62fdd38c1e870361dd813b3525fd146e1af09dd1dd9",
+      "startedAt": "2026-10-08T01:42:04.770000+00:00",
+      "stateAtCheckpoint": "running",
+      "countsAtCheckpoint": {
+        "songs": 167,
+        "planned": 151,
+        "running": 1,
+        "coreQualified": 15,
+        "coreFailed": 0,
+        "blocked": 0,
+        "verified": 0,
+        "saved": 2,
+        "reviewHeld": 0,
+        "needsReview": 0,
+        "qualifiedPendingDirector": 13,
+        "attemptedThisInvocation": 3,
+        "completedThisInvocation": 2,
+        "reviewHeldThisInvocation": 0
+      },
+      "maxMs": 43200000,
+      "pollMs": 30000,
+      "newAnalysisStarted": false,
+      "automaticRetries": 0,
+      "livenessClaim": "Recorded status is not independent process proof"
+    },
+    "mediaPlanSha256": "660340f776de592c8347c03fadfadd260c6244f311ff04bd757a23b0ac41cebd",
+    "runtimeQualified": false,
+    "acceptedRequirements": [],
+    "sourceDelivery": "workspace prototype; documentation-only owner commit"
   }
+}
 }

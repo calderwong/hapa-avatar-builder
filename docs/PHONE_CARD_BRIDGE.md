@@ -73,3 +73,11 @@ The equivalent desktop overrides are `HAPA_AVATAR_BIND_HOST` and `HAPA_AVATAR_HT
 - **What was misunderstood:** requesting both orientation and motion permissions concurrently and listening to both relative and absolute streams was broader, but not equivalent to the stable iOS contract.
 - **What changed:** restored the original single-permission, single-stream orientation path while keeping Join-triggered permission and telemetry diagnostics.
 - **New guardrail:** do not broaden the iOS sensor permission or event-source contract without physical-device evidence; zero samples means acquisition failure, not low sensitivity.
+
+## Living Light local UI address — October 7 source implementation
+
+Static LAN launches now retain these Phone HTTP/HTTPS binds and add one same-process UI listener on literal `127.0.0.1`. The default is the primary port plus ten, skipping reserved/Phone ports (`8797` → `8807`). Local root/index requests redirect there once with their query retained; `/phone-card`, APIs, assets and LAN callers do not redirect. The existing Electron shell qualifies same-boot identity and HTML before assigning the new trusted renderer origin; the dedicated launcher follows one root redirect in its HTML probe.
+
+Set `--local-ui-port` or `HAPA_AVATAR_LOCAL_UI_PORT` to an explicit safe port, or zero to disable this companion. Existing literal loopback/API-only launches add no companion. An occupied UI port fails closed without replacing the listener; Phone routes remain available. The Living Light bootstrap refuses every wildcard bind even when the client is local. UI cookies remain HttpOnly/process-scoped; bearer clients remain agents.
+
+Source/build and isolated real-API/native-component checks pass; the running canonical API and Electron window have not reloaded these changes. Existing physical Phone camera/gyro/HTTPS acceptance has not been repeated. See [evidence and limits](postmortems/2026-10-07-living-light-local-ui-and-cue-notes.md).

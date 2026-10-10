@@ -1,7 +1,10 @@
 {
   "schemaVersion": "hapa.node.v1",
   "id": "hapa-avatar-builder",
-  "aliases": ["hapa-app-hapa-avatar-builder", "Hapa Avatar Builder"],
+  "aliases": [
+    "hapa-app-hapa-avatar-builder",
+    "Hapa Avatar Builder"
+  ],
   "name": "Hapa Avatar Builder",
   "status": "local-first-canonical",
   "surfaceParity": {
@@ -124,5 +127,286 @@
     "As of 2026-06-23 the canonical app also includes the Tarot Library management surface from the Pinokio branch.",
     "The Desktop Finder wrapper should resolve to /Users/calderwong/Desktop/hapa-avatar-builder/Hapa Avatar Builder.app.",
     "Large runtime JSON/media are local state and are ignored by Git by protocol."
-  ]
+  ],
+  "livingLightIntegration": {
+    "status": "prototype-authoring-batch-incomplete",
+    "documentation": "docs/LIVING_LIGHT_INTEGRATION.md",
+    "boardProjectId": "hapa-living-light-avatar-builder",
+    "boardUrl": "http://127.0.0.1:5181/?project=hapa-living-light-avatar-builder",
+    "catalogApi": "/api/echos/living-light/catalog",
+    "catalogApiState": "source-implemented-running-service-reload-pending",
+    "audioOwner": "existing Echo / Audio Atlas",
+    "cardAndNotesState": "native Thing/preset/Journey/instance notes, preset revisions and reviewed forks implemented; local custody separate from publication",
+    "authoringApi": "/api/echos/living-light/journeys",
+    "authoringApiState": "source-implemented-running-service-reload-pending",
+    "forkPreviewApi": "/api/echos/living-light/journeys/:id/fork/preview",
+    "forkCommitApi": "/api/echos/living-light/journeys/:id/fork",
+    "parityState": "native protected metadata API/CLI and synthetic UI roundtrip verified; full readiness/Hand/outbox pending",
+    "playbackState": "single continuous neutral study; measured signals and mixed routes unqualified",
+    "presetApi": "/api/echos/living-light/things",
+    "presetApiState": "native create/revise/archive/restore/history implemented; full parity pending",
+    "visibilityApi": "/api/echos/living-light/things/:id/archive",
+    "historyUiState": "exact retained definitions and independent archive/restore event pages; synthetic native verified",
+    "portableSchema": "hapa.living-light.package.v1",
+    "portableState": "exact metadata import/export and retained source observations; legacy takes/unknown-version attachments pending",
+    "cli": "cli/living-light.mjs",
+    "capabilitiesApi": "/api/echos/living-light/capabilities",
+    "readinessApi": "/api/echos/living-light/readiness",
+    "importApi": "/api/echos/living-light/import/preview",
+    "exportApi": "/api/echos/living-light/export",
+    "baselineAcceptanceState": "all current test files passed after200-project derived projection repair; full Living Light acceptance remains incomplete",
+    "masterTourCheckpoint": {
+      "date": "2026-10-07",
+      "state": "in_progress",
+      "postmortem": "docs/postmortems/2026-10-07-living-light-master-response-native-tours.md",
+      "distinctFocusedTests": 48,
+      "buildPassed": true,
+      "processBaselineRestored": true,
+      "actualDesktopReloaded": false,
+      "allStemQualified": false,
+      "sourceCommitted": false
+    },
+    "schemaCompletion": {
+      "date": "2026-10-07",
+      "requirement": "LL-003",
+      "state": "done",
+      "commit": "18da06f",
+      "focusedAcceptanceTests": 6,
+      "documentation": "docs/living-light/SCHEMA_IMPLEMENTATION.md"
+    },
+    "stemLifecycleCheckpoint": {
+      "date": "2026-10-07",
+      "state": "in_progress",
+      "postmortem": "docs/postmortems/2026-10-07-living-light-stem-audition-and-lifecycle.md",
+      "stemApiTests": 56,
+      "schemaRuntimeTests": 27,
+      "nativeCycles": 20,
+      "buildPassed": true,
+      "processBaselineRestored": true,
+      "actualDesktopReloaded": false,
+      "allStemQualified": false,
+      "sharedSourceCommitted": false
+    },
+    "authoringCompletion": {
+      "date": "2026-10-07",
+      "requirements": [
+        "LL-013",
+        "LL-016"
+      ],
+      "state": "done",
+      "commit": "d54f09e",
+      "focusedChecks": 62,
+      "documentation": "docs/living-light/AUTHORING_IMPLEMENTATION.md",
+      "sharedAppMountCommitted": false,
+      "actualDesktopReloaded": false
+    },
+    "exactAssetSignalCheckpoint": {
+      "date": "2026-10-07",
+      "state": "in_progress",
+      "requirements": [
+        "LL-006",
+        "LL-007"
+      ],
+      "focusedChecks": 52,
+      "buildPassed": true,
+      "processBaselineRestored": true,
+      "documentation": "docs/living-light/EXACT_ASSET_SIGNALS.md",
+      "interactiveStemSignalsQualified": false,
+      "actualDesktopReloaded": false,
+      "sharedApiMountCommitted": false
+    },
+    "signalsHostCheckpoint": {
+      "date": "2026-10-07",
+      "state": "in_progress",
+      "requirements": [
+        "LL-006",
+        "LL-007"
+      ],
+      "commit": "f63d538",
+      "focusedChecks": 52,
+      "buildPassed": true,
+      "processBaselineRestored": true,
+      "documentation": "docs/living-light/SIGNALS_HOST.md",
+      "interactivePreparationVerified": true,
+      "nativeMasterResponseVerified": true,
+      "hostAssetCountVerified": 32,
+      "interactiveStemSignalsQualified": false,
+      "sourceMapsApplied": false,
+      "actualDesktopReloaded": false,
+      "sharedApiMountCommitted": false
+    },
+    "realSongSignalCheckpoint": {
+      "date": "2026-10-07",
+      "state": "in_progress",
+      "requirements": [
+        "LL-006",
+        "LL-007",
+        "LL-008",
+        "LL-021"
+      ],
+      "focusedChecks": 13,
+      "isolatedApiChecks": 1,
+      "realSongs": [
+        "dear-papa-song-brave-tongues",
+        "dear-papa-song-gnow-her"
+      ],
+      "realAvailableAssetCounts": [
+        12,
+        9
+      ],
+      "sourceHashesPreserved": true,
+      "temporaryOutputsRemoved": true,
+      "processBaselineRestored": true,
+      "buildPassed": true,
+      "documentation": "docs/living-light/REAL_SONG_SIGNALS.md",
+      "sourceMapsApplied": false,
+      "actualDesktopReloaded": false,
+      "sharedApiMountCommitted": false,
+      "commit": "a6da875"
+    },
+    "signalRoutingCheckpoint": {
+      "state": "source-checkpoint; original acceptance remains open",
+      "sourceCommit": "a467f6c",
+      "signalBindingSchema": "hapa.living-light.signal-binding.v1",
+      "exactTypedRefs": true,
+      "perUseChoices": [
+        "energy",
+        "onset"
+      ],
+      "aggregation": [
+        "max",
+        "mean",
+        "weighted-sum"
+      ],
+      "unavailablePolicies": [
+        "neutral",
+        "block",
+        "explicit-master-energy"
+      ],
+      "checks": {
+        "livingLightIntegration": 140,
+        "routing": 7,
+        "distinct": 141,
+        "productionBuild": true,
+        "ownedCleanup": true
+      },
+      "nativeSynthetic": {
+        "savedWeights": [
+          0.25,
+          0.75
+        ],
+        "masterNamedStemSeparate": true,
+        "ownerSavedReopened": true,
+        "neutralFallbackBlock": true,
+        "canvasCount": 1,
+        "additionalAudioContexts": 0,
+        "viewport390": true
+      },
+      "appliedAlbumMaps": false,
+      "synchronizedAlbumStemPainting": false,
+      "runningDesktopReloaded": false,
+      "sharedApiMount": "working-tree verified outside focused commit",
+      "documentation": "docs/living-light/SIGNAL_ROUTING.md"
+    },
+    "cardLibraryCheckpoint": {
+      "state": "source-checkpoint; LL-018 remains in progress",
+      "sourceCommit": "7bdad94",
+      "filters": [
+        "all",
+        "tunnels",
+        "locations",
+        "journeys",
+        "readiness",
+        "tags",
+        "search"
+      ],
+      "journeys": "current Song owner pages, exact inspection and existing dirty-draft loader",
+      "usedIn": "exact Journey revision links",
+      "checks": {
+        "targeted": 41,
+        "productionBuild": true,
+        "nativeSyntheticUI": true,
+        "ownedCleanup": true
+      },
+      "sourceCounts": {
+        "tunnels": 27,
+        "locations": 23
+      },
+      "capturedThumbnails": false,
+      "runningDesktopReloaded": false,
+      "documentation": "docs/living-light/CARD_LIBRARY.md"
+    },
+    "stillPreviewCheckpoint": {
+      "state": "source-checkpoint; LL-018 remains in progress",
+      "sourceCommit": "8a9b018",
+      "runtime": "single native canvas; disposable CPU capture",
+      "capturedSourceThings": 50,
+      "decodedNativeImages": 50,
+      "captureSize": [
+        320,
+        180
+      ],
+      "cache": {
+        "maxEntries": 64,
+        "encodedAndReceiptBytes": 8388608,
+        "perImageEncodedBytes": 262144,
+        "persistence": "view-session-only"
+      },
+      "savedJourney": "exact owner revision verified; dirty studies refuse",
+      "checks": {
+        "targeted": 20,
+        "productionBuild": true,
+        "nativeSyntheticUI": true,
+        "ownedCleanup": true
+      },
+      "readinessChanged": false,
+      "runningDesktopReloaded": false,
+      "documentation": "docs/living-light/CARD_LIBRARY.md",
+      "remaining": [
+        "complete Use-instance semantics",
+        "full Hand/R11",
+        "parent acceptance"
+      ]
+    },
+    "passageUseCheckpoint": {
+      "state": "source-checkpoint; original board acceptance remains open",
+      "sourceCommit": "4ff6f68",
+      "actualPassageUse": [
+        "create-explicit-tour",
+        "extend-with-chosen-location",
+        "replace-chosen-connection"
+      ],
+      "exactRevisionRefs": true,
+      "endpointsAndIntervalsPreservedOnReplacement": true,
+      "checks": {
+        "actualTargeted": 10,
+        "productionBuild": true,
+        "nativeSynthetic": true,
+        "ownedCleanup": true
+      },
+      "fullHandAcceptance": false,
+      "appliedAlbumMaps": false,
+      "runningDesktopReloaded": false,
+      "documentation": "docs/living-light/CARD_LIBRARY.md"
+    },
+    "sharedHandCheckpoint": {
+      "state": "source-checkpoint; LL-017/018 and original dependencies remain open",
+      "sourceCommit": "5bf3fef",
+      "checks": {
+        "sharedAndAffected": 113,
+        "protectedHost": 28,
+        "productionBuild": true,
+        "nativeSyntheticSharedHost": true,
+        "keyboard390px": true,
+        "ownedCleanup": true
+      },
+      "fullAppTarotReturnAccepted": false,
+      "apiMountCommitted": false,
+      "apiDependency": "separate uncommitted Audio Atlas owner modules",
+      "runningDesktopReloaded": false,
+      "appliedAlbumMaps": false,
+      "creativeAcceptance": false,
+      "documentation": "docs/living-light/SHARED_HAND.md"
+    }
+  }
 }

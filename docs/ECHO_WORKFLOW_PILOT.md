@@ -219,6 +219,15 @@ The shared caption owner now uses geometric precision, matching actual HyperFram
 
 See [the encoded typography postmortem](postmortems/2026-09-08-echo-encoded-typography.md). Next: use the current prepared full-song project for actual managed Song Card output, retain the five color failures and finish the original ECHO-06 criteria. No private HyperFrames patch was shipped; workflow effectiveness remains unevaluated.
 
+
+## September 8 — managed full-song planning and capture
+
+A2 remains active at9done/9in progress. Actual full-song planning exposed the8MiB request cap; lossless gzip transport now carries the15.12MB selected-cut input in2.05MB, and persisted project/graph equality passes. Actual Builder UI submits the selected saved cut in a2.18MB gzip request and the stored cut IDs match. Twelve transport/UI,13pixel/readiness and one progress check pass, with the delivery build; no broad suite repeated.
+
+The managed pixel verifier now follows source-declared section admission, retaining checks for missing/extra/reordered layers and matching budget receipts. All52 native captures pass. A full7,754-frame MP4 was subsequently rejected after a diagnostic Puppeteer attachment reset its viewport to800×600. A separate blank-browser reproduction confirms this observer effect; the failure is retained, no viewport workaround is shipped, and AGENTS.md now prohibits attaching during acceptance capture. The progress owner recognizes HyperFrames Capturing frame messages and saves a bounded local renderer log. The final attempt uses the exact UI-produced plan with a25-minute supervisor and no browser attachment. Encoded acceptance remains pending until its terminal result is inspected.
+
+See [the managed-render postmortem](postmortems/2026-09-08-echo-managed-planning-render.md). No source/cut rewrite, mint, human acceptance or GitHub mutation.
+
 ## September 16 — stylized lyric presentation templates
 
 The shared Preview/recording/HyperFrames lyric owner now exposes four new
@@ -290,3 +299,349 @@ the production build and receipt check pass. This restores append-only cut
 creation without relaxing source custody; decode, aesthetic review, final
 render, and broader requirement status are unchanged. See the
 [repair postmortem](postmortems/2026-09-17-echo-reference-fork-save.md).
+
+## September 27 — Audio Atlas and per-song file inventory
+
+Calder requested the attached Audio Atlas project be integrated into Builder and tested with an Echo song, then requested WAV/MP3/MP3-stem badges. This scoped prototype extends the existing Song owner and Echo UI. Brave Tongues master plus12stems produced489word,486beat,122downbeat and25CLAP-window candidates in61.55seconds.200canonical songs now receive readable-header format checks, including differently numbered WAV/MP3 stem counterparts. Text mismatch at27.24seconds was flagged needs_review through the actual UI; no human listening acceptance or Director timing promotion.
+
+18focused,4DSP,14liveAPI,54Overcard checks and build pass. Full repository run:2428pass/11fail; native Electron smoke is not claimed. Changes remain uncommitted under the completion gate. The sandboxed broad run stalled in service-test cleanup and was stopped with its descendants verified absent before one supervised local-service rerun; no Atlas model workers remain. Existing Echo requirement counts are unchanged. Phonemes/syllables/notes/diarization and open-ended narration remain unsupported. See [verification](audio-atlas/VERIFICATION.md), [review guide](audio-atlas/BRAVE_TONGUES_REVIEW.md) and [batch reflection](audio-atlas/REFLECTION.md). Source-safe guide/review documents are indexed in Second Brain with revision/readback verification; no global refresh.
+
+
+### Audio Atlas UI overhaul —2026-09-27
+
+The existing owner components now separate listening/review, sounds, lyrics and technical detail. File gaps filter the canonical inventory and song rows open Atlas directly.77 focused checks and build passed; real Brave Tongues and1000px responsive browser checks passed. Full suite2433pass/11fail, same failing names as the pre-overhaul run. No requirement or human acceptance promoted; completion commit remains gated. Evidence: docs/audio-atlas/UI_VERIFICATION.md and immutable before/after audits.
+
+
+### Audio Atlas correction queries — 2026-09-27
+
+The56-card gap goal is active. First card adds correction-aware original/effective
+queries and explicit UI acceptance choices.27 focused checks and delivery build
+pass; actual Brave Tongues saved review remains flagged. No broad-suite rerun,
+human acceptance or Echo requirement count change. Previous11 repository failures,
+native smoke and completion commit remain open. See
+[verification](audio-atlas/CORRECTION_QUERY_VERIFICATION.md).
+
+
+### Audio Atlas identity and timing contract — 2026-09-27
+
+The foundation batch adds a validated identity/timing projection and explicit
+conformance limits.38 focused tests/build and four real-run API checks pass;
+8,333 Brave Tongues observations validate without changing saved evidence.
+No broad suite or human acceptance is claimed. Existing Echo counts are unchanged.
+See [contract evidence](audio-atlas/CONTRACT.md).
+
+
+### Audio Atlas independent acceptance repairs — 2026-09-27
+
+Three prior failing assertions repaired with source-preservation, editor-wiring
+and executable frame-retention checks.40 targeted passes/1failure; the remaining
+targeted failure is missing local HyperFrames. No application code, source stores,
+full-suite status, human gates or Echo requirement counts changed. See
+[acceptance repair evidence](audio-atlas/ACCEPTANCE_REPAIRS.md).
+
+
+### Audio Atlas pack-input audit — 2026-09-27
+
+Bounded source/ZIP inventory and exact checksums;11supporting docs and original
+36-test suite remain unavailable. Local substitute matrix covers all56cards and
+exact acceptance criteria without claiming original-suite equivalence. Only
+document/link/hash checks apply; no broad tests or build repeated. See
+[audit](audio-atlas/PACK_INPUT_AUDIT.md).
+
+
+### Audio Atlas missing-media reconciliation — 2026-09-27
+
+Exact200song inventory and missing-input manifest recorded. Zerbini false-missing
+MP3 lookup repaired; only its stale localPath changed under hash/backup checks.
+16focused checks pass; preview badge verified. No frontend bundle/model/broad
+rerun; normalizer-wide mutation rejected by local preflight. See
+[missing media](audio-atlas/MISSING_MEDIA.md).
+
+### September 27 — User-requested audio file uploads
+
+New independent intake batch: four-format missing-file upload UI, streamed authenticated attachment API, shared CLI, source-preserving persistence, WAV stem coverage. 50 focused tests, 54 Overcard tests and build pass. Four actual Gnow Her files saved through the browser into an isolated record; persisted coverage and exact byte identity verified. Canonical album unchanged. Broad acceptance pending; prior analysis prerequisite holds remain unchanged. See [upload workflow and reflection](audio-atlas/AUDIO_UPLOADS.md).
+
+Upload batch acceptance: full suite 2,467 pass / 8 previously known failures. No new failing names. Native acceptance and focused completion commit remain open; card `atlas-song-audio-uploads` is Review. Regression processes returned to baseline.
+
+
+### September 27 — Per-stem timing analysis progress
+
+Accepted Atlas contract unblocked dependent audio work. Windowed per-stem lag/drift
+evidence now runs through the existing measurement owner and API/CLI/UI; 45 focused
+checks/build and actual 13-source Brave Tongues run pass. Four candidates, eight
+unresolved; no timing applied or quality acceptance. Card stays in progress.
+No broad rerun or Echo requirement closure. See [evidence](audio-atlas/STEM_ALIGNMENT.md).
+
+
+### September 27 — Forced word alignment probe and validation
+
+Pinned local Qwen3/MLX Audio runs on Brave Tongues spoken/sung excerpts and
+synthetic silence. Eleven validator tests pass; actual audio validation retains
+37 unreviewed interval candidates, two zero-duration abstentions, and no silence
+candidates. Source unchanged. Model/UI/API/CLI integration and acoustic quality
+acceptance remain open; no requirement closure or broad rerun. Contract foundation
+is accepted by Calder; routine protocol application needs no repeat approval.
+See [qualification evidence](audio-atlas/WORD_ALIGNMENT.md).
+
+
+### September 27 — Integrated supplied-word excerpt alignment
+
+The existing Atlas job/API/CLI/UI now accepts an explicit English passage and
+shows timed candidates plus unresolved words without lyric or review replacement.
+Real Brave Tongues CLI/browser runs complete; exact-option cache reuse, source
+hashes, contract projection and final review UI verified.38 JS/11 validator checks
+and build pass; six UI checks/build repeated for a saved-history status repair.
+Speech/singing accuracy labels and broader gates remain open; no card closure.
+See [workflow and evidence](audio-atlas/WORD_ALIGNMENT.md).
+
+
+### September 27 — Audio Atlas listening references
+
+Shared UI/API/CLI now append independent source-bound word timing, uncertainty,
+omission and retraction references. Original and accepted corrected error reports
+exclude synthetic labels from human metrics.60 distinct focused checks/build and
+Brave Tongues browser/CLI empty-reference reports pass; zero human labels saved.
+No acoustic qualification, broad/native acceptance or card closure. See
+[workflow and reflection](audio-atlas/TIMING_REFERENCES.md).
+
+
+### September 27 — Audio Atlas acoustic structure
+
+Existing worker, cache, contract, query and listening UI now expose master-source
+acoustic regions, boundaries, similar-passage comparisons and energy transitions.
+Brave Tongues17.891s:14 boundary candidates,15 regions,19 transitions; no repeat
+pair meets the fixed threshold.47 JS/29 Python checks/build and actual browser
+region cue/source guard pass.13 source hashes and prior alignment result unchanged.
+No musical acceptance, broad/native rerun or card closure. See
+[method, evidence and reflection](audio-atlas/STRUCTURE.md).
+
+
+### September 27 — Audio Atlas text-to-audio retrieval
+
+Explicit free-text queries reuse the existing offline CLAP encoder, writer lock,
+auth and immutable Master windows. Shared UI/API/CLI, saved history, bounded
+encoding/cancellation and source/model evidence are integrated.41 focused checks
+and build pass. Brave Tongues control-vector maximum difference1.04e-7; custom
+query2.770s, cache and13source hashes verified. Musical relevance remains
+unqualified; no broad/native acceptance, completion commit or card closure.
+See [search workflow and evidence](audio-atlas/TEXT_SEARCH.md).
+
+
+### September 27 — Audio Atlas spectrogram review
+
+Source-channel spectral evidence now shares existing decode, immutable runs,
+contracts, cache, UI/API/CLI and source player. Explicit FFT/hop/centering, Hz/dBFS
+conventions, hash-bound arrays and bounded complete-window paging are implemented.
+Brave Tongues13sources21.431s;14,373,720 spectral bytes.50 distinct focused JS/36
+Python checks/build and actual source/channel/frequency/level browser checks pass.
+All original/preserved source hashes and prior alignment result remain unchanged.
+No broad/native rerun or musical labels; completion commit remains open. See
+[method and evidence](audio-atlas/SPECTROGRAM.md).
+
+
+### September 28 — Audio Atlas technical measurements
+
+Existing PCM/lifecycle/query/player owners now expose input loudness, true peak,
+channel levels, clipping indicators and correlation with explicit missing states.
+Quiet-level percentile remains distinct from unmeasured isolated noise. Brave
+Tongues13sources132.920s; Master−14.70LUFS/+0.24dBTP, one threshold sample.
+47 JS/46 Python focused checks/build and real browser source/warning cues pass.
+All original/preserved hashes and prior alignment unchanged. Five below-gate
+stems retain null loudness with reasons. Technical card remains in progress;
+no broad/native/commit or human acceptance. See [evidence](audio-atlas/TECHNICAL_AUDIO.md).
+
+
+### September 28 — Audio Atlas explicit noise references
+
+Existing measured frames and append-only review owner now support exact-range
+noise-reference preview, attributed declarations, separate origins and retraction.
+86 distinct JS checks/build pass; actual Brave Tongues preview agrees with direct
+PCM RMS within1.35e-13dB, with source/result hashes unchanged and no saved human
+assertion. Technical feature card moves to Review. No broad/native/commit or
+human acoustic acceptance. See [workflow and lesson](audio-atlas/NOISE_REFERENCE.md).
+
+
+### September 28 — Audio Atlas pitch and voicing
+
+Existing Atlas lifecycle now supports explicit pYIN source-channel candidates,
+raw/abstained Hz and cents, exact source clocks and complete-window UI/API/CLI
+queries. Brave Tongues Vocals: 24348 frames, 10308 qualifying candidates;
+pitch stage 64.525s.96 JS and11 Python checks/build plus isolated
+decoder probes and browser review pass. Source hashes, prior results, cache and
+worker cleanup verified. First decoder attempt failed due to unavailable soxr;
+retained as evidence, corrected to built-in swr and retested. Card remains in
+progress pending actual vocal/consonant accuracy and overlap qualification; no
+broad/native/commit acceptance. See [method and lesson](audio-atlas/PITCH.md).
+
+
+### September 28 — Audio Atlas rhythm evidence
+
+Existing Beat This stage now supplies source-clock tempo alternatives, conditional
+bar groupings, spectral flux with separate local energy anchors, subdivision ratios
+and an operational accent-contrast proxy. Combined Brave Tongues run includes
+pitch: 486 beats, 121 bar candidates and
+1199 onset candidates; rhythm helper 1.223s.
+102 JS/seven Python checks/build and real UI/API/CLI/contract/cache checks pass.
+Original/preserved hashes and prior results unchanged; repeated pitch frames match
+exactly. Musical qualification, broad/native gates and completion commit remain
+open. Card stays In Progress. See [method and learning delta](audio-atlas/RHYTHM.md).
+
+
+### September 28 — Audio Atlas note and melody candidates
+
+Existing validated pYIN runs now support read-only source-bound note spans,
+contours/variation, transposed pattern matches and low-register line candidates
+through UI/API/CLI/export. Brave Tongues has410 spans,156 variation candidates,
+seven pattern groups and five register lines; source/result hashes unchanged.
+108 distinct JS checks, three actual pYIN synthetic probes, build and four-view
+browser/source-cue verification pass. The overlap probe intentionally demonstrates
+a wrong110Hz subharmonic for220/330Hz input; no polyphonic success claimed.
+Musical qualification and broader/native/commit gates remain open; card stays
+In Progress. See [method and learning delta](audio-atlas/NOTES.md).
+
+
+### September 28 — Audio Atlas harmony alternatives
+
+Existing8kHz view/base worker now retains original and tuning-adjusted chroma,
+competing chord/inversion hypotheses and local/global key alternatives. Brave
+Tongues:974frames,834chord-candidate frames,31local windows; tuning unresolved.
+114distinct JS/six numerical checks, final build and browser source/cue/views
+pass. CLI-owned job progress now uses the same saved stage reader, with a
+separate-owner regression. All13 source hashes and prior result bytes preserved;
+pitch frames and tempo intervals match the prior run. Musical qualification,
+broad/native/commit gates stay open; card remains In Progress. See
+[method and learning delta](audio-atlas/HARMONY.md).
+
+
+### September28 — Audio Atlas source activity
+
+Existing technical/pitch evidence now yields read-only source energy spans,
+entrances, spectral centroids and measured pitch register through UI/API/CLI/export.
+Brave Tongues Vocals:19spans, four in26–56s; all13source/result hashes preserved.
+55focused JS checks/build and actual browser source/quiet-state/cue checks pass.
+Early cue reset on metadata load was observed and fixed; actual pre/post-loading
+27.1s persistence verified. Instrument family/role and human qualification remain
+open, as do broader/native/commit gates. Card stays In Progress. See
+[method and learning delta](audio-atlas/ACTIVITY.md).
+
+
+### September28 — Audio Atlas semantic listener qualification
+
+Existing Qwen3-Omni runtime and17pinned checkpoint files executed text-only under
+OS network denial on Brave Tongues26–41s and synthetic silence. A silence tone/mood
+hallucination is preserved and rejected by measured-input validation. Eight focused
+checks and actual output replay pass; all13original/preserved hashes and source
+result remain unchanged, workers exited and shared services survive. Six axes stay
+unreviewed; UI/API/CLI execution and musical qualification remain open. No broad
+rerun, human acceptance or card closure. See [probe and lesson](audio-atlas/SEMANTIC.md).
+
+## Living Light foundation batch — 2026-10-06
+
+Calder authorized execution after planning, with an active goal to drain `hapa-living-light-avatar-builder`. Native109 source rebuilt byte-identically (113/113 pure checks); 25 focused integration checks pass. The lazy Echo workbench hosts a native neutral study with the existing song clock, one audible element and one GL canvas. Fractal/Cathedral were inspected on Apple M3 Ultra WebGL2; leaving the tab removes its canvas. Catalog reconciles 200 songs and 137 complete MP3 stem sets without source-store mutation. These observations do not establish measured-signal, whole-album, route, durable Card or note qualification.
+
+The temporary5188 preview hit `cors_origin_denied`; verification moved to the existing authorized5178 surface without weakening origin policy or restarting user services. Source recovery and canonical feature identity are separate gates. See `docs/LIVING_LIGHT_INTEGRATION.md` for the owner map, evidence boundaries and continuation. Other workstreams retain their statuses and owners.
+
+### October 6 foundation verification disposition
+
+49 affected Living Light/recording tests, 54 Overcard regressions, production build and nonblank native Tarot smoke pass. Full suite: 2,605 pass, nine fail, one skip of 2,615. The obsolete closed tab-list assertion was repaired and verified; the remaining eight match established Audio Atlas baseline gaps. Source and tracked registration edits stay uncommitted under the owner completion gate; five foundation cards stay In Progress. Portable requirements and checkpoint docs committed as `4c0960c`; two scoped Second Brain projections read back fresh.
+
+Catalog correction separates role summaries from individual assets through bounded per-declaration owner checks; missing same-role assets and placeholders remain missing/unresolved. Automatic review rejected an earlier tracked-file reconstruction/staging method; the safer documentation commit included only five task-owned new files. This pilot update replaces only this task’s own JSON field and appends Markdown, with exact-byte guards and other-owner state preserved. See `docs/postmortems/2026-10-06-living-light-foundations.md`.
+
+### October 7 source evidence and native discussion
+
+Primary batch LL-016/018/020 remains incomplete. Native notes/auth/custody recovery and responsive card inspector pass 71 affected tests and build. All 15 completed existing Atlas results were inspected read-only; they cover one song, with no new analysis or applied alignment. Saved Journeys, prepared signals, tours and source-focused commit remain pending. Desktop wildcard binding requires a separate loopback UI boundary; temporary loopback UI proof is not desktop acceptance. Existing Echo entry can trigger derived saved-cut certification, so whole-cut preservation was not certified by the probe. See `docs/postmortems/2026-10-07-living-light-discussion.md`.
+
+### October 7 native Journey authoring
+
+LL-016/018/019/020 remains the incomplete primary batch. Exact native Journey saving/revisions/history, Card birth recovery and reversible route/instance editing are implemented. 83 affected tests and build pass; native unsaved UI probe verifies order, Undo/Redo, 390px fit and zero Living Light canvas after keyboard navigation. The old running API is not reloaded; no human-attributed save was submitted by the agent. Source-focused commit remains pending the eight established broad acceptance gaps. See `docs/postmortems/2026-10-07-living-light-journey-authoring.md`.
+
+### October 7 local UI and saved cue discussion
+
+LL-016/018/019/020 remains incomplete; LL-023 now has desktop-boundary implementation. Shared notes distinguish reusable Things/saved recipes/pinned uses, page complete history, recover edit identity and pending keys, and keep dirty drafts during new-recipe comparison. 106 distinct affected checks pass, including real API restart and desktop origin/timeout handling; production build passes. Synthetic browser round trips verify 1–2s cue edit/reload/retraction, separate Thing/recipe notes and 390px fit. No canonical human write/creative approval or live Desktop reload; temporary fixture child/ports/root returned to baseline. Forks/presets/CLI/Hand/outbox, qualified signals/tours and eight baseline failures remain open. See [checkpoint](postmortems/2026-10-07-living-light-local-ui-and-cue-notes.md).
+
+### October 7 reviewed Journey forks
+
+Primary authoring batch remains incomplete. Exact pinned source revisions now support explicit conversion previews and idempotent cross-song forks with source notes preserved. Nine new checks and 25 affected checks pass; actual API restart proves fork/root receipt recovery. Synthetic native UI verifies 20s→40s authored conversion retaining an 8s bridge, comparison/dirty-draft reload, saved target-song reopening, zero inherited recipe notes, invalid short route and 390px fit. Final build passes, fixture cleanup and canonical Song-store digest verified. Presets/import/export/parity, qualified signals/tours, desktop delivery and eight broad baseline gaps remain open. See [fork checkpoint](postmortems/2026-10-07-living-light-reviewed-forks.md).
+
+### October 7 native reusable presets
+
+Primary authoring batch remains incomplete. Separate Tunnel/Location presets, native revisions/CAS/retry, notes, bounded registry and runtime defaults are implemented. Final affected suite passes 56/56 including ten new checks; synthetic native UI verifies 1.5 saved use versus 0.7 latest preset after reload, explicit upgrade/Undo, separate note and narrow fit. Build/cleanup pass. Archive/history inspector, import/export/full parity, source/signal/routes, desktop delivery and eight broad gaps remain open. See [preset checkpoint](postmortems/2026-10-07-living-light-native-presets.md).
+
+### October 7 reversible archive and exact history
+
+Primary authoring batch remains incomplete. Library now archives/restores source Things and presets, pages exact definition and visibility histories, and preserves pinned archived uses and notes. Fresh 63/63 affected checks/build pass. Native proof catches and repairs duplicate inspector controls caused by sibling key reuse, then verifies full archive/reload/history/restore and 390px fit. Owned cleanup uses the registered signal handler after stdin closure and returns to baseline. Import/export/parity, measured signals/routes, desktop delivery, creative acceptance and eight broad gaps remain open. See [archive checkpoint](postmortems/2026-10-07-living-light-archive-history.md).
+
+### October 7 portable metadata and protected CLI
+
+Primary authoring batch remains incomplete; LL-021/022 now have native portable-format/API-client progress. Fresh75/75 checks/build pass. Actual executable alias fix and isolated UI→CLI→UI round trip verify exact20s recipe, separately labelled imported observation, retained upstream re-export lineage and390px fit. Reviewed preview/atomic commit, malformed closure/unused-instance/authority/digest/size/source rejection, duplicate/restart custody and cleanup pass. Legacy Standard/takes, durable unknown-version attachment, full readiness/Hand/outbox, exact signals/routes, desktop delivery, creative acceptance and eight baseline gaps remain open. See [portable checkpoint](postmortems/2026-10-07-living-light-portable-metadata-cli.md).
+
+### October 7 album baseline repair
+
+The eight established baseline failures are repaired: the canonical aggregate compiler now covers all 200 projects, missing Gnow Her cut/ranking/playback derivatives were recovered through existing owners, and actual offline HyperFrames 0.7.66 packaging checks pass. Fresh broad coverage passes 2682/2683, zero failures, 1 skip, with process teardown verified. Preservation proves authored timings/media, original cuts, Song/Item stores and existing library records retained. This removes the old baseline gate; Living Light signal/routes/parity/Desktop and human acceptance remain incomplete. See [repair evidence and retained failed attempts](postmortems/2026-10-07-living-light-album-baseline-repair.md).
+
+### October 7 master response and native tours
+
+Exact source-bound basic master loudness and authored Location/Passage tours are implemented in the working tree. Saved exact revisions reopen; use locks protect route adjacency. 48 distinct focused checks and final production build pass. Synthetic native Mac studies verify nonblank swapped destinations/passages, exact arrivals, save/reload and protected edit rejection; proof cleanup returns to baseline. These are not all-stem, full catalog, broad-current-revision or Desktop acceptance. See [evidence and corrections](postmortems/2026-10-07-living-light-master-response-native-tours.md).
+
+### October 7 exact stem audition, lifecycle and schema closure
+
+Exact per-asset source-local audition and a paused/hidden-safe native preview driver are implemented. Final affected decoder/API checks pass56/56; current schema/master/tour/editor/lifecycle checks pass27/27; build and owned teardown pass. The read-only album audit resolves200 master routes and checks3405 declarations without analysis or store mutation. Native evidence covers20 family/quality/enter/leave cycles, real context recovery at7.50s and shader rejection with authoring retained. LL-003 schema/source registry is committed as18da06f. Stem synchronization/full parent/Desktop delivery and remaining board acceptance are open. See [evidence, corrections and limits](postmortems/2026-10-07-living-light-stem-audition-and-lifecycle.md).
+
+### October 7 native authoring source completion
+
+LL-013/016 native pinned recipes and persistence criteria are complete in focused source commitd54f09e after62/62 authoring checks and current build; LL-003 schema/source registry is complete in18da06f. Native runtime is committed in7b7cc52. Shared Echo/API/electron integration changes, canonical Desktop delivery, Hand parity and remaining signal/library/creative acceptance remain open. See [owner evidence and limits](living-light/AUTHORING_IMPLEMENTATION.md).
+
+### 2026-10-07 exact asset signal checkpoint
+
+LL-006/007 remain in progress. Existing Echo analysis/publication now retains exact asset IDs, partial missing states and analysis PCM receipts. New pure feature/cache owners verify source binding and explicit map semantics; twelve-asset aggregation and twenty cache switches are synthetic evidence. Final affected52/52, production build and owned cleanup pass. Initial1/29 fixture failure preserved and corrected within documented sample tolerance; exact duplicate routes, Master-named stems and silence validity tightened. See `docs/living-light/EXACT_ASSET_SIGNALS.md`. Native/UI/album map/Desktop/broad-current acceptance stays open.
+
+
+### October 7 prepared signals in the native Workspace
+
+Local commit `f63d538` connects explicit protected preparation/read/poll/cancel, exact per-asset rows and source-bound master response to the existing Workspace/cache. Final affected52/52 and canonical production delivery build pass, with owned process cleanup. A synthetic native browser proof verifies separate Guitar peers, missing Drums, reload, master response through a Tunnel change, one canvas/zero extra audio contexts and390px fit. The final host test accepts32 assets via a compact complete-binding digest; native GPU scale is not inferred. LL-006/007 remain in progress for owner-applied timing, per-instance stem response and original acceptance. Shared API mount is working-tree verified; actual Desktop delivery and human review remain open. See [interfaces, evidence and learning delta](living-light/SIGNALS_HOST.md).
+
+
+### October 7 — Audio Atlas full-library editorial Director benchmark
+
+The v5 prototype corrects the repeated-footage failure by recognizing the existing Human Enricher/Quick Sort acceptance trail, including legacy decisions. The initial 88 Strong/Hero overrides were a subset of 204 optional detailed enrichment records, not the complete manual-review population. The frozen, byte-qualified catalog has 2,310 human-accepted general clips and 1,327 same-song Reference loops; every song can choose the full general pool plus its scoped References. Optional numeric grades remain preferences with separate human/agent attribution.
+
+Source-bound editorial briefs cover 192 eligible songs: 175 full-lyric interpretations and 17 explicitly limited-context briefs. At 2026-10-08T01:16:52.315644Z, the actual six-song v5 pilot had 12 verified cuts, 717 selections and 429 physical clips; no in-cut repeats or source/URI/same-song scope mismatches were found. All selections matched positive editorial concepts and none matched an avoid concept. This is technical/metadata evidence; the later independent agent disposition supports benchmark-draft append with concrete refinements, while playback, final renders and human preference remain open. At 2026-10-08T01:19:39.126Z, all six pairs were appended with successful owner readback (12 cuts); independent owner/API readback at 2026-10-08T01:20:47.584Z then passed all 12 saved cuts, 795 authored shots, 717 media choices (668 human-accepted plus 49 same-song References) and 168 source-bound shader hydrations, preserving six parents and 205 prior cuts. All live graphs remain withheld with `preparing / server_restart_required`; `runtimeQualified` is false. Expansion to 19 other original core-qualified songs remains active with saved analysis, not complete. The agent review retains the fantasy-to-cat transition in Dear Papa, a technical family-tree opening in Brave Tongues and a battle-to-node-diagram clip in Death Ground as playback refinements. Saved cuts have no new human approval.
+
+The historical narrow-pool 22-song/44-save pass is superseded as the recommended benchmark. The technically verified v3/v4 pilots remain held unsaved for creative-fit failures. Atlas coverage preserves the stopped original cohort and its matching 167-song continuation without copying completed states or double-counting songs. The optional existing-analysis follower admits only qualified saved results, polls every 30 seconds for at most 12 hours, starts no analysis and makes no automatic retries; append defaults off. A recorded follower state is not liveness proof. No Echo requirement or workflow count changes; workspace tooling is not delivered source. See [benchmark and limitations](audio-atlas/ALBUM_MEDIA_SELECTION_20261007.md) and [correction postmortem](postmortems/2026-10-07-echo-atlas-media-selection.md).
+
+
+### October 7 real-song signals and protected CLI
+
+Brave Tongues (12 available/24 declarations) and Gnow Her (9/9) pass exact preparation, bounded bank admission and20 direct source-local amplitude comparisons at0/10/30/60/120seconds. Original audio/Song/Songbook hashes match; temporary roots and owned process baselines are clean. The existing CLI now shares protected read/prepare/status/cancel and explicit retained request identity;13 targeted checks, one real authenticated API fixture and canonical production build pass. Stem song-time remains unverified; no alignment proposal or human approval was applied. Requirements remain In Progress. See [real-song evidence and CLI interfaces](living-light/REAL_SONG_SIGNALS.md).
+
+
+### October 7 per-use audio choices checkpoint
+
+Local commit `a467f6c` adds versioned exact-source audio choices to each Journey use through the existing editor, persistence, portable format, CLI/service and native renderer. Separate typed master/stem refs preserve a stem literally named master. Source-time aggregation, bounded energy/onset offsets, neutral/explicit-master/block policies, undo and use locks are verified. All140 Living Light integration checks pass;7 final routing checks include one additional tour-boundary case (141 distinct), and production build/owned cleanup pass. Native synthetic UI verifies weights0.25/0.75 through owner save/reopen, unavailable timing, explicit fallback/block and390px fit. Applied album maps, synchronized album stem painting, broader visual/Hand acceptance, actual Desktop delivery and human review remain open. See [audio-choice contract, evidence and learning delta](living-light/SIGNAL_ROUTING.md).
+
+
+### October 7 — Atlas full-library retained pass and reviewed continuation
+
+At 2026-10-08T01:43:37.369170+00:00, all25 retained songs have50 saved cuts using1167 physical clips. The broader audit found Trouble’s Water Performance had36/81 choices without positive concepts; its old pair is retained as superseded history. Only that brief changed. The replacement pair saved with owner readback at 2026-10-08T01:41:56.256Z:125 choices,83 clips, all125 positive,118 section matches, zero avoid/fallback/in-cut repeats. All50 old cuts count in history. Static/mixed-scene and technical-opening caveats remain; this is an agent benchmark-draft disposition, not human/playback acceptance.
+
+New pre-save coverage checks require90% positive evidence and zero avoid matches per style, with exact source/brief bindings. Explicit review-held songs stay unsaved and are skipped without retry while other qualified songs continue.57 pipeline/follower tests,6 guard tests and26 selector checks pass. The new123-pin167-song follower started at 2026-10-08T01:42:04.770000+00:00; recorded state `running`, not a completion/liveness assertion. It reuses the existing Atlas writer’s qualified results with30-second polling/12-hour bound/no new analysis/no automatic retry. Eight missing-source sets and17 limited briefs remain, and live playback is still unqualified. No requirement/count changes. See [dated evidence and remaining gates](audio-atlas/ALBUM_MEDIA_SELECTION_20261007.md) and [lesson](postmortems/2026-10-07-echo-atlas-media-selection.md).
+
+
+### October 7 unified Journey Card library
+
+Local commit `7bdad94` unifies saved Journey Cards with the existing Tunnel/Location Library. All/Tunnels/Locations/Journeys, combined search/readiness/tag filters, source attribution, exact used-in links, saved recipe inspection/notes/export and explicit editor opening are connected. Dirty-draft comparison remains the existing owner behavior. 41 targeted checks, canonical production build and actual synthetic Chrome/WebGL2 proof pass, with27 Tunnel/23 Location accounting, note reload, keyboard use, one canvas/no autoplay and390px fit. Owned processes/ports/temp roots return to baseline. LL-018 stays In Progress for actual still capture/cache, failed-image handling and complete original acceptance; full Hand/Desktop delivery, applied album timing and human review remain open. See [library evidence and learning delta](living-light/CARD_LIBRARY.md).
+
+
+### October 7 captured reference Card previews
+
+Local commit `8a9b018` adds explicit neutral reference studies and small revision-bound Card capture using the existing native canvas. All50 source Thing PNGs were captured and individually decoded in Chrome; a saved Journey preview, dirty-study refusal, moving-audio refusal, readable failed-image fallback, held-motion/clear/reload and390px layout were verified.20 targeted checks and the canonical delivery build pass. The64-entry/8MiB encoded-payload cache is disposable for this Workspace session; no readiness, durable preview attachment, custody, notes, publication or creative approval changes. Owned proof processes/ports/temp roots returned to baseline. LL-018 stays In Progress: passage Add currently chooses a connection for the next Location edit, so complete Use-instance semantics, full Hand/R11 and parent acceptance remain open. Applied album timing and running Desktop delivery remain unfinished. See [current Library capture evidence and learning delta](living-light/CARD_LIBRARY.md).
+
+
+### October 7 explicit passage use checkpoint
+
+Local commit `4ff6f68`: The Library now offers **Use passage…** for a connecting Tunnel. Choosing the Card opens an explicit chooser and leaves the draft unchanged. For a Location tour, Add Location with this passage creates a new destination use and connecting passage use; Replace chosen connection changes the exact selected passage use while preserving both Locations and every interval. For an empty or continuous editor, Create tour with this passage uses explicitly selected starting/next Locations and the existing dirty-draft comparison. Cancel preserves the draft. Exact revisions, locks, one-action undo/redo, native saving and draft recovery reuse the existing owners. No source Thing or saved revision is overwritten. Extension retains the total song duration using the existing eight-second travel/split-final-dwell rule and rejects a final dwell shorter than ten seconds. This is authoring behavior, not applied timing or visual compatibility approval. Ten actual targeted checks, delivery build and isolated native authoring/save/reload/keyboard checks pass; cleanup returns to baseline. Objective: make the original Use-instance criterion concrete for connecting Tunnels. Reused the completed Location-tour editor, native recipe validation/persistence, exact revision registry and Card Library. Adapted the existing action rather than inventing a standalone passage with no endpoints. What helped: checking the actual dirty-draft/lock/save/reload path. Noise: an assumed locks test filename and an unsupported browser read of localStorage; neither supplied evidence. Readable DOM state and protected save supplied the native outcome. Reusable Decision/Flow-explainer candidate: a connection Card requires an explicit endpoint or replacement choice before it becomes an actual use. Source is Calder’s authorized drain and pickup in chat01a1146f-fe68-76b3-a736-473042c3818c. LL-018 remains In Progress with original criteria; full shared Hand/R11, broader parent/native catalog acceptance and actual Desktop delivery remain open. Applied album timing, synchronized stem painting, later immersive work and Calder creative review remain unfinished. Clarification to the earlier capture learning paragraph: naturalWidth0 was recognized as lazy loading during that probe; no actual decode failure was observed for the50-image set. This corrects the interpretation without deleting historical text. See [the Card Library contract and evidence](living-light/CARD_LIBRARY.md).
+
+
+### October 7 exact shared Hand checkpoint
+
+Local commit `5bf3fef` connects exact native Thing/Journey Cards to the existing shared Hand, with explicit lazy custody, pickup/Add, duplicate/capacity/offline refusal and Header return to the exact inspector. Draft and notes survive the synthetic return path; cross-song Journey editor opening is disabled and audio stays paused. Final113 affected/shared checks,28 protected-host checks, canonical build and genuine isolated-host native390px/keyboard proof pass; owned process/port/temp cleanup is verified. The full App/Tarot round trip, parent/dependency acceptance and running Desktop delivery remain open. The canonical API mount is working-tree verified but imports separate uncommitted Audio Atlas owner modules; its prepared Living Light-only patch is retained, with no other-owner source swept into this commit. See [shared Hand contract, corrections and learning](living-light/SHARED_HAND.md). No applied album timing, synchronized album stems, immersive output or Calder creative approval is claimed.
