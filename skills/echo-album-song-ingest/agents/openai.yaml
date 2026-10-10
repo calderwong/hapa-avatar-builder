@@ -1,0 +1,6 @@
+interface:
+  display_name: "Echo Album Song Ingest"
+  short_description: "Add and catch up one Echo Album song"
+  default_prompt: "Use $echo-album-song-ingest to inspect and add one new song to the Echo Album pipeline."
+policy:
+  allow_implicit_invocation: true
