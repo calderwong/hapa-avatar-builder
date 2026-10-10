@@ -586,3 +586,22 @@ test("saved planning separates cut identity pinning from a matching render certi
   const waiting = deriveEchoSavedDirectionPlanningProject(base, preparingCut, { fallbackProject: base });
   assert.equal(waiting.editor_graph_fallback.requiresExactCertificate, true);
 });
+
+test("delivery-time per-shot human enrichment does not break a saved cut's declared fingerprint, but other changes still do", () => {
+  const base = project();
+  const saved = variant("enriched-delivery-cut", "Airy", 2);
+  saved.fingerprint = echoDirectionVariantFingerprint(saved);
+  const delivered = structuredClone(saved);
+  delivered.timeline = delivered.timeline.map((shot) => ({ ...shot, human_enrichment: { description: "delivery-only", revision: 3 } }));
+  const validation = deriveEchoDirectionVariantProject(base, delivered).active_direction_script_variant.projectionValidation;
+  assert.equal(validation.ok, true);
+  assert.equal(validation.declaredFingerprintStatus, "verified-before-delivery-enrichment");
+
+  const tampered = structuredClone(delivered);
+  tampered.timeline[0].camera_motion = "static";
+  assert.throws(
+    () => deriveEchoDirectionVariantProject(base, tampered),
+    (error) => error?.validation?.reasons?.includes("variant-declared-fingerprint-mismatch"),
+    "enrichment must not mask any other change to the saved cut",
+  );
+});

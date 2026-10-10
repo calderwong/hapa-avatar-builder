@@ -290,6 +290,22 @@ export function echoDirectionVariantFingerprint(variant = {}) {
   return `content-v2:${compactHash(echoDirectionVariantContentPayload(variant))}`;
 }
 
+// Fingerprint of a delivered cut with the delivery-only per-shot human enrichment removed.
+function echoDirectionVariantUnenrichedFingerprint(variant = {}) {
+  const timeline = Array.isArray(variant.timeline) ? variant.timeline : null;
+  if (!timeline || !timeline.some((shot) => shot && (Object.hasOwn(shot, "human_enrichment") || Object.hasOwn(shot, "humanEnrichment")))) {
+    return echoDirectionVariantFingerprint(variant);
+  }
+  return echoDirectionVariantFingerprint({
+    ...variant,
+    timeline: timeline.map((shot) => {
+      if (!shot || typeof shot !== "object") return shot;
+      const { human_enrichment: _human, humanEnrichment: _humanCamel, ...rest } = shot;
+      return rest;
+    }),
+  });
+}
+
 /**
  * The Editor can receive a runtime-repaired projection of a saved cut (for
  * example, when an unavailable shader is hydrated for playback).  That
@@ -327,7 +343,13 @@ export function validateEchoDirectionVariantProjection({ baseProject = {}, varia
   if (baseSchema && graphSchema !== baseSchema) reasons.push("variant-graph-schema-mismatch");
   if (text(graph?.directorV2?.variantId) !== variantId) reasons.push("variant-graph-id-mismatch");
   if (text(graph?.directorV2?.variantHash) !== expectedFingerprint) reasons.push("variant-graph-fingerprint-mismatch");
-  if (declaredFingerprint.startsWith("content-v2:") && declaredFingerprint !== expectedFingerprint) reasons.push("variant-declared-fingerprint-mismatch");
+  // Delivery attaches per-shot human enrichment for playback. A declared fingerprint
+  // that matches the content with exactly that delivery field removed is intact;
+  // any other difference (e.g. an injected graph) still fails.
+  const enrichedOnly = declaredFingerprint.startsWith("content-v2:")
+    && declaredFingerprint !== expectedFingerprint
+    && declaredFingerprint === echoDirectionVariantUnenrichedFingerprint(variant);
+  if (declaredFingerprint.startsWith("content-v2:") && declaredFingerprint !== expectedFingerprint && !enrichedOnly) reasons.push("variant-declared-fingerprint-mismatch");
   if (baseSourceHash && graphSourceHash !== baseSourceHash) reasons.push("variant-parent-source-hash-mismatch");
   return {
     schemaVersion: "hapa.echo.direction-variant-projection-validation.v1",
@@ -339,7 +361,7 @@ export function validateEchoDirectionVariantProjection({ baseProject = {}, varia
     declaredFingerprintStatus: !declaredFingerprint
       ? "absent"
       : declaredFingerprint.startsWith("content-v2:")
-        ? declaredFingerprint === expectedFingerprint ? "verified" : "mismatch"
+        ? declaredFingerprint === expectedFingerprint ? "verified" : enrichedOnly ? "verified-before-delivery-enrichment" : "mismatch"
         : "legacy-claim-not-authoritative",
     graphSongId: graphSongId || null,
     expectedSongIds,
