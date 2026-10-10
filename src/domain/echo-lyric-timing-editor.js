@@ -292,14 +292,15 @@ export function summarizeEchoLyricOnsetReview(project = {}, audioHash = "") {
       candidateAbsoluteErrorMs: Number.isFinite(reference.candidateStartSeconds) ? Math.abs(reference.candidateStartSeconds - reference.onsetSeconds) * 1000 : null,
       currentAbsoluteErrorMs: Math.abs(current - reference.onsetSeconds) * 1000 });
   }
-  const distribution = values => {
+  return { schemaVersion: "hapa.echo.lyric-onset-review.v1", songId: project.song_id || null, audioHash: hash || null,
+    wordCount, referencedWords: rows.length, unreferencedWords: wordCount - rows.length, rejected,
+    importedCandidate: timingErrorDistribution(rows.map(row => row.candidateAbsoluteErrorMs)), corrected: timingErrorDistribution(rows.map(row => row.currentAbsoluteErrorMs)),
+    maximumDeclaredAmbiguityMs: rows.length ? Math.max(...rows.map(row => Number(row.ambiguityMs) || 0)) : null,
+    scope: "Operator-entered references for this cut; not independent annotator authentication or album acceptance", rows };
+}
+
+export function timingErrorDistribution(values) {
     const sorted = values.filter(Number.isFinite).sort((a, b) => a - b); if (!sorted.length) return { count: 0, medianMs: null, p95Ms: null };
     const mid = Math.floor(sorted.length / 2);
     return { count: sorted.length, medianMs: sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2, p95Ms: sorted[Math.ceil(sorted.length * .95) - 1] };
-  };
-  return { schemaVersion: "hapa.echo.lyric-onset-review.v1", songId: project.song_id || null, audioHash: hash || null,
-    wordCount, referencedWords: rows.length, unreferencedWords: wordCount - rows.length, rejected,
-    importedCandidate: distribution(rows.map(row => row.candidateAbsoluteErrorMs)), corrected: distribution(rows.map(row => row.currentAbsoluteErrorMs)),
-    maximumDeclaredAmbiguityMs: rows.length ? Math.max(...rows.map(row => Number(row.ambiguityMs) || 0)) : null,
-    scope: "Operator-entered references for this cut; not independent annotator authentication or album acceptance", rows };
 }

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import crypto from "node:crypto";
+import vm from "node:vm";
 import {
   createEchoIsfPlaybackPool,
   visualizerLookaheadCards,
@@ -117,7 +118,43 @@ test("Tarot holds the last presented canvas through compilation, input, and draw
   assert.match(drawPath, /holding-last-frame-draw-error/);
   assert.match(drawPath, /ctx\.drawImage\(overlay\.exactIsfLastPresentedCanvas/);
   assert.match(drawPath, /drawTarotExactIsfDiagnostic/);
-  assert.doesNotMatch(drawPath, /fillStyle\s*=\s*["']#000/);
+  // Black is valid as a bounded underlay in a successful composition. Exercise
+  // the failure branches below rather than forbidding this color everywhere.
+  const draw = vm.runInNewContext(`(${drawPath})`, {
+    performance: { now: () => 0 }, ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT: 10,
+    THREE: { MathUtils: { clamp: (n, min, max) => Math.max(min, Math.min(max, n)) } },
+    setTarotExactIsfStatus: (overlay, value) => { overlay.exactIsfStatus = value; },
+    tarotExactRendererTruth: () => ({ truth: {}, receipt: {} }),
+    drawTarotRendererTruthBadge() {},
+    drawTarotExactIsfDiagnostic: () => { throw new Error("an available previous frame must be held"); },
+    echoDirectorTransitionOpacityForSource: () => 1,
+    masterSignalFrameFromDropZone: () => ({}),
+  });
+  const previous = { id: "previous-frame" }, next = { id: "next-frame" };
+  const card = { visualization: { sourceId: "shader-next", card: { layer: {} } } };
+  for (const mode of ["compiling", "media-wait", "draw-error", "held-result", "ready"]) {
+    const calls = [];
+    const ctx = { save() {}, restore() {}, drawImage: canvas => calls.push(["draw", canvas]), fillRect: () => calls.push(["fill"]) };
+    const overlay = { canvas: { width: 320, height: 180 }, ctx, exactIsfLastPresentedCanvas: previous, exactIsfFrameReceipts: [], exactIsfFrameTimings: [] };
+    const pool = {
+      getDiagnostics: () => ({ slots: [{ shaderId: "shader-next", ready: mode !== "compiling", status: "loading" }], presentedShaderId: "shader-previous" }),
+      present: () => {
+        if (mode === "draw-error") throw new Error("synthetic draw failure");
+        return mode === "held-result"
+          ? { status: "input-error", heldPreviousFrame: true, presentedShaderId: "shader-previous", composition: {} }
+          : { status: "ready", canvas: next, composition: { underlayDimAlpha: .2, effectiveAlpha: .8 } };
+      },
+    };
+    draw(overlay, {}, card, {}, 0, null, "", { pool, ...(mode === "media-wait" ? { mediaReceipt: { kind: "video", ready: false } } : {}) });
+    if (mode === "ready") {
+      assert.deepEqual(calls, [["fill"], ["draw", next]], "successful composition retains its intentional underlay");
+      assert.equal(overlay.exactIsfLastPresentedCanvas, next);
+    } else {
+      assert.deepEqual(calls, [["draw", previous]], `${mode}: retain the presented canvas without clearing it`);
+      assert.equal(overlay.exactIsfLastPresentedCanvas, previous);
+      assert.match(overlay.exactIsfHandoffState, /holding-last-frame/);
+    }
+  }
 });
 
 test("Tarot handoff diagnostics are bounded and expose prewarm, cache, black, and frame timing truth", () => {

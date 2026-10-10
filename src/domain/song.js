@@ -554,6 +554,9 @@ function normalizeSongAlbumLineage(lineage = {}, sourceAlbum = {}) {
 function normalizeAudioPayload(existing = {}, registryTrack = null) {
   const trackId = registryTrack?.id || existing.registryTrackId || "";
   return {
+    ...(existing.wavPath ? {wavPath: existing.wavPath} : {}),
+    ...(existing.mp3Path ? {mp3Path: existing.mp3Path} : {}),
+    ...(Array.isArray(existing.audioUploads) ? {audioUploads: structuredClone(existing.audioUploads)} : {}),
     registryTrackId: trackId,
     sourceNode: existing.sourceNode || (trackId ? "hapa-song-registry" : ""),
     mp3Uri: existing.mp3Uri || registryTrack?.audioUri || registryTrack?.audioUrl || (trackId ? `/api/audio/${trackId}` : ""),

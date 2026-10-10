@@ -85,7 +85,10 @@ test("song-first workbench keeps rapid navigation, explanations, editing, and ho
   assert.match(notebook, /At a glance/);
   assert.match(notebook, /Actual references and research logic/);
   assert.match(notebook, /Save reference changes/);
-  assert.match(notebook, /Edit human rationale/);
+  assert.match(notebook, /Edit rationale/);
+  assert.match(notebook, /onClick=\{\(\) => setCardDraft\(\{ cardId: link\.cardId, logic: link\.reason \|\| "" \}\)\}/, "editing must retain the selected card and existing rationale");
+  assert.match(notebook, /value=\{cardDraft\.logic\}/);
+  assert.match(notebook, /Save card rationale/);
   assert.match(hoverMedia, /video\.play\(\)/);
   assert.match(hoverMedia, /onPointerEnter/);
   assert.match(hoverMedia, /tabIndex=\{loopUri \? 0/);

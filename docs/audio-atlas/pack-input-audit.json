@@ -1,0 +1,306 @@
+{
+  "schema": "hapa.audio-atlas.pack-audit.v1",
+  "status": "incomplete-supplied-implementation-pack",
+  "scope": "Immediate supplied folder files and both ZIP member tables; no home-directory discovery or source extraction",
+  "files": [
+    {
+      "name": "00_START_HERE.md",
+      "bytes": 4240,
+      "sha256": "961fb09333c499231dfd1067469279fb5a75e347db88f9fbe7826737068603a1"
+    },
+    {
+      "name": "01_CODEX_MASTER_PROMPT.md",
+      "bytes": 15071,
+      "sha256": "0ac873840ee90c0c1281737b7885b4aa4e8bc10c3dbd70f089db83c2f649c87c"
+    },
+    {
+      "name": "CODEX_LAUNCHER.txt",
+      "bytes": 3027,
+      "sha256": "edb0ea9a8cb6cd138b8f37d229b24082151358f01545f0ef4b6a0d4c41d2c378"
+    },
+    {
+      "name": "Hapa_3D_Visualizer_Extension_Guide (1).md",
+      "bytes": 38074,
+      "sha256": "1d69edff2512e3ef10778deea68ebfe44f9ec736a546db31efc741ed62fa0993"
+    },
+    {
+      "name": "Hapa_3D_Visualizer_Extension_Guide.html",
+      "bytes": 51621,
+      "sha256": "1140f4982fcdcfeb244f24b945211f3b42d982d39b234d07390fb14cf041b2da"
+    },
+    {
+      "name": "Hapa_3D_Visualizer_Extension_Guide.md",
+      "bytes": 38074,
+      "sha256": "1d69edff2512e3ef10778deea68ebfe44f9ec736a546db31efc741ed62fa0993"
+    },
+    {
+      "name": "Hapa_3D_Visualizer_Extension_Kit.zip",
+      "bytes": 92483,
+      "sha256": "c4203c78e7cf5e231addf328590b551586bd3fddd060a5370eb64d2d74cd5a03"
+    },
+    {
+      "name": "Hapa_Audio_Atlas_Design_Pack_2026-09-27.zip",
+      "bytes": 16511,
+      "sha256": "2779add793fe2f03da37b6d310cee4678da88db34eb26daea5fc5d251231ce30"
+    },
+    {
+      "name": "PACK_CHECK_REPORT.json",
+      "bytes": 1491,
+      "sha256": "9041cd935fb6caf5acf71a2f38c535fb5fb063b55f77b993002d3988a0532b45"
+    },
+    {
+      "name": "README.md",
+      "bytes": 16039,
+      "sha256": "accb93eab1fbf68aaef0ec55a724c55dc9dc70571596ea746f7e17220ac597cc"
+    }
+  ],
+  "archives": [
+    {
+      "name": "Hapa_3D_Visualizer_Extension_Kit.zip",
+      "entries": [
+        {
+          "name": "Hapa_3D_Extension_Kit/AGENT_HANDOFF.md",
+          "bytes": 6483,
+          "sha256": "a514c3f4e1c1bf8e1d1729fb910063188b60bcd0ecce9ac0af6bca3202769661"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/CHECKSUMS.json",
+          "bytes": 2024,
+          "sha256": "7eb9545ab2e3bdccb4ad67e7c528a594fa98eedc0993bf9daec6d1f30fe57237"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/GUIDE.html",
+          "bytes": 51621,
+          "sha256": "1140f4982fcdcfeb244f24b945211f3b42d982d39b234d07390fb14cf041b2da"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/GUIDE.md",
+          "bytes": 36627,
+          "sha256": "48bf3e3e1c924017920df50ef6bb53d0cf576433f79562050c9e2e29fda150f6"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/PROTOTYPE_AUDIT.md",
+          "bytes": 3355,
+          "sha256": "37a58cff41924b26f82aafeb55ecb377f7ea40ac6fbcaa708caf03c5e15551d2"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/README.md",
+          "bytes": 3119,
+          "sha256": "32a8be30bb7c6d11ee0a1cffeed91b4a1fc3952af6113abc891da357e59951ad"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/SOURCES.json",
+          "bytes": 4680,
+          "sha256": "017f8026d355bca390e2e141c5b55191f3b21c704b63e7bb49d1497ed74718d8"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/contracts/runtime.d.ts",
+          "bytes": 3807,
+          "sha256": "81779373e91f8335926da2b7f6de5487e39a815562e34f6b0f502b2b762f71f5"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/contracts/visual-module.schema.json",
+          "bytes": 8818,
+          "sha256": "6a78caaf377947d0862b99ebdc4adebe743b86ff6e7f644373c6ad987774988f"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/examples/Hapa_Weave_Field.fs",
+          "bytes": 2559,
+          "sha256": "ca5bf73fb557eb12a4b423db303e8a7cd8a646f3470ef30d7505992f7f9499ae"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/examples/README.md",
+          "bytes": 2361,
+          "sha256": "4b2018f34169a305bf498bd8935ab2dc1b3183fea3d1a8de3ae9b5807e8f9411"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/examples/flare.module.json",
+          "bytes": 1717,
+          "sha256": "682c93193e252af9c575f53fb4da176aa17144a363d4d4293162351667aaf083"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/examples/hapa-weave-field.glsl",
+          "bytes": 715,
+          "sha256": "9a9376226466b5e8cb6810d46cf98586d57f04bd09a9f76b89ce43e7ea91f19d"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/examples/orion-night.palette.json",
+          "bytes": 682,
+          "sha256": "e750c1f9fc6680d5b384904aec173f6fc5d04ee259b37bb0f36491f8a305da37"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/examples/voice-to-weave.binding.json",
+          "bytes": 1081,
+          "sha256": "fb0d4635a92c42d6e5d0a24b868ef403d99d97fcecf27306d9943509daabaee2"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/examples/weave.module.json",
+          "bytes": 3255,
+          "sha256": "aea845c19d0646341b4254d6fccc4c9625e45d5a58d450aed22bd9184a57abbe"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/tests/original-weave-smoke.png",
+          "bytes": 30158,
+          "sha256": "25662bfcc3d9cac0053a8a7aedd5a216edf0afb89d3269925f614ada4a263b6e"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/tests/results.json",
+          "bytes": 3948,
+          "sha256": "93baf0c0758e3c280f5dd5285c2b0bbd534e1a46077618f0a32fb14a1144d5c4"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/tests/shader-results.json",
+          "bytes": 1846,
+          "sha256": "304f5ce29b177847a0a99c98801bb4d1f52b44cc3661a0b0752432215b0a7172"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/tests/shader-smoke.py",
+          "bytes": 7101,
+          "sha256": "6a1ad5894fbaebd30debd7d4d59874f2b0464fc8699b18a65c917098f84668b6"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/tests/validate.py",
+          "bytes": 5318,
+          "sha256": "09804e0fb3c78637bab304edb1ee576b59b7e5578dcd04fa795ea7afb5e3ad41"
+        },
+        {
+          "name": "Hapa_3D_Extension_Kit/tests/validation-results.json",
+          "bytes": 1243,
+          "sha256": "abaa976232323d8d4b8085bae54e7029c7afd5a9ef90245e8fc5a61d6d2444d2"
+        }
+      ],
+      "manifest_checks": []
+    },
+    {
+      "name": "Hapa_Audio_Atlas_Design_Pack_2026-09-27.zip",
+      "entries": [
+        {
+          "name": "hapa_audio_atlas/README.md",
+          "bytes": 16039,
+          "sha256": "accb93eab1fbf68aaef0ec55a724c55dc9dc70571596ea746f7e17220ac597cc"
+        },
+        {
+          "name": "hapa_audio_atlas/adapter_candidates.json",
+          "bytes": 9391,
+          "sha256": "5496d286ed8f87089df40fa55c687f7133f9a0031911c5d813260f9c1394545f"
+        },
+        {
+          "name": "hapa_audio_atlas/capability_catalog.json",
+          "bytes": 6413,
+          "sha256": "9530b9ee71b02592355e927b6f30e940714d6cc473d2a731cb9906da1a0fedcd"
+        },
+        {
+          "name": "hapa_audio_atlas/illustrative-observations.json",
+          "bytes": 5829,
+          "sha256": "eaeb96fcffd8e108828c63216d89b615873c31cbbfb81d02a04ba96b39c52ab1"
+        },
+        {
+          "name": "hapa_audio_atlas/observation-envelope.schema.json",
+          "bytes": 5563,
+          "sha256": "8e484f42785eee989e11672ffcaa91d1d5cff4a668cfa1c2b77665307e642ffa"
+        },
+        {
+          "name": "hapa_audio_atlas/sha256-manifest.json",
+          "bytes": 670,
+          "sha256": "dd5f206c8fac7019c251e49ca9f84e15a31e3cd7b0f740799f624e8fd4c16d12"
+        },
+        {
+          "name": "hapa_audio_atlas/sources.json",
+          "bytes": 4729,
+          "sha256": "69c1b04ba627f33495714a74901a6d17bf6dab1493732f02894965b8c35b12c9"
+        },
+        {
+          "name": "hapa_audio_atlas/validate_examples.py",
+          "bytes": 2673,
+          "sha256": "3fcdd6a8a538c213243534dc5474941a9ecbed024958dcca4869f20cdb90aa7c"
+        }
+      ],
+      "manifest_checks": [
+        {
+          "name": "README.md",
+          "expected": "accb93eab1fbf68aaef0ec55a724c55dc9dc70571596ea746f7e17220ac597cc",
+          "actual": "accb93eab1fbf68aaef0ec55a724c55dc9dc70571596ea746f7e17220ac597cc",
+          "matches": true
+        },
+        {
+          "name": "adapter_candidates.json",
+          "expected": "5496d286ed8f87089df40fa55c687f7133f9a0031911c5d813260f9c1394545f",
+          "actual": "5496d286ed8f87089df40fa55c687f7133f9a0031911c5d813260f9c1394545f",
+          "matches": true
+        },
+        {
+          "name": "capability_catalog.json",
+          "expected": "9530b9ee71b02592355e927b6f30e940714d6cc473d2a731cb9906da1a0fedcd",
+          "actual": "9530b9ee71b02592355e927b6f30e940714d6cc473d2a731cb9906da1a0fedcd",
+          "matches": true
+        },
+        {
+          "name": "illustrative-observations.json",
+          "expected": "eaeb96fcffd8e108828c63216d89b615873c31cbbfb81d02a04ba96b39c52ab1",
+          "actual": "eaeb96fcffd8e108828c63216d89b615873c31cbbfb81d02a04ba96b39c52ab1",
+          "matches": true
+        },
+        {
+          "name": "observation-envelope.schema.json",
+          "expected": "8e484f42785eee989e11672ffcaa91d1d5cff4a668cfa1c2b77665307e642ffa",
+          "actual": "8e484f42785eee989e11672ffcaa91d1d5cff4a668cfa1c2b77665307e642ffa",
+          "matches": true
+        },
+        {
+          "name": "sources.json",
+          "expected": "69c1b04ba627f33495714a74901a6d17bf6dab1493732f02894965b8c35b12c9",
+          "actual": "69c1b04ba627f33495714a74901a6d17bf6dab1493732f02894965b8c35b12c9",
+          "matches": true
+        },
+        {
+          "name": "validate_examples.py",
+          "expected": "3fcdd6a8a538c213243534dc5474941a9ecbed024958dcca4869f20cdb90aa7c",
+          "actual": "3fcdd6a8a538c213243534dc5474941a9ecbed024958dcca4869f20cdb90aa7c",
+          "matches": true
+        }
+      ]
+    }
+  ],
+  "missing_numbered_documents": [
+    "02_HAPA_INTEGRATION_DISCOVERY.md",
+    "03_IMPLEMENTATION_PLAN.md",
+    "04_DATA_AND_TIMING_CONTRACTS.md",
+    "05_API_CLI_AGENT_TOOLS.md",
+    "06_MODEL_ADAPTERS_AND_SOURCES.md",
+    "07_MAC_OPERATIONS_SECURITY.md",
+    "08_TEST_AND_BENCHMARK_PLAN.md",
+    "09_REVIEW_UI_AND_WORKFLOWS.md",
+    "10_AGENT_PROMPT_TEMPLATES.md",
+    "11_HANDOFF_AND_RESUME.md",
+    "12_SCHEMA_CHANGELOG.md"
+  ],
+  "missing_exact_paths": [
+    "config/atlas.proposed.defaults.json",
+    "scripts/validate_pack.py",
+    "validation/check_1.log",
+    "validation/check_2.log"
+  ],
+  "missing_unenumerated_groups": [
+    "config/ remaining proposed defaults",
+    "schemas/ implementation-pack schemas",
+    "examples/ implementation-pack examples",
+    "scripts/test_*.py original 36 tests; filenames unknown",
+    "scripts/ synthetic audio fixture generator; filename unknown",
+    "sources.json implementation-pack current-source register; original design register exists",
+    "references/original_design/ directory; original archive supplied separately"
+  ],
+  "reported_original_test_count": 36,
+  "original_test_suite_runnable": false,
+  "reported_original_archive_hash_matches": true,
+  "standalone_readme_matches_original": true,
+  "original_example_validator": {
+    "attempted": true,
+    "result": "blocked-missing-jsonschema",
+    "runtimes": [
+      "system python3",
+      "bundled Codex Python"
+    ],
+    "audio_inference": false
+  },
+  "requirements_source": "Surviving supplied master prompt, original design README/catalog, and user-authorized gap plan; not a reconstruction of absent documents or tests"
+}

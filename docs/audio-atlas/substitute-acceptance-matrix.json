@@ -1,0 +1,1452 @@
+{
+  "schema": "hapa.audio-atlas.substitute-acceptance.v1",
+  "status": "explicit-local-substitute-not-recovered-original-suite",
+  "source_card": "atlas-gap-missing-pack",
+  "source_plan_sha256": "9a80c40f88d7bd42b22bd077a596e84c66baec6f84cc6f15d412a56437d476c8",
+  "scope": "All 56 user-authorized gap cards, with exact acceptance text preserved; no narrowing or fabricated original test identities",
+  "not_a_claim": [
+    "Original 36 tests recovered or passed",
+    "Model quality accepted",
+    "Full original schema conformance",
+    "All card requirements implemented"
+  ],
+  "cards": [
+    {
+      "card_id": "atlas-gap-correction-query",
+      "title": "Make search and temporal queries correction-aware",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-correction-query:1",
+          "required_proof": "Accepted correction text and timing participate in effective queries; proposed/rejected changes remain distinguishable.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-correction-query:2",
+          "required_proof": "Boundary, search, revision and original-evidence regression tests pass; API/CLI/UI agree.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/audio-atlas.test.mjs",
+        "tests/audio-atlas-ui.test.mjs",
+        "docs/audio-atlas/CORRECTION_QUERY_VERIFICATION.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-correction-lineage",
+      "title": "Preserve approved corrections across new analysis runs",
+      "dependencies": [
+        "atlas-gap-correction-query"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-correction-lineage:1",
+          "required_proof": "Link compatible source observations and preserve prior review authority.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-correction-lineage:2",
+          "required_proof": "Ambiguous correspondence is reviewable, never silently merged; test model upgrades and changed sources.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/audio-atlas.test.mjs"
+      ],
+      "evidence_limit": "Within-run append-only persistence does not prove approved correction survival across model upgrades.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-contracts",
+      "title": "Complete the Atlas identity, timing and observation contracts",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-contracts:1",
+          "required_proof": "Distinguish composition, recording, source bytes, decoded timeline and transformed view identities.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-contracts:2",
+          "required_proof": "Typed per-kind payloads, rational/piecewise time maps, units, uncertainty, coverage/result/review states and dependency validation have fixtures.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-contracts:3",
+          "required_proof": "Document actual conformance and unsupported fields; no new authoritative Song Library.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/audio-atlas-contract.test.mjs",
+        "docs/audio-atlas/CONTRACT.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-stem-alignment",
+      "title": "Verify each stem alignment and drift against the recording",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-stem-alignment:1",
+          "required_proof": "Measure offsets, leading silence, decoder delay, missing material and drift with quality evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-stem-alignment:2",
+          "required_proof": "Store reversible source-to-recording maps; original bytes stay unchanged.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-stem-alignment:3",
+          "required_proof": "Test shifted, drifting, partial and real supplied stems.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "scripts/test_audio_atlas_worker.py",
+        "docs/audio-atlas/BRAVE_TONGUES_REVIEW.md"
+      ],
+      "evidence_limit": "Existing test qualifies a shifted stem sum only, not individual offsets/drift/partial stems.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-word-alignment",
+      "title": "Qualify forced word alignment for speech and singing",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-word-alignment:1",
+          "required_proof": "Preserve supplied, performed and corrected transcripts independently, including omissions/repetitions.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-word-alignment:2",
+          "required_proof": "A real speech and sung phrase run with pinned model/runtime and original evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-word-alignment:3",
+          "required_proof": "Report human-labelled boundary errors rather than treating sample precision as accuracy.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "docs/audio-atlas/BRAVE_TONGUES_REVIEW.md"
+      ],
+      "evidence_limit": "Whisper word candidates are executed; forced alignment and human boundary error are unqualified.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-phonemes",
+      "title": "Implement acoustically grounded phoneme alignment",
+      "dependencies": [
+        "atlas-gap-word-alignment"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-phonemes:1",
+          "required_proof": "Explicit checkpoint, dictionary, language and pronunciation inventory.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-phonemes:2",
+          "required_proof": "Real phone boundaries with source time maps and uncertainty; unsupported styles/languages remain explicit.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-syllables",
+      "title": "Represent syllables and vowel nuclei with acoustic anchors",
+      "dependencies": [
+        "atlas-gap-phonemes"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-syllables:1",
+          "required_proof": "Represent syllable identity, consonant/vowel nucleus onset and many-to-many note relations.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-syllables:2",
+          "required_proof": "Test repeated words and melisma; never divide a word evenly into fake syllable times.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-pitch",
+      "title": "Extract vocal pitch, voicing and pitch contours",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-pitch:1",
+          "required_proof": "Preserve Hz/cents, voicing masks, hop/centering and source clock.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-pitch:2",
+          "required_proof": "Test silence, unvoiced consonants, vibrato, octave mistakes and overlapping vocals.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-vocal-anchors",
+      "title": "Extract separate syllable energy and pitch peaks",
+      "dependencies": [
+        "atlas-gap-syllables",
+        "atlas-gap-pitch"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-vocal-anchors:1",
+          "required_proof": "Define smoothing/search regions and retain separate energy-peak and pitch-peak events.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-vocal-anchors:2",
+          "required_proof": "Link peaks to acoustic syllable/nucleus candidates and keep emphasis inference separate.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-vocal-end",
+      "title": "Estimate end of phonation separately from reverb tails",
+      "dependencies": [
+        "atlas-gap-phonemes",
+        "atlas-gap-pitch"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-vocal-end:1",
+          "required_proof": "Separate phonation offset and optional reverberant tail with method and uncertainty.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-vocal-end:2",
+          "required_proof": "Test sustained singing, reverb and overlap against human examples.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-language-vocalizations",
+      "title": "Add language spans, phrases, breaths, pauses and vocalizations",
+      "dependencies": [
+        "atlas-gap-word-alignment"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-language-vocalizations:1",
+          "required_proof": "Language/style support is explicit; no unsupported-language success claims.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-language-vocalizations:2",
+          "required_proof": "Phrase, breath, pause and non-word vocalization candidates retain independent evidence.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-speaker-layers",
+      "title": "Qualify anonymous diarization and overlapping vocal layers",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-speaker-layers:1",
+          "required_proof": "Meet model access conditions; no automatic voice-identity enrollment.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-speaker-layers:2",
+          "required_proof": "Separate vocal layers from persons and preserve overlap-aware activity/turn hypotheses.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-speaker-layers:3",
+          "required_proof": "Real speech overlap evaluation records scoring convention and errors.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-rhythm",
+      "title": "Add tempo curves, bars, meter and rhythmic estimates",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-rhythm:1",
+          "required_proof": "Time-varying tempo, bar/meter alternatives and unmetered passages have evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-rhythm:2",
+          "required_proof": "Onset strength, swing/syncopation estimates have defined methods; no forced universal4/4 or lyric snapping.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "docs/audio-atlas/BRAVE_TONGUES_REVIEW.md"
+      ],
+      "evidence_limit": "Beat/downbeat candidates executed; tempo curves, meter alternatives, bars and rhythmic estimates remain open.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-sections",
+      "title": "Detect musical section boundaries, repeats and transitions",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-sections:1",
+          "required_proof": "Separate acoustic boundary/repetition evidence from functional section names.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-sections:2",
+          "required_proof": "Represent builds, drops, breaks and transitions as qualified candidates; validate a real song.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-notes",
+      "title": "Qualify stem-level note and melodic events",
+      "dependencies": [
+        "atlas-gap-pitch"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-notes:1",
+          "required_proof": "Source-bound note onset/pitch/offset, bends, contours, motifs and bass-line candidates.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-notes:2",
+          "required_proof": "Retain raw frequency and uncertainty; test single-instrument and polyphonic limitations.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-harmony",
+      "title": "Add chroma, tuning, chord and key alternatives",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-harmony:1",
+          "required_proof": "Preserve tuning/vocabulary assumptions, local/global key and competing chord/inversion hypotheses.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-harmony:2",
+          "required_proof": "Human examples evaluate harmonic changes without promoting one guess to fact.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-source-activity",
+      "title": "Add instrument and source-activity hypotheses",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-source-activity:1",
+          "required_proof": "Time-addressed source entrances/activity, family/role/register/timbre hypotheses with evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-source-activity:2",
+          "required_proof": "Keep declared roles and acoustic inference distinct; unknown is not absent.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-vocal-delivery",
+      "title": "Add acoustic vocal-delivery descriptors",
+      "dependencies": [
+        "atlas-gap-pitch",
+        "atlas-gap-word-alignment"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-vocal-delivery:1",
+          "required_proof": "Qualify definitions and evidence for each exposed descriptor.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-vocal-delivery:2",
+          "required_proof": "No diagnoses, sincerity, identity or actual inner-state inference.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-semantic",
+      "title": "Generate evidence-backed musical descriptions",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-semantic:1",
+          "required_proof": "Execute a suitable local MOSS-Music/Qwen-audio/equivalent adapter with pinned code/weights and offline proof.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-semantic:2",
+          "required_proof": "Separate captions/style/production, lyrical meaning/sentiment, perceived vocal affect and musical mood.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-semantic:3",
+          "required_proof": "Raw prompts/responses and cited source observations retained; timestamps from prose are not timing authority.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-sound-events",
+      "title": "Add time-addressed sound-event detection",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-sound-events:1",
+          "required_proof": "Actual adapter execution with source evidence and taxonomy limits.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-sound-events:2",
+          "required_proof": "Closed-taxonomy non-detection never proves absence.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-free-text-search",
+      "title": "Support arbitrary text-to-audio retrieval",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-free-text-search:1",
+          "required_proof": "Use matching qualified audio/text encoders without mixing embedding spaces.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-free-text-search:2",
+          "required_proof": "Bound explicit query inference and return playable spans with similarity semantics and access filtering.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/audio-atlas.test.mjs"
+      ],
+      "evidence_limit": "Fixed concepts and same-space fixture vectors only; arbitrary text encoder inference remains open.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-catalog-retrieval",
+      "title": "Search stems and recordings across the catalog",
+      "dependencies": [
+        "atlas-gap-free-text-search",
+        "atlas-gap-asset-policy"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-catalog-retrieval:1",
+          "required_proof": "Index source-bound embeddings for authorized assets incrementally.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-catalog-retrieval:2",
+          "required_proof": "Filter by model/revision/purpose and source policy; evaluate relevance across real songs/stems.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-relations",
+      "title": "Add recording fingerprints and temporal/musical relations",
+      "dependencies": [
+        "atlas-gap-contracts",
+        "atlas-gap-sections"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-relations:1",
+          "required_proof": "Distinguish identical bytes, related recordings and compositions without automatic identity merging.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-relations:2",
+          "required_proof": "Represent repeats/coincides/contrasts/source relations with evidence and stable IDs.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-briefs",
+      "title": "Compile bounded listening briefs and section comparisons",
+      "dependencies": [
+        "atlas-gap-sections",
+        "atlas-gap-semantic"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-briefs:1",
+          "required_proof": "Task-budgeted briefs cite actual observations, uncertainty and missing coverage.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-briefs:2",
+          "required_proof": "Section comparison API/CLI/UI operations return source coordinates and evidence IDs.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-briefs:3",
+          "required_proof": "Untrusted transcript/caption text cannot become tool instructions.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-agent-tools",
+      "title": "Register complete Atlas operations for agents and pipelines",
+      "dependencies": [
+        "atlas-gap-briefs",
+        "atlas-gap-catalog-retrieval",
+        "atlas-gap-correction-query"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-agent-tools:1",
+          "required_proof": "Register owner-native ingest/plan/analyze/capabilities/jobs/timeline/alignment/curve/search/evidence/compare/review/export/reindex operations.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-agent-tools:2",
+          "required_proof": "Queries never silently initiate expensive analysis; parity and schema tests pass.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-spectrogram",
+      "title": "Add a source-bound spectrogram review view",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-spectrogram:1",
+          "required_proof": "Channel/view/time/unit conventions documented and correctly mapped.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-spectrogram:2",
+          "required_proof": "Visible empty/loading/error states, accessible controls and real-source browser checks.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-aligned-review",
+      "title": "Add synchronized stem A/B and aligned annotation tracks",
+      "dependencies": [
+        "atlas-gap-stem-alignment",
+        "atlas-gap-phonemes",
+        "atlas-gap-syllables",
+        "atlas-gap-sections"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-aligned-review:1",
+          "required_proof": "Source clock remains clear; aligned A/B is qualified rather than filename-based.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-aligned-review:2",
+          "required_proof": "Show uncertainty, overlaps, alternatives and selectable evidence without hidden details.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-aligned-review:3",
+          "required_proof": "Responsive/keyboard/browser checks with a real vocal song.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-review-history",
+      "title": "Expose correction history and transcript alternatives",
+      "dependencies": [
+        "atlas-gap-correction-lineage"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-review-history:1",
+          "required_proof": "Inspect original/corrected alternatives, authors, revisions and dependencies.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-review-history:2",
+          "required_proof": "Resolve conflicts explicitly, without deleting previous assertions or impersonating human acceptance.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-intake",
+      "title": "Support general recording intake and optional annotations",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-intake:1",
+          "required_proof": "Use the existing song/media owner; preserve optional lyrics, stems, MIDI, cue sheets and prior corrections.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-intake:2",
+          "required_proof": "Idempotent scoped reimport, source identity, decode/path/archive security and independent-recording handling verified.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-asset-policy",
+      "title": "Enforce per-asset policy throughout derived data access",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-asset-policy:1",
+          "required_proof": "Apply owner-authorized asset/lyric/stem policy to queries, search, briefs, caches, exports and node handoffs.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-asset-policy:2",
+          "required_proof": "Negative access tests prevent derived-data leakage and preserve original ownership.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/audio-atlas.test.mjs"
+      ],
+      "evidence_limit": "Global HTTP authorization tests are not per-asset/purpose policy or cache/export filtering proof.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-recovery",
+      "title": "Complete restart/checkpoint and retry recovery",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-recovery:1",
+          "required_proof": "Durable leases/checkpoints and transactional publication with bounded explicit recovery.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-recovery:2",
+          "required_proof": "Failure-injection covers crash, orphan, cancellation, partial output, cache invalidation and zero leaked workers.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-recovery:3",
+          "required_proof": "No automatic background resumption or new autostart without authorization.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/audio-atlas.test.mjs"
+      ],
+      "evidence_limit": "Injected runners and reconstructed owner state do not prove OS kill/restart checkpoint recovery.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-portable",
+      "title": "Implement portable Atlas export/import",
+      "dependencies": [
+        "atlas-gap-contracts",
+        "atlas-gap-asset-policy",
+        "atlas-gap-correction-lineage"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-portable:1",
+          "required_proof": "Export/import preserves source/observation/review/time-map identity and dependencies.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-portable:2",
+          "required_proof": "Validate integrity, policy, path safety and version migration without overwriting owners.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/audio-atlas.test.mjs"
+      ],
+      "evidence_limit": "Current JSON export is not a portable package/import with policy and lineage validation.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-redaction",
+      "title": "Implement authorized deletion/redaction semantics",
+      "dependencies": [
+        "atlas-gap-asset-policy"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-redaction:1",
+          "required_proof": "Define and test owner-authorized erasure/redaction of sources, artifacts, indexes and derived copies.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-redaction:2",
+          "required_proof": "No live deletion during implementation tests; use isolated fixtures and preserve audit truth.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-adapter-health",
+      "title": "Qualify adapter manifests, local runtime and analyzer health",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-adapter-health:1",
+          "required_proof": "Per-adapter installed/executed/quality-qualified states, dependency pins, model revisions and license/access evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-adapter-health:2",
+          "required_proof": "UI/API/CLI report health and recovery; isolated native runtimes and offline execution verified.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-adapter-health:3",
+          "required_proof": "No paid calls, gated-access bypass, global upgrades or implicit large downloads.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-technical-features",
+      "title": "Complete technical audio feature coverage",
+      "dependencies": [
+        "atlas-gap-contracts"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-technical-features:1",
+          "required_proof": "Method-qualified clipping, loudness, true peak, noise and stereo-correlation measures.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-technical-features:2",
+          "required_proof": "Frame centering, units, missing values, normalization and source maps validated.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-separation",
+      "title": "Qualify optional source separation without replacing originals",
+      "dependencies": [
+        "atlas-gap-adapter-health",
+        "atlas-gap-stem-alignment"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-separation:1",
+          "required_proof": "Document a disabled-by-default, checkpoint-specific local adapter or explicit deferred disposition.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-separation:2",
+          "required_proof": "If executed, preserve source/view lineage and evaluate artifacts; generated stems never become original production stems.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-provider-policy",
+      "title": "Complete disabled external-provider and restrictive-model boundaries",
+      "dependencies": [
+        "atlas-gap-asset-policy"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-provider-policy:1",
+          "required_proof": "Paid/restrictive adapters stay disabled unless separately authorized.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-provider-policy:2",
+          "required_proof": "Tests require permitted asset/stem/lyric scope, provider, terms, budget and retention controls before any external execution.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-provider-policy:3",
+          "required_proof": "No spend or upload during this task by implication.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-speech-pilot",
+      "title": "Run a separate authorized real spoken-audio pilot",
+      "dependencies": [
+        "atlas-gap-intake",
+        "atlas-gap-word-alignment"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-speech-pilot:1",
+          "required_proof": "Identify an authorized local recording without broad home-folder crawling.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-speech-pilot:2",
+          "required_proof": "Execute intake\u2192analysis\u2192query\u2192review with preserved hashes; record speech-specific limitations.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-benchmarks",
+      "title": "Measure cold/warm runtime, memory and recovery",
+      "dependencies": [
+        "atlas-gap-adapter-health",
+        "atlas-gap-recovery"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-benchmarks:1",
+          "required_proof": "Record actual hardware/runtime revisions, cold/warm latency, real-time factor and peak memory.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-benchmarks:2",
+          "required_proof": "Measure failures/resumption and compare quantized vs reference candidates where relevant; no invented throughput.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "docs/audio-atlas/BRAVE_TONGUES_REVIEW.md"
+      ],
+      "evidence_limit": "One observed warm song execution is not a cold/warm memory/failure/quantization benchmark corpus.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-human-quality",
+      "title": "Qualify singing, speech, beats and retrieval against human labels",
+      "dependencies": [
+        "atlas-gap-speech-pilot",
+        "atlas-gap-phonemes",
+        "atlas-gap-syllables",
+        "atlas-gap-rhythm",
+        "atlas-gap-semantic",
+        "atlas-gap-catalog-retrieval",
+        "atlas-gap-notes"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-human-quality:1",
+          "required_proof": "Prepare reviewable labelled evaluation sets for speech/singing including repeated words, reverb, melisma and overlap.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-human-quality:2",
+          "required_proof": "Report boundary-error distributions, beat/tempo errors, note/section metrics, retrieval relevance and caption factuality as applicable.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-human-quality:3",
+          "required_proof": "Human-labelled ground truth and actual acceptance remain attributable; never manufacture labels or claim machine approval as human.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "docs/audio-atlas/BRAVE_TONGUES_REVIEW.md"
+      ],
+      "evidence_limit": "Candidate listening checkpoints exist; no human ground truth or quality acceptance is claimed.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-missing-media",
+      "title": "Reconcile missing WAV, MP3 and MP3-stem source files",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-missing-media:1",
+          "required_proof": "Recheck canonical inventory and publish exact song/role gap manifest.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-missing-media:2",
+          "required_proof": "Locate authorized existing originals or record specific unavailable inputs; do not label MP3 transcodes as original WAV quality.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-missing-media:3",
+          "required_proof": "Repair references through owner interfaces with source preservation; report unresolved sources separately.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/audio-atlas-inventory.test.mjs",
+        "docs/audio-atlas/UI_VERIFICATION.md"
+      ],
+      "evidence_limit": "Header/path checks are bounded inventory evidence; unresolved originals remain inputs, not transcode opportunities.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-missing-pack",
+      "title": "Resolve absent implementation-pack documents and tests",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-missing-pack:1",
+          "required_proof": "Reinspect supplied pack for actual availability and record exact missing files.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-missing-pack:2",
+          "required_proof": "Recover supplied source if available; otherwise record the spec-input gap and explicit substitute acceptance matrix without fabricating the original suite.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "docs/audio-atlas/PACK_INPUT_AUDIT.md",
+        "docs/audio-atlas/pack-input-audit.json"
+      ],
+      "evidence_limit": "This substitute matrix covers surviving requirements only. The absent source documents and original suite remain unavailable.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-electron-smoke",
+      "title": "Run and qualify native Electron/Tarot acceptance",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-electron-smoke:1",
+          "required_proof": "Use an authorized supported desktop-test path with process-boundary review and owned cleanup.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-electron-smoke:2",
+          "required_proof": "Verify real native nonblank Tarot and relevant Atlas navigation; retain evidence and exact limitations.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "docs/audio-atlas/UI_VERIFICATION.md"
+      ],
+      "evidence_limit": "CUA browser evidence is not the required native Electron smoke.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-test-genesis",
+      "title": "Repair Avatar Genesis song-lineage acceptance",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-test-genesis:1",
+          "required_proof": "Reproduce and diagnose the named assertion in isolation.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-genesis:2",
+          "required_proof": "Fix actual behavior or demonstrably obsolete expectation without weakening requirements; retain regression evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-genesis:3",
+          "required_proof": "Run relevant cross-surface checks and document whether failure predates this task.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/avatar-echo-genesis-update.test.mjs",
+        "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-test-cuts",
+      "title": "Repair protected Director cut coverage",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-test-cuts:1",
+          "required_proof": "Reproduce and diagnose the named assertion in isolation.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-cuts:2",
+          "required_proof": "Fix actual behavior or demonstrably obsolete expectation without weakening requirements; retain regression evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-cuts:3",
+          "required_proof": "Run relevant cross-surface checks and document whether failure predates this task.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/echo-album-navigation.test.mjs",
+        "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-test-phone-profile",
+      "title": "Repair HyperFrames phone output-profile acceptance",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-test-phone-profile:1",
+          "required_proof": "Reproduce and diagnose the named assertion in isolation.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-phone-profile:2",
+          "required_proof": "Fix actual behavior or demonstrably obsolete expectation without weakening requirements; retain regression evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-phone-profile:3",
+          "required_proof": "Run relevant cross-surface checks and document whether failure predates this task.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/echo-hyperframe-output-profile.test.mjs",
+        "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-test-isf-handoff",
+      "title": "Repair exact album shader-handoff acceptance",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-test-isf-handoff:1",
+          "required_proof": "Reproduce and diagnose the named assertion in isolation.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-isf-handoff:2",
+          "required_proof": "Fix actual behavior or demonstrably obsolete expectation without weakening requirements; retain regression evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-isf-handoff:3",
+          "required_proof": "Run relevant cross-surface checks and document whether failure predates this task.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/echo-isf-album-handoff.test.mjs",
+        "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-test-frame-contract",
+      "title": "Repair catalog and album frame-contract acceptance",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-test-frame-contract:1",
+          "required_proof": "Reproduce and diagnose the named assertion in isolation.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-frame-contract:2",
+          "required_proof": "Fix actual behavior or demonstrably obsolete expectation without weakening requirements; retain regression evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-frame-contract:3",
+          "required_proof": "Run relevant cross-surface checks and document whether failure predates this task.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/echo-isf-frame-intent.test.mjs",
+        "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-test-playback",
+      "title": "Repair typed Echo playback-manifest acceptance",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-test-playback:1",
+          "required_proof": "Reproduce and diagnose the named assertion in isolation.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-playback:2",
+          "required_proof": "Fix actual behavior or demonstrably obsolete expectation without weakening requirements; retain regression evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-playback:3",
+          "required_proof": "Run relevant cross-surface checks and document whether failure predates this task.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/echo-playback-media-v2.test.mjs",
+        "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-test-reference-ui",
+      "title": "Repair reference-workbench UI acceptance",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-test-reference-ui:1",
+          "required_proof": "Reproduce and diagnose the named assertion in isolation.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-reference-ui:2",
+          "required_proof": "Fix actual behavior or demonstrably obsolete expectation without weakening requirements; retain regression evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-reference-ui:3",
+          "required_proof": "Run relevant cross-surface checks and document whether failure predates this task.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/echo-reference-explorer-ui.test.mjs",
+        "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-test-hf-offline",
+      "title": "Repair offline HyperFrames runtime acceptance",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-test-hf-offline:1",
+          "required_proof": "Reproduce and diagnose the named assertion in isolation.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-hf-offline:2",
+          "required_proof": "Fix actual behavior or demonstrably obsolete expectation without weakening requirements; retain regression evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-hf-offline:3",
+          "required_proof": "Run relevant cross-surface checks and document whether failure predates this task.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/hyperframes-runtime-acceptance.test.mjs",
+        "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-test-hf-shaders",
+      "title": "Repair exact HyperFrames shader packaging acceptance",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-test-hf-shaders:1",
+          "required_proof": "Reproduce and diagnose the named assertion in isolation.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-hf-shaders:2",
+          "required_proof": "Fix actual behavior or demonstrably obsolete expectation without weakening requirements; retain regression evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-hf-shaders:3",
+          "required_proof": "Run relevant cross-surface checks and document whether failure predates this task.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/hyperframes-show-compiler.test.mjs",
+        "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-test-rankings",
+      "title": "Repair semantic media ranking acceptance",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-test-rankings:1",
+          "required_proof": "Reproduce and diagnose the named assertion in isolation.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-rankings:2",
+          "required_proof": "Fix actual behavior or demonstrably obsolete expectation without weakening requirements; retain regression evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-rankings:3",
+          "required_proof": "Run relevant cross-surface checks and document whether failure predates this task.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/semantic-media-ranker-v2.test.mjs",
+        "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-test-tarot-hold",
+      "title": "Repair Tarot last-frame hold acceptance",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-test-tarot-hold:1",
+          "required_proof": "Reproduce and diagnose the named assertion in isolation.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-tarot-hold:2",
+          "required_proof": "Fix actual behavior or demonstrably obsolete expectation without weakening requirements; retain regression evidence.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-test-tarot-hold:3",
+          "required_proof": "Run relevant cross-surface checks and document whether failure predates this task.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [
+        "tests/tarot-isf-playback-pool.test.mjs",
+        "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+      ],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-release",
+      "title": "Close repository acceptance and make a focused local completion commit",
+      "dependencies": [
+        "atlas-gap-electron-smoke",
+        "atlas-gap-test-genesis",
+        "atlas-gap-test-cuts",
+        "atlas-gap-test-phone-profile",
+        "atlas-gap-test-isf-handoff",
+        "atlas-gap-test-frame-contract",
+        "atlas-gap-test-playback",
+        "atlas-gap-test-reference-ui",
+        "atlas-gap-test-hf-offline",
+        "atlas-gap-test-hf-shaders",
+        "atlas-gap-test-rankings",
+        "atlas-gap-test-tarot-hold",
+        "atlas-gap-human-quality",
+        "atlas-gap-benchmarks",
+        "atlas-gap-portable",
+        "atlas-gap-redaction",
+        "atlas-gap-agent-tools",
+        "atlas-gap-aligned-review",
+        "atlas-gap-review-history"
+      ],
+      "acceptance": [
+        {
+          "id": "atlas-gap-release:1",
+          "required_proof": "Required focused/full tests, build and native smoke pass; retain result and cleanup receipts.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-release:2",
+          "required_proof": "Review exact scoped diff and secrets/generated-artifact boundary; preserve unrelated changes.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-release:3",
+          "required_proof": "Commit only authorized verified work; no GitHub push/PR/mirror while freeze is active.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-release:4",
+          "required_proof": "Document and qualify normal desktop activation without silently restarting shared services.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    },
+    {
+      "card_id": "atlas-gap-visualizer-scope",
+      "title": "Audit the separate3D Visualizer extension and establish its follow-up scope",
+      "dependencies": [],
+      "acceptance": [
+        {
+          "id": "atlas-gap-visualizer-scope:1",
+          "required_proof": "Compare the extension guide/kit with the existing canonical3D/ISF owner and record exact remaining requirements.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-visualizer-scope:2",
+          "required_proof": "Account for module manifests, palettes/materials/effects, shader admission, audio bindings, deterministic seek/export, color/depth/alpha, resource disposal and comfort/performance tests.",
+          "state": "not-accepted"
+        },
+        {
+          "id": "atlas-gap-visualizer-scope:3",
+          "required_proof": "Keep optional expansion distinct from Atlas analysis acceptance; no implied bulk shader conversion or unrelated renderer replacement.",
+          "state": "not-accepted"
+        }
+      ],
+      "existing_evidence": [],
+      "evidence_limit": "Evidence must be reviewed against every criterion; test presence or a Review board column is not full acceptance.",
+      "required_closure": "Attach exact source/build/model revisions, actual relevant test/runtime receipts and required human decisions. Preserve missing or unsupported status until proven."
+    }
+  ]
+}

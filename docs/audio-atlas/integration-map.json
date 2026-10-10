@@ -1,0 +1,143 @@
+{
+  "schema_version": "hapa.audio-atlas.integration.v1",
+  "stage": "first-pass-prototype",
+  "owner": "hapa-avatar-builder",
+  "song_owner": "data/hapa-songs-store.json",
+  "analysis_owner": "server/audio-atlas.mjs",
+  "ui": "src/components/AudioAtlasPanel.jsx",
+  "api": "/api/echos/audio-atlas",
+  "cli": "cli/audio-atlas.mjs",
+  "worker": "scripts/audio-atlas-worker.py",
+  "docs": "docs/audio-atlas/README.md",
+  "status": "partial; repository acceptance blocked",
+  "second_brain": "README and test-song review indexed; exact README API readback and both revision checks passed",
+  "source_preservation": "data/media/audio-atlas",
+  "derived_runs": "data/audio-atlas/runs",
+  "unsupported": [
+    "phonemes",
+    "syllables",
+    "typed note observation/correction contract",
+    "diarization",
+    "open-ended semantic narration"
+  ],
+  "workers": [
+    "scripts/audio-atlas-worker.py",
+    "scripts/audio-atlas-beats.py",
+    "scripts/audio-atlas-clap.py",
+    "scripts/audio-atlas-align.py",
+    "scripts/audio-atlas-pitch.py"
+  ],
+  "inventory": "server/audio-atlas-inventory.mjs",
+  "sound_retrieval": "16 fixed concepts, explicit free-text and same-space master-window similarity",
+  "forced_word_alignment": {
+    "status": "integrated-experimental; acoustic quality unqualified",
+    "request_contract": "src/domain/audio-atlas-alignment.js",
+    "validation": "scripts/audio_atlas_word_alignment.py",
+    "docs": "docs/audio-atlas/WORD_ALIGNMENT.md",
+    "scope": "explicit English excerpt, up to30seconds"
+  },
+  "timing_references": {
+    "status": "workflow-verified; human-acoustic-qualification-pending",
+    "contract": "src/domain/audio-atlas-references.js",
+    "ui": "src/components/AtlasTimingEvaluation.jsx",
+    "docs": "docs/audio-atlas/TIMING_REFERENCES.md",
+    "history": "existing per-run reviews.json reference_events; shared revision"
+  },
+  "musical_structure": {
+    "status": "integrated-acoustic-evidence; musical-quality-pending",
+    "worker_helper": "scripts/audio_atlas_structure.py",
+    "ui": "src/components/AtlasStructure.jsx",
+    "query": "op=structure&asset=master",
+    "docs": "docs/audio-atlas/STRUCTURE.md",
+    "scope": "original master-source acoustic novelty, spectral sequence similarity and energy trends; no functional labels"
+  },
+  "text_to_audio_search": {
+    "status": "integrated-local; relevance-unqualified",
+    "owner": "server/audio-atlas-text-search.mjs",
+    "worker": "scripts/audio-atlas-clap.py",
+    "ui": "src/components/AtlasTextSearch.jsx",
+    "route": "/api/echos/audio-atlas/jobs/:run/text-search",
+    "cli": [
+      "search-text",
+      "text-searches"
+    ],
+    "docs": "docs/audio-atlas/TEXT_SEARCH.md"
+  },
+  "spectrogram": {
+    "status": "source-bound-display; calibrated-fixtures-and-real-source-verified",
+    "worker_helper": "scripts/audio_atlas_spectrogram.py",
+    "query_owner": "server/audio-atlas-spectrogram.mjs",
+    "ui": "src/components/AtlasSpectrogram.jsx",
+    "query": "op=spectrogram&asset=ID&channel=0",
+    "docs": "docs/audio-atlas/SPECTROGRAM.md"
+  },
+  "technicalAudio": {
+    "status": "method-qualified-measurements-and-declared-noise-reference; review",
+    "worker_helper": "scripts/audio_atlas_technical.py",
+    "query_owner": "server/audio-atlas-technical.mjs",
+    "ui": "src/components/AtlasTechnical.jsx",
+    "query": "op=technical&asset=ID",
+    "docs": "docs/audio-atlas/TECHNICAL_AUDIO.md",
+    "noise_reference_owner": "server/audio-atlas-noise.mjs",
+    "noise_reference_docs": "docs/audio-atlas/NOISE_REFERENCE.md"
+  },
+  "pitch": {
+    "status": "implemented-candidate; real singing qualification open",
+    "owner": "server/audio-atlas-pitch.mjs",
+    "worker": "scripts/audio-atlas-pitch.py",
+    "helper": "scripts/audio_atlas_pitch.py",
+    "ui": "src/components/AtlasPitch.jsx",
+    "request": "optional jobs.pitch {sourceId,channel}",
+    "query": "op=pitch",
+    "docs": "docs/audio-atlas/PITCH.md",
+    "quality_qualified": false
+  },
+  "rhythm": {
+    "status": "implemented-candidate; musical qualification open",
+    "worker_helper": "scripts/audio_atlas_rhythm.py",
+    "worker": "scripts/audio-atlas-beats.py",
+    "owner": "server/audio-atlas-rhythm.mjs",
+    "ui": "src/components/AtlasRhythm.jsx",
+    "request": "existing jobs.beats=true",
+    "query": "op=rhythm&asset=master&start=S&end=E (30s maximum)",
+    "docs": "docs/audio-atlas/RHYTHM.md",
+    "quality_qualified": false
+  },
+  "note_melody_view": {
+    "status": "derived-candidates; musical-qualification-open",
+    "owner": "server/audio-atlas-notes.mjs",
+    "ui": "src/components/AtlasNotes.jsx",
+    "query": "op=notes; source sample window <=30s",
+    "export": "derived.notes; immutable result unchanged",
+    "contract": "derived_views.notes; original execution coverage retained",
+    "docs": "docs/audio-atlas/NOTES.md",
+    "quality_qualified": false
+  },
+  "harmony": {
+    "status": "implemented-candidates; human-harmonic-qualification-open",
+    "worker_helper": "scripts/audio_atlas_harmony.py",
+    "worker": "scripts/audio-atlas-worker.py",
+    "owner": "server/audio-atlas-harmony.mjs",
+    "ui": "src/components/AtlasHarmony.jsx",
+    "query": "op=harmony&asset=master&start=S&end=E (30s maximum)",
+    "docs": "docs/audio-atlas/HARMONY.md",
+    "quality_qualified": false
+  },
+  "source_activity": {
+    "status": "energy-candidates; instrument-family-and-role-qualification-open",
+    "owner": "server/audio-atlas-activity.mjs",
+    "ui": "src/components/AtlasActivity.jsx",
+    "query": "op=activity; own source window <=30s",
+    "export": "derived.activity",
+    "contract": "derived_views.activity; generic typed observations unsupported",
+    "docs": "docs/audio-atlas/ACTIVITY.md",
+    "quality_qualified": false
+  },
+  "semantic_descriptions": {
+    "status": "offline-listener-probed; validator-tested; execution-integration-pending",
+    "owner": "server/audio-atlas-semantic.mjs",
+    "docs": "docs/audio-atlas/SEMANTIC.md",
+    "quality_qualified": false,
+    "ui_api_cli_integrated": false
+  }
+}

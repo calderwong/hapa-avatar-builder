@@ -293,7 +293,7 @@ test("HyperFrames project generation and pixel capture are offline-only and loca
   assert.match(pixelAcceptanceSource, /canvasChangedTransitions/);
   assert.match(pixelAcceptanceSource, /expectedDistinctIdTransitions/);
   assert.doesNotMatch(pixelAcceptanceSource, /distinctIdTransitions > 0/);
-  assert.match(captureSource, /derivedSamples\(manifest, timestamps\)/, "default expectations must come from the executable show");
+  assert.match(captureSource, /derivedSamples\(manifest, timestamps, deriveHyperFramesPixelExpectations\)/, "default expectations must come from the executable show");
   assert.doesNotMatch(captureSource, /hyperframes-dear-papa-golden-timestamps/, "a song-specific fixture may not be an implicit default");
   assert.match(captureSource, /details\.level === ["']error["']/, "warnings may not be promoted to console errors");
 

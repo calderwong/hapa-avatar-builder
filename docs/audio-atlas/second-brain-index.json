@@ -1,0 +1,51 @@
+{
+  "contract": "hapa.protocol-index/v1",
+  "owner": "hapa-avatar-builder",
+  "documents": [
+    {
+      "slug": "hapa-avatar-builder-audio-atlas-v1",
+      "title": "Audio Atlas in Hapa Avatar Builder",
+      "path": "docs/audio-atlas/README.md"
+    },
+    {
+      "slug": "hapa-audio-atlas-brave-tongues-review-v1",
+      "title": "Brave Tongues Audio Atlas review output",
+      "path": "docs/audio-atlas/BRAVE_TONGUES_REVIEW.md"
+    },
+    {
+      "slug": "hapa-audio-atlas-contract-v1",
+      "title": "Audio Atlas identity and timing contract",
+      "path": "docs/audio-atlas/CONTRACT.md"
+    },
+    {
+      "slug": "hapa-audio-atlas-acceptance-repairs-20260927",
+      "title": "Audio Atlas repository acceptance repair checkpoint",
+      "path": "docs/audio-atlas/ACCEPTANCE_REPAIRS.md"
+    },
+    {
+      "slug": "hapa-audio-atlas-pack-input-audit-20260927",
+      "title": "Audio Atlas supplied pack audit and substitute acceptance matrix",
+      "path": "docs/audio-atlas/PACK_INPUT_AUDIT.md"
+    },
+    {
+      "slug": "hapa-audio-atlas-missing-media-20260927",
+      "title": "Audio Atlas missing-media reconciliation and safe reference repair",
+      "path": "docs/audio-atlas/MISSING_MEDIA.md"
+    },
+    {
+      "slug": "hapa-song-audio-uploads-v1",
+      "title": "Attach missing WAV MP3 and stems in Echo Album",
+      "path": "docs/audio-atlas/AUDIO_UPLOADS.md"
+    },
+    {
+      "slug": "hapa-audio-atlas-stem-alignment-v1",
+      "title": "Audio Atlas per-stem timing evidence",
+      "path": "docs/audio-atlas/STEM_ALIGNMENT.md"
+    },
+    {
+      "slug": "hapa-audio-atlas-word-alignment-v1",
+      "title": "Audio Atlas supplied-text word alignment qualification",
+      "path": "docs/audio-atlas/WORD_ALIGNMENT.md"
+    }
+  ]
+}
