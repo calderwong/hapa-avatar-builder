@@ -6,7 +6,7 @@ const { createEchoReferenceImageGeneration } = require("../electron/echo-referen
 
 const ROOT = path.resolve(__dirname, "..");
 const command = String(process.argv[2] || "status").trim().toLowerCase();
-const allowed = new Set(["status", "pilot", "refresh-pilot", "full", "resume", "budget"]);
+const allowed = new Set(["status", "pilot", "refresh-pilot", "full", "resume", "budget", "song"]);
 
 function loopbackApiBase(value) {
   const url = new URL(value || "http://127.0.0.1:8797");
@@ -35,7 +35,7 @@ function summary(status) {
 }
 
 async function main() {
-  if (!allowed.has(command)) throw new Error(`Unknown command “${command}”. Use status, pilot, refresh-pilot, full, resume, or budget.`);
+  if (!allowed.has(command)) throw new Error(`Unknown command “${command}”. Use status, pilot, refresh-pilot, full, resume, budget, or song.`);
   app.setName("hapa-avatar-builder");
   app.setPath("userData", path.join(app.getPath("appData"), "hapa-avatar-builder"));
   await app.whenReady();
@@ -43,7 +43,13 @@ async function main() {
   const runner = createEchoReferenceImageGeneration({ userDataPath: app.getPath("userData"), credentialStore, pilotConcurrency: 6, fullConcurrency: 12, pilotCount: 6 });
   const apiBase = loopbackApiBase(process.env.HAPA_AVATAR_API_BASE);
   let status = await runner.status();
-  if (command === "budget") {
+  if (command === "song") {
+    const songIds = String(process.argv[3] || "").split(",").map((value) => value.trim()).filter(Boolean);
+    if (!songIds.length) throw new Error("song requires one or more comma-separated Song Card IDs.");
+    status = await runner.startSelected({ apiBase, songIds });
+    await runner._active();
+    status = await runner.status();
+  } else if (command === "budget") {
     const budgetUsd = Number(process.argv[3]);
     status = await runner.startBudget({ apiBase, budgetUsd });
     await runner._active();

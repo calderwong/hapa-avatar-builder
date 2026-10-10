@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, CirclePause, Expand, Image as ImageIcon, Layers3, LoaderCircle, MessageSquareText, Play, RefreshCw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, CirclePause, Expand, Film, Image as ImageIcon, Layers3, LoaderCircle, MessageSquareText, Play, RefreshCw, Search, ShieldCheck, Sparkles, Waves, X } from "lucide-react";
 
 const ALBUM_PAGE_SIZE = 24;
 
-function AssetImage({ kind, id, alt, className = "" }) {
+function AssetImage({ bridge, kind, id, alt, className = "" }) {
   const [src, setSrc] = useState("");
   const [error, setError] = useState("");
 
@@ -11,7 +11,6 @@ function AssetImage({ kind, id, alt, className = "" }) {
     let active = true;
     setSrc("");
     setError("");
-    const bridge = globalThis.hapaEchoTarotImages;
     if (!bridge?.asset || !id) return () => { active = false; };
     bridge.asset({ kind, id }).then((result) => {
       if (!active) return;
@@ -21,35 +20,59 @@ function AssetImage({ kind, id, alt, className = "" }) {
       if (active) setError(assetError?.message || String(assetError));
     });
     return () => { active = false; };
-  }, [id, kind]);
+  }, [bridge, id, kind]);
 
   if (src) return <img className={className} src={src} alt={alt} loading="lazy" />;
   return <div className="echo-tarot-asset-placeholder">{error ? "Unavailable" : <LoaderCircle size={18} className="spin" />}</div>;
+}
+
+function LoopAssetVideo({ bridge, id, label }) {
+  const [src, setSrc] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setSrc("");
+    setError("");
+    if (!bridge?.asset || !id) return () => { active = false; };
+    bridge.asset({ id }).then((result) => {
+      if (!active) return;
+      if (!result?.ok || !result.dataUrl) throw new Error(result?.message || "Loop unavailable.");
+      setSrc(result.dataUrl);
+    }).catch((assetError) => {
+      if (active) setError(assetError?.message || String(assetError));
+    });
+    return () => { active = false; };
+  }, [bridge, id]);
+
+  if (src) return <video src={src} aria-label={label} autoPlay loop muted playsInline controls />;
+  return <div className="echo-tarot-asset-placeholder">{error ? "Loop unavailable" : <LoaderCircle size={18} className="spin" />}</div>;
 }
 
 function RunAction({ busy, disabled = false, icon, children, ...props }) {
   return <button type="button" disabled={busy || disabled} {...props}>{busy ? <LoaderCircle size={13} className="spin" /> : icon}{children}</button>;
 }
 
-function ReviewActions({ job, busyAction, onReview }) {
+function ReviewActions({ job, busyAction, onReview, actionPrefix = "review" }) {
   return <div className="echo-tarot-feedback-actions">
-    <button type="button" disabled={busyAction.startsWith(`review:${job.id}:`)} className={job.feedback?.decision === "approved" ? "active" : ""} onClick={() => void onReview(job, "approved")}><Check size={12} /> Approve</button>
-    <button type="button" disabled={busyAction.startsWith(`review:${job.id}:`)} className={job.feedback?.decision === "revise" ? "active" : ""} onClick={() => void onReview(job, "revise")}><MessageSquareText size={12} /> Revise</button>
-    <button type="button" disabled={busyAction.startsWith(`review:${job.id}:`)} className={job.feedback?.decision === "rejected" ? "active" : ""} onClick={() => void onReview(job, "rejected")}><X size={12} /> Reject</button>
+    <button type="button" disabled={busyAction.startsWith(`${actionPrefix}:${job.id}:`)} className={job.feedback?.decision === "approved" ? "active" : ""} onClick={() => void onReview(job, "approved")}><Check size={12} /> Approve</button>
+    <button type="button" disabled={busyAction.startsWith(`${actionPrefix}:${job.id}:`)} className={job.feedback?.decision === "revise" ? "active" : ""} onClick={() => void onReview(job, "revise")}><MessageSquareText size={12} /> Revise</button>
+    <button type="button" disabled={busyAction.startsWith(`${actionPrefix}:${job.id}:`)} className={job.feedback?.decision === "rejected" ? "active" : ""} onClick={() => void onReview(job, "rejected")}><X size={12} /> Reject</button>
   </div>;
 }
 
-function GeneratedCardTile({ job, compact, note, busyAction, onNoteChange, onOpen, onReview }) {
-  const imageAlt = `${job.cardTitle} for ${job.songTitle}, featuring Hapa Main Woman`;
+function GeneratedCardTile({ job, loopJob, compact, note, busyAction, assetBridge, profileLabel, onNoteChange, onOpen, onReview }) {
+  const imageAlt = `${job.cardTitle} for ${job.songTitle}, featuring ${profileLabel}`;
   return <article className="hapa-card echo-tarot-output-card" data-card-type="media" data-granularity="standard" data-state={job.feedback?.decision || "generated"}>
     <button type="button" className="echo-tarot-card-preview-trigger" onClick={() => onOpen(job.id)} aria-label={`Open large preview of ${job.cardTitle} for ${job.songTitle}`}>
-      <AssetImage kind="output" id={job.id} alt={imageAlt} />
+      <AssetImage bridge={assetBridge} kind="output" id={job.id} alt={imageAlt} />
       <span><Expand size={14} /> Large preview</span>
     </button>
     <div className="echo-tarot-output-card-meta">
       <strong>{job.cardTitle}</strong>
       <small>{job.trackNumber ? `Track ${job.trackNumber} · ` : ""}{job.songTitle}</small>
       <small>{job.status}{job.usage ? ` · $${Number(job.usage.estimatedCostUsd || 0).toFixed(3)} estimated` : ""}</small>
+      {loopJob && <span className={`echo-tarot-loop-badge is-${loopJob.status}`}><Waves size={10} /> {loopJob.hasOutput ? "Motion loop ready" : loopJob.status.replaceAll("_", " ")}</span>}
       {compact && job.feedback?.decision && <span className="echo-tarot-review-badge"><Check size={10} /> {job.feedback.decision}</span>}
     </div>
     {!compact && <>
@@ -59,8 +82,9 @@ function GeneratedCardTile({ job, compact, note, busyAction, onNoteChange, onOpe
   </article>;
 }
 
-function TarotCardPreview({ job, jobs, notes, busyAction, model, quality, size, onClose, onSelect, onNoteChange, onReview }) {
+function TarotCardPreview({ job, jobs, notes, busyAction, model, quality, size, assetBridge, loopAssetBridge, profileLabel, loopJob, loopNotes, loopBusyAction, onClose, onSelect, onNoteChange, onReview, onLoopNoteChange, onLoopReview }) {
   const dialogRef = useRef(null);
+  const [showLoop, setShowLoop] = useState(Boolean(loopJob?.hasOutput));
   const index = jobs.findIndex((candidate) => candidate.id === job.id);
   const hasPrevious = index > 0;
   const hasNext = index >= 0 && index < jobs.length - 1;
@@ -80,15 +104,23 @@ function TarotCardPreview({ job, jobs, notes, busyAction, model, quality, size, 
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
+  useEffect(() => { setShowLoop(Boolean(loopJob?.hasOutput)); }, [job.id, loopJob?.hasOutput]);
+
   return <dialog ref={dialogRef} className="hapa-modal echo-tarot-preview-modal" aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === dialogRef.current) onClose(); }}>
     <header className="hm-head">
-      <div><small>Echo Album Tarot · Hapa Main Woman</small><h3 id={titleId}>{job.cardTitle}</h3></div>
+      <div><small>Echo Album Tarot · {profileLabel}</small><h3 id={titleId}>{job.cardTitle}</h3></div>
       <span className="echo-tarot-preview-position">{index + 1} / {jobs.length}</span>
       <button type="button" className="hm-close" onClick={onClose} aria-label="Close large Tarot card preview"><X size={18} /></button>
     </header>
     <div className="hm-body echo-tarot-preview-body">
       <div className="echo-tarot-preview-stage">
-        <AssetImage kind="output" id={job.id} alt={`${job.cardTitle} for ${job.songTitle}, featuring Hapa Main Woman`} />
+        {loopJob?.hasOutput && <div className="echo-tarot-preview-media-tabs hapa-tabs" role="tablist" aria-label="Tarot card media">
+          <button type="button" role="tab" aria-selected={!showLoop} className={!showLoop ? "active" : ""} onClick={() => setShowLoop(false)}><ImageIcon size={13} /> Still</button>
+          <button type="button" role="tab" aria-selected={showLoop} className={showLoop ? "active" : ""} onClick={() => setShowLoop(true)}><Film size={13} /> Motion loop</button>
+        </div>}
+        {showLoop && loopJob?.hasOutput
+          ? <LoopAssetVideo bridge={loopAssetBridge} id={loopJob.id} label={`${job.cardTitle} seamless motion loop for ${job.songTitle}`} />
+          : <AssetImage bridge={assetBridge} kind="output" id={job.id} alt={`${job.cardTitle} for ${job.songTitle}, featuring ${profileLabel}`} />}
         <div className="echo-tarot-preview-navigation" aria-label="Tarot card preview navigation">
           <button type="button" disabled={!hasPrevious} onClick={() => onSelect(jobs[index - 1].id)}><ChevronLeft size={16} /> Previous</button>
           <button type="button" disabled={!hasNext} onClick={() => onSelect(jobs[index + 1].id)}>Next <ChevronRight size={16} /></button>
@@ -114,13 +146,67 @@ function TarotCardPreview({ job, jobs, notes, busyAction, model, quality, size, 
         <label htmlFor={`echo-tarot-preview-note-${job.id}`}>Human review notes</label>
         <textarea id={`echo-tarot-preview-note-${job.id}`} rows="6" value={notes[job.id] ?? job.feedback?.note ?? ""} onChange={(event) => onNoteChange(job.id, event.target.value)} placeholder="Character consistency, Tarot symbols, song meaning, composition…" />
         <ReviewActions job={job} busyAction={busyAction} onReview={onReview} />
+        {loopJob?.hasOutput && <section className="echo-tarot-loop-review">
+          <p className="echo-tarot-preview-kicker">FAL motion-loop review</p>
+          <label htmlFor={`echo-tarot-loop-note-${loopJob.id}`}>Loop seam, identity, symbols, motion</label>
+          <textarea id={`echo-tarot-loop-note-${loopJob.id}`} rows="4" value={loopNotes[loopJob.id] ?? loopJob.feedback?.note ?? ""} onChange={(event) => onLoopNoteChange(loopJob.id, event.target.value)} placeholder="Seam quality, motion restraint, character stability, border and typography…" />
+          <ReviewActions job={loopJob} busyAction={loopBusyAction} onReview={onLoopReview} actionPrefix="loop-review" />
+        </section>}
       </aside>
     </div>
   </dialog>;
 }
 
+function EchoTarotLoopMonitor({ status, error, busyAction, onRefresh, onAction }) {
+  if (!status) return <section className="echo-tarot-loop-monitor"><LoaderCircle size={15} className="spin" /> Loading FAL loop queue…</section>;
+  const remaining = Number(status.counts?.held || 0) + Number(status.counts?.queued || 0) + Number(status.counts?.active || 0) + Number(status.counts?.failed || 0);
+  const running = status.state === "running" || status.state === "queued";
+  const failures = (status.jobs || []).filter((job) => job.status === "failed");
+  const hasRecoveryWaves = Number(status.initialConcurrency || status.localConcurrency) !== Number(status.localConcurrency);
+  return <section className="echo-tarot-loop-monitor hapa-panel" data-variant="notch" aria-label="FAL seamless Tarot loop generation monitor">
+    <header>
+      <div><Waves size={16} /><span><small>FAL.com · encrypted local key</small><strong>{status.profileLabel || "Echo Tarot"} · H3 Max Turbo card loops</strong></span></div>
+      <button type="button" className="echo-tarot-icon-button" onClick={onRefresh} aria-label="Refresh FAL loop status"><RefreshCw size={13} /></button>
+    </header>
+    <p className="echo-tarot-generation-boundary">Each completed GPT Image Tarot card is uploaded through the main process and supplied as both the first and final frame. Outputs return to local app data, where audio is removed and a high-quality local source-anchor pass conforms the motion to an exact five-second loop. The FAL key and remote media URLs never enter the renderer, public status, or repository.</p>
+    {error && <p className="echo-ref-feedback error" role="alert">{error}</p>}
+    <div className="echo-tarot-run-stats">
+      <span><b>{status.counts?.completed || 0}</b> loops ready</span>
+      <span><b>{status.counts?.active || 0}</b> active</span>
+      <span><b>{remaining}</b> remaining</span>
+      <span><b>${Number(status.usage?.estimatedCostUsd || 0).toFixed(2)}</b> estimated</span>
+      <span><b>{status.throughputPerMinute || 0}/min</b> end-to-end</span>
+      {!!status.inference?.sampleCount && <span><b>{status.inference.medianSeconds || 0}s</b> median inference</span>}
+      <span><b>{status.resolution}</b> · {status.durationSeconds}s · {status.localConcurrency} local workers</span>
+      {hasRecoveryWaves && <span><b>{status.initialConcurrency}</b> initial → {status.localConcurrency} recovery workers</span>}
+    </div>
+    <div className="echo-tarot-run-actions">
+      {status.state === "not-started" && <RunAction busy={busyAction === "loop-pilot"} disabled={!status.credentialConfigured || !status.sourceAvailable} icon={<Play size={13} />} onClick={() => onAction("loop-pilot")}>Generate 3-loop quality pilot</RunAction>}
+      {status.state === "pilot-complete" && <RunAction busy={busyAction === "loop-full"} icon={<Check size={13} />} onClick={() => onAction("loop-full")}>Approve pilot & animate album</RunAction>}
+      {running && <RunAction busy={busyAction === "loop-pause"} icon={<CirclePause size={13} />} onClick={() => onAction("loop-pause")}>Pause after active loops</RunAction>}
+      {status.state === "paused" && <RunAction busy={busyAction === "loop-resume"} icon={<Play size={13} />} onClick={() => onAction("loop-resume")}>Resume loop queue</RunAction>}
+      {["blocked", "pilot-complete-with-errors", "complete-with-errors"].includes(status.state) && <RunAction busy={busyAction === "loop-resume"} icon={<RefreshCw size={13} />} onClick={() => onAction("loop-resume")}>Retry failed loops</RunAction>}
+      {status.state === "complete" && <span className="echo-tarot-run-complete"><Check size={13} /> Full local loop run complete</span>}
+    </div>
+    {!status.credentialConfigured && <p className="echo-ref-warning">FAL.com is not configured. Add its key through Provider API keys.</p>}
+    {!status.sourceAvailable && <p className="echo-ref-warning">Generate Echo Album Tarot images before creating motion loops.</p>}
+    <p className="echo-tarot-loop-pricing">Promotional estimate: ${Number(status.usage?.promotionalUnitCostUsd || 0).toFixed(2)} per card at {status.resolution}; the observed launch rate ends after {status.usage?.promotionEnds || "2026-09-14"}. Actual FAL billing controls.</p>
+    {!!failures.length && <details className="echo-tarot-run-failures"><summary>{failures.length} failed loop{failures.length === 1 ? "" : "s"}</summary>{failures.map((job) => <p key={job.id}><b>{job.cardTitle}</b> × {job.songTitle}: {job.error}</p>)}</details>}
+  </section>;
+}
+
 export default function EchoTarotGenerationMonitor({ songId = "", onNotice = () => {} }) {
-  const bridge = globalThis.hapaEchoTarotImages;
+  const womanBridge = globalThis.hapaEchoTarotImages;
+  const manBridge = globalThis.hapaEchoTarotManImages;
+  const coupleBridge = globalThis.hapaEchoTarotCoupleImages;
+  const availableLeadCount = [coupleBridge, manBridge, womanBridge].filter(Boolean).length;
+  const [profileId, setProfileId] = useState(coupleBridge ? "main-couple" : manBridge ? "main-man" : "main-woman");
+  const bridge = profileId === "main-couple" ? coupleBridge : profileId === "main-man" ? manBridge : womanBridge;
+  const loopBridge = profileId === "main-couple"
+    ? globalThis.hapaEchoTarotCoupleLoops
+    : profileId === "main-man"
+      ? globalThis.hapaEchoTarotManLoops
+      : globalThis.hapaEchoTarotLoops;
   const [status, setStatus] = useState(null);
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
@@ -129,6 +215,20 @@ export default function EchoTarotGenerationMonitor({ songId = "", onNotice = () 
   const [albumQuery, setAlbumQuery] = useState("");
   const [albumLimit, setAlbumLimit] = useState(ALBUM_PAGE_SIZE);
   const [previewJobId, setPreviewJobId] = useState("");
+  const [loopStatus, setLoopStatus] = useState(null);
+  const [loopBusyAction, setLoopBusyAction] = useState("");
+  const [loopError, setLoopError] = useState("");
+  const [loopNotes, setLoopNotes] = useState({});
+
+  useEffect(() => {
+    setStatus(null);
+    setError("");
+    setNotes({});
+    setPreviewJobId("");
+    setLoopStatus(null);
+    setLoopError("");
+    setLoopNotes({});
+  }, [profileId]);
 
   const refresh = useCallback(async ({ quiet = false } = {}) => {
     if (!bridge?.status) return;
@@ -143,11 +243,28 @@ export default function EchoTarotGenerationMonitor({ songId = "", onNotice = () 
   }, [bridge]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  const refreshLoops = useCallback(async ({ quiet = false } = {}) => {
+    if (!loopBridge?.status) return;
+    if (!quiet) setLoopError("");
+    try {
+      const next = await loopBridge.status();
+      if (!next?.ok) throw new Error(next?.message || "Tarot loop status is unavailable.");
+      setLoopStatus(next);
+    } catch (refreshError) {
+      if (!quiet) setLoopError(refreshError?.message || String(refreshError));
+    }
+  }, [loopBridge]);
+  useEffect(() => { void refreshLoops(); }, [refreshLoops]);
   useEffect(() => {
     if (!bridge?.status) return undefined;
     const interval = window.setInterval(() => { void refresh({ quiet: true }); }, status?.state === "running" || status?.state === "queued" ? 3500 : 12000);
     return () => window.clearInterval(interval);
   }, [bridge, refresh, status?.state]);
+  useEffect(() => {
+    if (!loopBridge?.status) return undefined;
+    const interval = window.setInterval(() => { void refreshLoops({ quiet: true }); }, loopStatus?.state === "running" || loopStatus?.state === "queued" ? 1800 : 12000);
+    return () => window.clearInterval(interval);
+  }, [loopBridge, loopStatus?.state, refreshLoops]);
 
   useEffect(() => {
     setViewMode(songId ? "song" : "album");
@@ -173,6 +290,8 @@ export default function EchoTarotGenerationMonitor({ songId = "", onNotice = () 
   const displayedOutputs = viewMode === "album" ? filteredAlbumOutputs.slice(0, albumLimit) : currentOutputs;
   const previewJobs = viewMode === "album" ? filteredAlbumOutputs : currentOutputs;
   const previewJob = allOutputs.find((job) => job.id === previewJobId) || null;
+  const loopBySourceJobId = useMemo(() => new Map((loopStatus?.jobs || []).map((job) => [job.sourceJobId, job])), [loopStatus?.jobs]);
+  const previewLoopJob = previewJob ? loopBySourceJobId.get(previewJob.id) || null : null;
   const currentFailures = currentJobs.filter((job) => job.status === "failed");
   const remaining = Number(status?.counts?.queued || 0) + Number(status?.counts?.held || 0) + Number(status?.counts?.failed || 0);
   const running = status?.state === "running" || status?.state === "queued";
@@ -200,6 +319,42 @@ export default function EchoTarotGenerationMonitor({ songId = "", onNotice = () 
     }, `${job.cardTitle} marked ${decision}.`);
   }
 
+  async function runLoopAction(name) {
+    setLoopBusyAction(name);
+    setLoopError("");
+    try {
+      const operations = {
+        "loop-pilot": () => loopBridge.startPilot(),
+        "loop-full": () => loopBridge.continueFull({ note: "Three H3 Max Turbo loops visually reviewed in the Builder and approved for album continuation." }),
+        "loop-pause": () => loopBridge.pause(),
+        "loop-resume": () => loopBridge.resume(),
+      };
+      const result = await operations[name]();
+      if (!result?.ok) throw new Error(result?.message || "The FAL loop action failed.");
+      setLoopStatus(result);
+      onNotice(name === "loop-pilot" ? "Three-loop FAL quality pilot started." : name === "loop-full" ? "Approved FAL loop recipe opened across the album." : "FAL loop queue updated.");
+    } catch (actionError) {
+      setLoopError(actionError?.message || String(actionError));
+    } finally {
+      setLoopBusyAction("");
+    }
+  }
+
+  async function submitLoopReview(job, decision) {
+    setLoopBusyAction(`loop-review:${job.id}:${decision}`);
+    setLoopError("");
+    try {
+      const result = await loopBridge.review({ jobId: job.id, decision, note: loopNotes[job.id] ?? job.feedback?.note ?? "", reviewer: "Hapa operator" });
+      if (!result?.ok) throw new Error(result?.message || "The loop review could not be saved.");
+      await refreshLoops({ quiet: true });
+      onNotice(`${job.cardTitle} loop marked ${decision}.`);
+    } catch (actionError) {
+      setLoopError(actionError?.message || String(actionError));
+    } finally {
+      setLoopBusyAction("");
+    }
+  }
+
   function updateNote(jobId, value) {
     setNotes((current) => ({ ...current, [jobId]: value }));
   }
@@ -210,17 +365,22 @@ export default function EchoTarotGenerationMonitor({ songId = "", onNotice = () 
     setPreviewJobId("");
   }
 
-  if (!bridge) {
+  if (!womanBridge && !manBridge && !coupleBridge) {
     return <aside className="echo-tarot-generation-monitor is-unavailable"><ShieldCheck size={15} /><p>Open the canonical Electron app to use encrypted local API keys and monitor generated Tarot images.</p></aside>;
   }
 
   return (
-    <aside className="echo-tarot-generation-monitor" aria-label="Hapa Main Woman Tarot image generation monitor">
+    <aside className="echo-tarot-generation-monitor" aria-label={`${status?.profileLabel || "Hapa lead"} Tarot image generation monitor`}>
       <header>
-        <div><Sparkles size={16} /><span><small>OpenAI · encrypted local key</small><strong>Hapa Main Woman deck run</strong></span></div>
+        <div><Sparkles size={16} /><span><small>OpenAI · encrypted local key</small><strong>{status?.profileLabel || (profileId === "main-couple" ? "Hapa Main Couple" : profileId === "main-man" ? "Hapa Main Man" : "Hapa Main Woman")} deck run</strong></span></div>
         <button type="button" className="echo-tarot-icon-button" onClick={() => void refresh()} aria-label="Refresh generation status"><RefreshCw size={13} /></button>
       </header>
-      <p className="echo-tarot-generation-boundary">The full six-image identity pack stays visible in local app data. Each Card × Song request currently submits the canonical face identity / feature map as one high-fidelity API reference; this avoids the snapshot’s multi-sheet rejection and body-reference moderation boundary. The saved key never enters the page, manifest, logs, or repository.</p>
+      {availableLeadCount > 1 && <div className="echo-tarot-lead-tabs hapa-tabs" role="tablist" aria-label="Tarot lead deck">
+        {coupleBridge && <button type="button" role="tab" aria-selected={profileId === "main-couple"} className={profileId === "main-couple" ? "active" : ""} onClick={() => setProfileId("main-couple")}>Hapa Main Couple</button>}
+        {manBridge && <button type="button" role="tab" aria-selected={profileId === "main-man"} className={profileId === "main-man" ? "active" : ""} onClick={() => setProfileId("main-man")}>Hapa Main Man</button>}
+        {womanBridge && <button type="button" role="tab" aria-selected={profileId === "main-woman"} className={profileId === "main-woman" ? "active" : ""} onClick={() => setProfileId("main-woman")}>Hapa Main Woman</button>}
+      </div>}
+      <p className="echo-tarot-generation-boundary">The full local identity pack stays visible in app data. Each Card × Song request submits one canonical multi-angle face/feature sheet as a high-fidelity API reference; embedded lookbook prose and sample styling are treated only as visual evidence. The saved key never enters the page, manifest, logs, or repository.</p>
       {error && <p className="echo-ref-feedback error" role="alert">{error}</p>}
       {status && <>
         <div className="echo-tarot-run-stats">
@@ -229,25 +389,28 @@ export default function EchoTarotGenerationMonitor({ songId = "", onNotice = () 
           <span><b>{remaining}</b> remaining</span>
           <span><b>${Number(status.usage?.estimatedCostUsd || 0).toFixed(2)}</b> observed estimate</span>
           <span><b>{status.model}</b> {status.quality} · {status.size}</span>
+          <span><b>{status.performance?.completedPerMinute || 0}/min</b> · {status.concurrency?.active || 1} workers</span>
+          {!!status.performance?.medianRequestSeconds && <span><b>{status.performance.medianRequestSeconds}s</b> median · {status.performance.p95RequestSeconds}s p95</span>}
         </div>
         <div className="echo-tarot-run-actions">
-          {status.state === "not-started" && <RunAction busy={busyAction === "pilot"} icon={<Play size={13} />} disabled={!status.credentialConfigured || !status.referencePackAvailable} onClick={() => void runAction("pilot", () => bridge.startPilot(), "Four-card quality pilot started.")}>Generate 4-card quality pilot</RunAction>}
-          {status.state === "pilot-complete" && <RunAction busy={busyAction === "full"} icon={<Play size={13} />} onClick={() => void runAction("full", () => bridge.continueFull(), `Full ${status.counts?.total || 167}-pairing Hapa Main Woman queue started.`)}>Continue all {status.counts?.total || 167} pairings</RunAction>}
+          {status.state === "not-started" && <RunAction busy={busyAction === "pilot"} icon={<Play size={13} />} disabled={!status.credentialConfigured || !status.referencePackAvailable} onClick={() => void runAction("pilot", () => bridge.startPilot(), `${status.pilotCount || 4}-card quality pilot started.`)}>Generate {status.pilotCount || 4}-card quality pilot</RunAction>}
+          {status.state === "pilot-complete" && <RunAction busy={busyAction === "full"} icon={<Play size={13} />} onClick={() => void runAction("full", () => bridge.continueFull(), `Full ${status.counts?.total || 167}-pairing ${status.profileLabel} queue started.`)}>Continue all {status.counts?.total || 167} pairings</RunAction>}
           {running && <RunAction busy={busyAction === "pause"} icon={<CirclePause size={13} />} onClick={() => void runAction("pause", () => bridge.pause(), "The queue will pause after the current image.")}>Pause after current</RunAction>}
           {status.state === "paused" && <RunAction busy={busyAction === "resume"} icon={<Play size={13} />} onClick={() => void runAction("resume", () => bridge.resume(), "Tarot image queue resumed.")}>Resume queue</RunAction>}
           {["blocked", "pilot-complete-with-errors", "complete-with-errors"].includes(status.state) && <RunAction busy={busyAction === "retry"} icon={<RefreshCw size={13} />} onClick={() => void runAction("retry", () => bridge.resume(), "Failed Tarot images re-queued.")}>{status.state === "blocked" ? "Recheck model access" : "Retry failed"}</RunAction>}
           {status.state === "complete" && <span className="echo-tarot-run-complete"><Check size={13} /> Full local run complete</span>}
         </div>
         {!status.credentialConfigured && <p className="echo-ref-warning">OpenAI is not configured. Add its key through the app’s Provider API keys panel.</p>}
-        {!status.referencePackAvailable && <p className="echo-ref-warning">Expected local reference folder: raw-models/hapa-main-woman-reference-pack.</p>}
+        {!status.referencePackAvailable && <p className="echo-ref-warning">Expected local reference folder: raw-models/{profileId === "main-couple" ? "hapa-main-couple-pack" : profileId === "main-man" ? "hapa-main-man-pack" : "hapa-main-woman-reference-pack"}.</p>}
         {status.blocker && <div className="echo-tarot-run-blocker" role="alert"><ShieldCheck size={14} /><span><strong>Generation blocked before the full-deck spend</strong><p>{status.blocker.message}</p></span></div>}
         {!!currentFailures.length && <details className="echo-tarot-run-failures"><summary>{currentFailures.length} failed pilot request{currentFailures.length === 1 ? "" : "s"}</summary>{currentFailures.map((job) => <p key={job.id}><b>{job.cardTitle}</b> × {job.songTitle}: {job.error}</p>)}</details>}
         {!!status.references?.length && <details className="echo-tarot-reference-pack">
           <summary><ImageIcon size={13} /> Identity reference pack <span>{status.references.length} images</span></summary>
           <div className="echo-tarot-reference-grid">
-            {status.references.map((reference) => <figure key={reference.id}><AssetImage kind="reference" id={reference.id} alt={reference.role} /><figcaption><b>{reference.role}</b><small>{reference.submittedToApi ? "Sent to GPT Image · " : "Local review only · "}{reference.filename}</small></figcaption></figure>)}
+            {status.references.map((reference) => <figure key={reference.id}><AssetImage bridge={bridge} kind="reference" id={reference.id} alt={reference.role} /><figcaption><b>{reference.role}</b><small>{reference.submittedToApi ? "Sent to GPT Image · " : "Local review only · "}{reference.filename}</small></figcaption></figure>)}
           </div>
         </details>}
+        {loopBridge && <EchoTarotLoopMonitor status={loopStatus} error={loopError} busyAction={loopBusyAction} onRefresh={() => void refreshLoops()} onAction={(name) => void runLoopAction(name)} />}
         {!!allOutputs.length && <section className="echo-tarot-song-outputs hapa-panel" data-variant="notch">
           <div className="echo-tarot-output-heading">
             <div><small>Generated image library</small><h6>{viewMode === "album" ? "All Tarot cards for the album" : "Generated cards for this song"} <span>{viewMode === "album" ? filteredAlbumOutputs.length : currentOutputs.length}</span></h6></div>
@@ -261,13 +424,13 @@ export default function EchoTarotGenerationMonitor({ songId = "", onNotice = () 
             <small>Showing {Math.min(displayedOutputs.length, filteredAlbumOutputs.length)} of {filteredAlbumOutputs.length}</small>
           </div>}
           {!!displayedOutputs.length && <div className={`echo-tarot-output-grid${viewMode === "album" ? " is-album" : ""}`}>
-            {displayedOutputs.map((job) => <GeneratedCardTile key={job.id} job={job} compact={viewMode === "album"} note={notes[job.id] ?? job.feedback?.note ?? ""} busyAction={busyAction} onNoteChange={updateNote} onOpen={setPreviewJobId} onReview={submitReview} />)}
+            {displayedOutputs.map((job) => <GeneratedCardTile key={job.id} job={job} loopJob={loopBySourceJobId.get(job.id)} compact={viewMode === "album"} note={notes[job.id] ?? job.feedback?.note ?? ""} busyAction={busyAction} assetBridge={bridge} profileLabel={status.profileLabel} onNoteChange={updateNote} onOpen={setPreviewJobId} onReview={submitReview} />)}
           </div>}
           {viewMode === "album" && !displayedOutputs.length && <div className="echo-tarot-album-empty"><Search size={18} /><p>No generated Tarot cards match “{albumQuery}”.</p></div>}
           {viewMode === "album" && displayedOutputs.length < filteredAlbumOutputs.length && <button type="button" className="echo-tarot-load-more hapa-btn" onClick={() => setAlbumLimit((current) => current + ALBUM_PAGE_SIZE)}>Show next {Math.min(ALBUM_PAGE_SIZE, filteredAlbumOutputs.length - displayedOutputs.length)} cards</button>}
         </section>}
         {!currentOutputs.length && status.state !== "not-started" && viewMode === "song" && <p className="echo-ref-empty">No completed image for this song yet. Open <b>Full album</b> to review every generated Tarot card.</p>}
-        {previewJob && <TarotCardPreview job={previewJob} jobs={previewJobs} notes={notes} busyAction={busyAction} model={status.modelSnapshot || status.model} quality={status.quality} size={status.size} onClose={() => setPreviewJobId("")} onSelect={setPreviewJobId} onNoteChange={updateNote} onReview={submitReview} />}
+        {previewJob && <TarotCardPreview job={previewJob} jobs={previewJobs} notes={notes} busyAction={busyAction} model={status.modelSnapshot || status.model} quality={status.quality} size={status.size} assetBridge={bridge} loopAssetBridge={loopBridge} profileLabel={status.profileLabel} loopJob={previewLoopJob} loopNotes={loopNotes} loopBusyAction={loopBusyAction} onClose={() => setPreviewJobId("")} onSelect={setPreviewJobId} onNoteChange={updateNote} onReview={submitReview} onLoopNoteChange={(jobId, value) => setLoopNotes((current) => ({ ...current, [jobId]: value }))} onLoopReview={submitLoopReview} />}
       </>}
     </aside>
   );

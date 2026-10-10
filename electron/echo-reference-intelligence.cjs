@@ -385,8 +385,9 @@ function localSchemaInstruction(schema) {
 
 function stabilizeLocalBlueprint(value = {}, job = {}) {
   const expectedKey = clean(job.packet?.sourceConnections?.[0]?.connectionKey);
-  const tarotTitle = list(job.packet?.tarotConnections).map((item) => clean(item.cardTitle, 120)).find(Boolean) || "";
-  const minor = tarotTitle.match(/^(Ace|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten) of (Wands|Cups|Swords|Pentacles)$/i);
+  const minor = list(job.packet?.tarotConnections)
+    .map((item) => clean(item.cardTitle, 120).match(/^(Ace|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten) of (Wands|Cups|Swords|Pentacles)$/i))
+    .find(Boolean);
   const actions = [];
   const blueprint = { ...value, connectionKey: expectedKey || clean(value.connectionKey) };
   if (expectedKey && clean(value.connectionKey) !== expectedKey) actions.push("restore-connection-key");
@@ -554,8 +555,15 @@ function stabilizeLocalPrompt(concept = {}, context = {}) {
     prefix.push(`The Tarot card ${tarotTitle} governs this tableau.`);
     actions.push("insert-exact-tarot-title");
   }
-  const minor = tarotTitle.match(/^(Ace|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten) of (Wands|Cups|Swords|Pentacles)$/i);
+  const minor = list(packet.tarotConnections)
+    .map((item) => clean(item.cardTitle, 120).match(/^(Ace|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten) of (Wands|Cups|Swords|Pentacles)$/i))
+    .find(Boolean);
   if (minor) {
+    const minorTitle = `${minor[1]} of ${minor[2]}`;
+    if (!lower().includes(minorTitle.toLowerCase())) {
+      prefix.push(`The Tarot card ${minorTitle} also governs the countable suit mechanism.`);
+      actions.push("insert-numbered-minor-title");
+    }
     const countHits = (lower().match(new RegExp(`\\b${minor[1]}\\b`, "gi")) || []).length;
     if (countHits < 2) {
       prefix.push(`Exactly ${minor[1].toLowerCase()} separately readable ${minor[2].toLowerCase()} remain visible as individual physical objects and perform the central action.`);
@@ -883,7 +891,11 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
 
   async function requestLocalBlueprint(manifest, job) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3 * 60 * 1000);
+    // The qualified :fast profile can legitimately need well over eight
+    // minutes for dense late-album packets. Shorter deadlines repeatedly
+    // aborted otherwise healthy local authoring for Catch the Rabbit and Pipa
+    // Card Garden before the structured blueprint response completed.
+    const timeout = setTimeout(() => controller.abort(), 15 * 60 * 1000);
     try {
       const source = job.packet.sourceConnections[0] || {};
       const response = await fetchImpl(localOmlxUrl("responses"), {
@@ -910,11 +922,11 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
       if (clean(blueprint.connectionKey) !== clean(source.connectionKey)) throw new Error(`Local blueprint must copy connectionKey ${clean(source.connectionKey)}.`);
       const seeds = list(blueprint.seeds);
       if (seeds.length < 2) throw new Error("Local blueprint returned fewer than two distinct concept seeds.");
-      const minor = list(job.packet.tarotConnections).map((item) => clean(item.cardTitle, 120).match(/^(Ace|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten) of (Wands|Cups|Swords|Pentacles)$/i)).find(Boolean);
-      if (minor) {
-        const missingSuitObjects = seeds.filter((seed) => !new RegExp(`\\b${minor[2].replace(/s$/, "")}s?\\b`, "i").test(`${seed.heroObject} ${seed.tarotTransformation}`));
-        if (missingSuitObjects.length) throw new Error(`Local blueprint omitted visible ${minor[2]} objects from ${missingSuitObjects.length} seed(s).`);
-      }
+      // stabilizeLocalBlueprint is the authoritative local repair boundary for
+      // countable Minor Arcana objects. Re-rejecting the already-stabilized
+      // blueprint here caused valid repaired seeds to enter an endless retry
+      // loop in long-running local drains. Downstream prompt stabilization and
+      // objective prompt gates still verify the exact visible suit count.
       return { blueprint, usage: payload.usage || {} };
     } finally { clearTimeout(timeout); }
   }
@@ -923,7 +935,10 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
     let lastError;
     for (let attempt = 1; attempt <= 1; attempt += 1) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4 * 60 * 1000);
+      // Dense multi-concept expansions on the qualified local model can be
+      // slower than the blueprint itself; keep this bounded but long enough
+      // to finish instead of discarding a completed architecture pass.
+      const timeout = setTimeout(() => controller.abort(), 15 * 60 * 1000);
       try {
         const expectedKey = clean(job.packet.sourceConnections[0]?.connectionKey);
         const response = await fetchImpl(localOmlxUrl("responses"), {
@@ -1020,7 +1035,7 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3 * 60 * 1000);
+      const timeout = setTimeout(() => controller.abort(), 15 * 60 * 1000);
       try {
         const response = await fetchImpl(localOmlxUrl("responses"), {
           method: "POST",
@@ -1060,7 +1075,7 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
     let lastError;
     for (let attempt = 1; attempt <= Math.min(2, maxAttempts); attempt += 1) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4 * 60 * 1000);
+      const timeout = setTimeout(() => controller.abort(), 15 * 60 * 1000);
       try {
         const expectedKey = clean(job.packet.sourceConnections[0]?.connectionKey);
         const response = await fetchImpl(localOmlxUrl("responses"), {

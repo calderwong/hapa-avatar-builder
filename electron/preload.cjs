@@ -53,3 +53,53 @@ contextBridge.exposeInMainWorld("hapaEchoTarotImages", Object.freeze({
   review: (payload) => ipcRenderer.invoke("hapa-echo-tarot-images:review", payload),
   asset: (payload) => ipcRenderer.invoke("hapa-echo-tarot-images:asset", payload)
 }));
+
+contextBridge.exposeInMainWorld("hapaEchoTarotManImages", Object.freeze({
+  status: () => ipcRenderer.invoke("hapa-echo-tarot-man-images:status"),
+  startPilot: () => ipcRenderer.invoke("hapa-echo-tarot-man-images:start-pilot"),
+  continueFull: () => ipcRenderer.invoke("hapa-echo-tarot-man-images:continue-full"),
+  pause: () => ipcRenderer.invoke("hapa-echo-tarot-man-images:pause"),
+  resume: () => ipcRenderer.invoke("hapa-echo-tarot-man-images:resume"),
+  review: (payload) => ipcRenderer.invoke("hapa-echo-tarot-man-images:review", payload),
+  asset: (payload) => ipcRenderer.invoke("hapa-echo-tarot-man-images:asset", payload)
+}));
+
+contextBridge.exposeInMainWorld("hapaEchoTarotCoupleImages", Object.freeze({
+  status: () => ipcRenderer.invoke("hapa-echo-tarot-couple-images:status"),
+  startPilot: () => ipcRenderer.invoke("hapa-echo-tarot-couple-images:start-pilot"),
+  continueFull: () => ipcRenderer.invoke("hapa-echo-tarot-couple-images:continue-full"),
+  pause: () => ipcRenderer.invoke("hapa-echo-tarot-couple-images:pause"),
+  resume: () => ipcRenderer.invoke("hapa-echo-tarot-couple-images:resume"),
+  review: (payload) => ipcRenderer.invoke("hapa-echo-tarot-couple-images:review", payload),
+  asset: (payload) => ipcRenderer.invoke("hapa-echo-tarot-couple-images:asset", payload)
+}));
+
+contextBridge.exposeInMainWorld("hapaEchoTarotLoops", Object.freeze({
+  status: () => ipcRenderer.invoke("hapa-echo-tarot-loops:status"),
+  startPilot: () => ipcRenderer.invoke("hapa-echo-tarot-loops:start-pilot"),
+  continueFull: (payload) => ipcRenderer.invoke("hapa-echo-tarot-loops:continue-full", payload),
+  pause: () => ipcRenderer.invoke("hapa-echo-tarot-loops:pause"),
+  resume: () => ipcRenderer.invoke("hapa-echo-tarot-loops:resume"),
+  review: (payload) => ipcRenderer.invoke("hapa-echo-tarot-loops:review", payload),
+  asset: (payload) => ipcRenderer.invoke("hapa-echo-tarot-loops:asset", payload)
+}));
+
+contextBridge.exposeInMainWorld("hapaEchoTarotManLoops", Object.freeze({
+  status: () => ipcRenderer.invoke("hapa-echo-tarot-man-loops:status"),
+  startPilot: () => ipcRenderer.invoke("hapa-echo-tarot-man-loops:start-pilot"),
+  continueFull: (payload) => ipcRenderer.invoke("hapa-echo-tarot-man-loops:continue-full", payload),
+  pause: () => ipcRenderer.invoke("hapa-echo-tarot-man-loops:pause"),
+  resume: () => ipcRenderer.invoke("hapa-echo-tarot-man-loops:resume"),
+  review: (payload) => ipcRenderer.invoke("hapa-echo-tarot-man-loops:review", payload),
+  asset: (payload) => ipcRenderer.invoke("hapa-echo-tarot-man-loops:asset", payload)
+}));
+
+contextBridge.exposeInMainWorld("hapaEchoTarotCoupleLoops", Object.freeze({
+  status: () => ipcRenderer.invoke("hapa-echo-tarot-couple-loops:status"),
+  startPilot: () => ipcRenderer.invoke("hapa-echo-tarot-couple-loops:start-pilot"),
+  continueFull: (payload) => ipcRenderer.invoke("hapa-echo-tarot-couple-loops:continue-full", payload),
+  pause: () => ipcRenderer.invoke("hapa-echo-tarot-couple-loops:pause"),
+  resume: () => ipcRenderer.invoke("hapa-echo-tarot-couple-loops:resume"),
+  review: (payload) => ipcRenderer.invoke("hapa-echo-tarot-couple-loops:review", payload),
+  asset: (payload) => ipcRenderer.invoke("hapa-echo-tarot-couple-loops:asset", payload)
+}));

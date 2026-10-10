@@ -315,29 +315,34 @@ function createEchoReferenceImageGeneration({
     return { model: MODEL, modelSnapshot: MODEL_SNAPSHOT, fallbackModel: FALLBACK_MODEL, accessConfirmed: false };
   }
 
-  async function loadAlbumPrompts(apiBase) {
+  async function loadAlbumPrompts(apiBase, { songIds = [] } = {}) {
     const response = await fetchImpl(new URL("/api/echos/song-notebook", apiBase), { cache: "no-store" });
     if (!response.ok) throw generationError("prompt_corpus_unavailable", `The Echo Album prompt corpus could not be loaded (${response.status}).`, response.status);
     const payload = await response.json();
-    let jobs = [];
+    let intelligenceJobs = [];
     try {
       const pointer = await readJson(path.join(intelligenceRunsRoot, CURRENT_FILENAME));
       const manifestPath = path.join(intelligenceRunsRoot, pointer.runId, MANIFEST_FILENAME);
       if (isInside(intelligenceRunsRoot, manifestPath)) {
         const intelligenceManifest = await readJson(manifestPath);
-        if (["complete", "complete-with-errors"].includes(intelligenceManifest.state)) jobs = flattenIntelligenceJobs(intelligenceManifest);
+        if (["complete", "complete-with-errors"].includes(intelligenceManifest.state)) intelligenceJobs = flattenIntelligenceJobs(intelligenceManifest);
       }
     } catch { /* The legacy staged corpus remains available until an intelligence pass completes. */ }
-    if (!jobs.length) jobs = flattenJobs(payload);
+    const stagedJobs = flattenJobs(payload);
+    const jobsByPrompt = new Map(stagedJobs.map((job) => [job.promptId, job]));
+    for (const job of intelligenceJobs) jobsByPrompt.set(job.promptId, job);
+    let jobs = [...jobsByPrompt.values()];
+    const requestedSongIds = new Set((songIds || []).map((value) => String(value || "").trim()).filter(Boolean));
+    if (requestedSongIds.size) jobs = jobs.filter((job) => requestedSongIds.has(String(job.songId || "")));
     if (!jobs.length) throw generationError("prompt_corpus_empty", "The Echo Album has no staged Reference Atlas image prompts.");
     return { payload, jobs };
   }
 
-  async function createManifest(apiBase, { mode = "pilot", budgetUsd = 0, reservationPerImageUsd = DEFAULT_BUDGET_RESERVATION_USD } = {}) {
+  async function createManifest(apiBase, { mode = "pilot", budgetUsd = 0, reservationPerImageUsd = DEFAULT_BUDGET_RESERVATION_USD, songIds = [] } = {}) {
     if (!await credentialConfigured()) throw generationError("openai_key_missing", "Add an OpenAI API key in Provider API keys before starting generation.");
     const apiKey = await credentialStore.read("openai");
     const selectedModel = await resolveAvailableModel(apiKey);
-    const { payload, jobs: loadedJobs } = await loadAlbumPrompts(apiBase);
+    const { payload, jobs: loadedJobs } = await loadAlbumPrompts(apiBase, { songIds });
     const jobs = mode === "budget" ? prioritizeCoverageJobs(loadedJobs) : loadedJobs;
     const pilot = selectPilotJobs(jobs, pilotCount);
     const pilotIds = new Set(pilot.map((job) => job.id));
@@ -365,14 +370,14 @@ function createEchoReferenceImageGeneration({
       pilotCount,
       concurrency: { pilot: boundedConcurrency(pilotConcurrency), full: boundedConcurrency(fullConcurrency), active: boundedConcurrency(pilotConcurrency) },
       performance: { rateLimitEvents: 0, retryEvents: 0 },
-      album: { title: payload.album?.title || "Echo Album / Dear Papa", songCount: payload.songs?.length || 0, promptCount: jobs.length },
+      album: { title: payload.album?.title || "Echo Album / Dear Papa", songCount: new Set(jobs.map((job) => job.songId)).size, promptCount: jobs.length, requestedSongIds: [...songIds] },
       custody: { storage: "local-app-data", repositoryWrites: false, credentialExposure: false, humanReviewRequired: true },
       budget: mode === "budget" ? {
         limitUsd: Number(budgetUsd),
         reservationPerImageUsd: Number(reservationPerImageUsd),
         basis: "Hard local dispatch ceiling using a conservative per-image reservation; actual usage is recorded from each API response.",
       } : null,
-      jobs: jobs.map((job) => ({ ...job, status: mode === "budget" || pilotIds.has(job.id) ? "queued" : "held" })),
+      jobs: jobs.map((job) => ({ ...job, status: ["budget", "selected"].includes(mode) || pilotIds.has(job.id) ? "queued" : "held" })),
     };
     await saveManifest(manifest);
     return manifest;
@@ -504,6 +509,17 @@ function createEchoReferenceImageGeneration({
     return publicStatus(manifest, true);
   }
 
+  async function startSelected({ apiBase, songIds = [] } = {}) {
+    const selectedSongIds = [...new Set((songIds || []).map((value) => String(value || "").trim()).filter(Boolean))];
+    if (!apiBase || !selectedSongIds.length) throw generationError("invalid_generation_request", "Choose a valid loopback Echo Album API and at least one Song Card ID.");
+    if (activePromise) throw generationError("generation_busy", "The current request must finish before a song-scoped run starts.");
+    const manifest = await createManifest(apiBase, { mode: "selected", songIds: selectedSongIds });
+    manifest.concurrency.active = boundedConcurrency(Math.min(fullConcurrency, manifest.jobs.length));
+    await saveManifest(manifest);
+    launchQueue();
+    return publicStatus(manifest, true);
+  }
+
   async function startBudget({ apiBase, budgetUsd, reservationPerImageUsd = DEFAULT_BUDGET_RESERVATION_USD } = {}) {
     const limitUsd = Number(budgetUsd);
     const reservation = Number(reservationPerImageUsd);
@@ -597,7 +613,7 @@ function createEchoReferenceImageGeneration({
 
   async function status() { return publicStatus(await loadCurrentManifest(), await credentialConfigured()); }
 
-  return Object.freeze({ start, startBudget, refreshPilot, continueFull, pause, resume, status, _active: () => activePromise });
+  return Object.freeze({ start, startSelected, startBudget, refreshPilot, continueFull, pause, resume, status, _active: () => activePromise });
 }
 
 module.exports = { SCHEMA_VERSION, SIZE, QUALITY, DEFAULT_BUDGET_RESERVATION_USD, createEchoReferenceImageGeneration, flattenJobs, flattenIntelligenceJobs, prioritizeCoverageJobs, selectPilotJobs };

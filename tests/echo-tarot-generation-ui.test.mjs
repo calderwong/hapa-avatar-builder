@@ -11,7 +11,7 @@ const [monitor, notebook, preload, main] = await Promise.all([
 
 test("the Echo Song notebook embeds local run monitoring, references, outputs, and human feedback", () => {
   assert.match(notebook, /EchoTarotGenerationMonitor/);
-  assert.match(monitor, /Generate 4-card quality pilot/);
+  assert.match(monitor, /Generate \{status\.pilotCount \|\| 4\}-card quality pilot/);
   assert.match(monitor, /Continue all/);
   assert.match(monitor, /kind="reference"/);
   assert.match(monitor, /Sent to GPT Image/);
@@ -42,6 +42,8 @@ test("generated Tarot cards provide a large dossier preview and an album-wide br
 
 test("the renderer bridge exposes queue operations but never a credential read method", () => {
   assert.match(preload, /hapaEchoTarotImages/);
+  assert.match(preload, /hapaEchoTarotManImages/);
+  assert.match(preload, /hapaEchoTarotCoupleImages/);
   assert.match(preload, /startPilot/);
   assert.match(preload, /continueFull/);
   assert.match(preload, /review/);
@@ -49,4 +51,30 @@ test("the renderer bridge exposes queue operations but never a credential read m
   assert.match(main, /createEchoTarotImageGeneration/);
   assert.match(main, /providerCredentialStore/);
   assert.match(main, /hapa-echo-tarot-images:start-pilot/);
+  assert.match(main, /hapa-echo-tarot-man-images:start-pilot/);
+  assert.match(main, /hapa-echo-tarot-couple-images:start-pilot/);
+  assert.match(monitor, /Hapa Main Couple/);
+  assert.match(monitor, /Hapa Main Man/);
+  assert.match(monitor, /Hapa Main Woman/);
+});
+
+test("the Echo Tarot monitor exposes the FAL loop pilot, album continuation, and motion review without credential reads", () => {
+  assert.match(monitor, /H3 Max Turbo card loops/);
+  assert.match(monitor, /Generate 3-loop quality pilot/);
+  assert.match(monitor, /Approve pilot & animate album/);
+  assert.match(monitor, /Motion loop/);
+  assert.match(monitor, /FAL motion-loop review/);
+  assert.match(preload, /hapaEchoTarotLoops/);
+  assert.match(preload, /hapaEchoTarotManLoops/);
+  assert.match(preload, /hapaEchoTarotCoupleLoops/);
+  assert.match(preload, /hapa-echo-tarot-loops:start-pilot/);
+  assert.match(preload, /hapa-echo-tarot-loops:continue-full/);
+  assert.match(preload, /hapa-echo-tarot-loops:asset/);
+  assert.match(main, /createEchoTarotLoopGeneration/);
+  assert.match(main, /hapa-echo-tarot-loops:start-pilot/);
+  assert.match(main, /hapa-echo-tarot-loops:continue-full/);
+  assert.match(main, /hapa-echo-tarot-man-loops:start-pilot/);
+  assert.match(main, /hapa-echo-tarot-couple-loops:start-pilot/);
+  assert.match(monitor, /loopAssetBridge=\{loopBridge\}/);
+  assert.doesNotMatch(preload, /hapaEchoTarotLoops[\s\S]*credential/);
 });

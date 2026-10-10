@@ -111,6 +111,45 @@ test("local blueprint stabilization preserves ideas while restoring connection a
   assert.equal(stabilized.localBlueprintStabilization.applied, true);
 });
 
+test("local blueprint stabilization finds a numbered Minor Arcana card after Major and court attachments", () => {
+  const stabilized = service.stabilizeLocalBlueprint({
+    connectionKey: "exact-key",
+    seeds: [
+      { title: "Kettle", heroObject: "a copper kettle", tarotTransformation: "Steam opens the sealed room." },
+      { title: "Table", heroObject: "a shared table", tarotTransformation: "The table releases an old promise." },
+    ],
+  }, {
+    packet: {
+      sourceConnections: [{ connectionKey: "exact-key" }],
+      tarotConnections: [
+        { cardTitle: "The Lovers" },
+        { cardTitle: "Queen of Cups" },
+        { cardTitle: "Ten of Swords" },
+      ],
+    },
+  });
+  assert.equal(stabilized.seeds.length, 2);
+  for (const seed of stabilized.seeds) {
+    assert.match(seed.heroObject, /ten separately readable swords/i);
+    assert.match(seed.tarotTransformation, /Exactly ten separately readable swords/);
+  }
+});
+
+test("local prompt stabilization finds a numbered Minor Arcana card after a Major attachment", () => {
+  const packet = {
+    tarotConnections: [
+      { cardTitle: "The Magician" },
+      { cardTitle: "Three of Pentacles" },
+    ],
+  };
+  const stabilized = service.stabilizeLocalPrompt(concept({
+    characterUse: "object-led",
+    imagePrompt: Array.from({ length: 14 }, () => "The Tarot card The Magician directs a visible mechanical garden where a coin anchors a circuit and each action produces a clear physical consequence.").join(" "),
+  }), { packet });
+  assert.match(stabilized.imagePrompt, /Exactly three separately readable pentacles/);
+  assert.doesNotMatch(service.localPromptAssessment(stabilized, { packet }).gateReasons.join(" "), /missing-explicit-minor-count/);
+});
+
 test("local prompt stabilization removes exclusion padding and bounds overlong prompts without a model retry", () => {
   const long = concept({
     characterUse: "object-led",

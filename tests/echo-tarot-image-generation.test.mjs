@@ -10,12 +10,15 @@ const {
   FALLBACK_MODEL_SNAPSHOT,
   MODEL,
   MODEL_SNAPSHOT,
+  MAIN_COUPLE_PROFILE,
+  MAIN_MAN_PROFILE,
   SIZE,
   addReferenceDirection,
   apiReferences,
   createEchoTarotImageGeneration,
   extractUsage,
   markApiReferenceSelection,
+  providerSafeTarotPrompt,
 } = require("../electron/echo-tarot-image-generation.cjs");
 
 function response(payload, { status = 200, headers = {} } = {}) {
@@ -113,6 +116,128 @@ test("the local runner archives six references but submits the canonical face sh
   assert.equal(reviewed.job.feedback.decision, "revise");
 });
 
+test("the main-man profile uses the male prompt variant, canonical lookbook, isolated custody, and bounded concurrency", async () => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "hapa-echo-tarot-man-run-"));
+  const userDataPath = path.join(temporaryRoot, "user-data");
+  const referencePackPath = path.join(temporaryRoot, "references");
+  await mkdir(referencePackPath, { recursive: true });
+  await Promise.all([
+    "ChatGPT Image Sep 13, 2026, 11_59_33 AM (1).png",
+    "ChatGPT Image Sep 13, 2026, 11_59_33 AM (2).png",
+    "ChatGPT Image Sep 13, 2026, 10_37_09 AM (5).png",
+  ].map((filename, index) => writeFile(path.join(referencePackPath, filename), Buffer.from(`man-reference-${index}`))));
+  const variants = Array.from({ length: 6 }, (_, index) => ({
+    id: `man-prompt-${index}:default-man`,
+    key: "default-man",
+    prompt: `DELIVERABLE\nMain man Tarot prompt ${index}.`,
+  }));
+  const albumPayload = {
+    album: { title: "Dear Papa" },
+    songs: variants.map((variant, index) => ({
+      id: `song-${index}`,
+      title: `Song ${index}`,
+      trackNumber: index + 1,
+      tarotImagePrompts: [{ id: `man-prompt-${index}`, cardId: `card-${index}`, cardTitle: index === 0 ? "The Fool" : `Card ${index}`, variants: [variant] }],
+    })),
+  };
+  let active = 0;
+  let peakActive = 0;
+  const fetchImpl = async (url, options = {}) => {
+    if (String(url).startsWith("http://127.0.0.1")) return response(albumPayload);
+    if (String(url).endsWith("/v1/models")) return response({ data: [{ id: MODEL }] });
+    active += 1;
+    peakActive = Math.max(peakActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    active -= 1;
+    assert.match(options.body.get("prompt"), /supplied identity sheet depicts Hapa Main Man/);
+    assert.match(options.body.get("prompt"), /Do not copy exposed-torso studies/);
+    assert.match(options.body.getAll("image[]")[0].name, /11_59_33 AM \(2\)/);
+    return response({ data: [{ b64_json: Buffer.from("male-output").toString("base64") }], usage: {} }, {
+      headers: { "x-request-id": `man-${Date.now()}`, "x-ratelimit-limit-requests": "100" },
+    });
+  };
+  const runner = createEchoTarotImageGeneration({
+    userDataPath,
+    credentialStore: {
+      status: async () => ({ providers: [{ id: "openai", configured: true }] }),
+      read: async () => "sk-test-only-secret-value",
+    },
+    referencePackPath,
+    profile: MAIN_MAN_PROFILE,
+    pilotConcurrency: 3,
+    fullConcurrency: 6,
+    pilotCount: 6,
+    fetchImpl,
+  });
+  await runner.start({ apiBase: "http://127.0.0.1:8797", mode: "pilot" });
+  await runner._active();
+  const status = await runner.status();
+  assert.equal(status.state, "pilot-complete");
+  assert.equal(status.profileId, "main-man");
+  assert.equal(status.counts.completed, 6);
+  assert.equal(status.concurrency.active, 3);
+  assert.ok(peakActive >= 2);
+  assert.equal(status.performance.lastRateLimit.limitRequests, "100");
+});
+
+test("the main-couple profile preserves both identities, uses the couple variant, and selects the canonical duo lookbook", async () => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "hapa-echo-tarot-couple-run-"));
+  const userDataPath = path.join(temporaryRoot, "user-data");
+  const referencePackPath = path.join(temporaryRoot, "references");
+  await mkdir(referencePackPath, { recursive: true });
+  await Promise.all([
+    "ChatGPT Image Sep 13, 2026, 12_40_49 PM (3).png",
+    "ChatGPT Image Sep 13, 2026, 12_40_49 PM (4).png",
+    "ChatGPT Image Sep 13, 2026, 10_41_47 AM (8).png",
+  ].map((filename, index) => writeFile(path.join(referencePackPath, filename), Buffer.from(`couple-reference-${index}`))));
+  const variants = Array.from({ length: 3 }, (_, index) => ({
+    id: `couple-prompt-${index}:default-couple`,
+    key: "default-couple",
+    prompt: `DELIVERABLE\nHapa Main Man and Hapa Main Woman share Tarot scene ${index}.`,
+  }));
+  const albumPayload = {
+    album: { title: "Dear Papa" },
+    songs: variants.map((variant, index) => ({
+      id: `song-${index}`,
+      title: `Song ${index}`,
+      trackNumber: index + 1,
+      tarotImagePrompts: [{ id: `couple-prompt-${index}`, cardId: `card-${index}`, cardTitle: index === 0 ? "The Lovers" : `Card ${index}`, variants: [variant] }],
+    })),
+  };
+  const requests = [];
+  const fetchImpl = async (url, options = {}) => {
+    if (String(url).startsWith("http://127.0.0.1")) return response(albumPayload);
+    if (String(url).endsWith("/v1/models")) return response({ data: [{ id: MODEL }] });
+    requests.push(options);
+    assert.match(options.body.get("prompt"), /depicts Hapa Main Man and Hapa Main Woman together/);
+    assert.match(options.body.get("prompt"), /without merging their features/);
+    assert.match(options.body.get("prompt"), /equal narrative agency/);
+    assert.match(options.body.getAll("image[]")[0].name, /12_40_49 PM \(4\)/);
+    return response({ data: [{ b64_json: Buffer.from("couple-output").toString("base64") }], usage: {} });
+  };
+  const runner = createEchoTarotImageGeneration({
+    userDataPath,
+    credentialStore: {
+      status: async () => ({ providers: [{ id: "openai", configured: true }] }),
+      read: async () => "sk-test-only-secret-value",
+    },
+    referencePackPath,
+    profile: MAIN_COUPLE_PROFILE,
+    pilotConcurrency: 3,
+    pilotCount: 3,
+    fetchImpl,
+  });
+  await runner.start({ apiBase: "http://127.0.0.1:8797", mode: "pilot" });
+  await runner._active();
+  const status = await runner.status();
+  assert.equal(status.state, "pilot-complete");
+  assert.equal(status.profileId, "main-couple");
+  assert.equal(status.counts.completed, 3);
+  assert.equal(status.references.length, 3);
+  assert.equal(status.references.filter((reference) => reference.submittedToApi).length, 1);
+  assert.equal(requests.length, 3);
+});
+
 test("reference selection prefers the face identity feature map and keeps the full pack reviewable", () => {
   const references = markApiReferenceSelection([
     { id: "hero", filename: "hero.png" },
@@ -132,6 +257,49 @@ test("reference direction treats lookbook text as evidence rather than executabl
   assert.match(result, /supplied identity sheet depicts Hapa Main Woman/);
   assert.match(result, /Do not render a reference sheet, collage, turnaround, UI, mood board/);
   assert.match(result, /DELIVERABLE\nOne Tarot card/);
+});
+
+test("the Hanged Man keeps its archetype while removing moderation-amplifying literal-harm wording", () => {
+  const prompt = providerSafeTarotPrompt(
+    "Hapa Main Man hangs calmly in the inherited living-tree arrangement while the surrounding timeline appears inverted. A broken bridge casts a complete reflection beneath him. Retain the halo and relaxed expression; do not depict torture, a fatal hanging or celebratory self-harm. surrender, new perspective, sacrifice, pause. needless martyrdom, paralysis. Hapa Main Man suspended above a route supporting suspension without injury. muted red #A74A3F identifies Red without suggesting injury",
+    "The Hanged Man"
+  );
+  assert.match(prompt, /floats serenely upside down/);
+  assert.match(prompt, /living-tree branches/);
+  assert.match(prompt, /halo/);
+  assert.doesNotMatch(prompt, /fatal hanging|self-harm|torture|martyrdom|injury/i);
+});
+
+test("the Devil keeps its canonical allegory while replacing moderation-prone staging", () => {
+  const prompt = providerSafeTarotPrompt(
+    "Keep the inherited horned figure, chained pair, torch and inversion. Place a warm glowing pocket and pearl gate behind them. The links are visibly loose, but the environment also contains real barriers. Do not depict the prisoners as foolish or responsible for all coercion they face. attachment, appetite, obsession, domination, shadow. denial of agency, enslavement. chained pair; horned figure; inverted symbolism; torch. seductive system / addiction interface. become a chain. Loose chains and pair. becomes removable chains. beside the chain. seductive gold #D9B65D",
+    "The Devil"
+  );
+  assert.match(prompt, /horned stone guardian/);
+  assert.match(prompt, /fully clothed adult travelers/);
+  assert.match(prompt, /open ceremonial link-bracelets/);
+  assert.doesNotMatch(prompt, /chained pair|enslavement|seductive|prisoners/i);
+});
+
+test("Temperance keeps its two-person ritual while removing moderation-prone couple staging", () => {
+  const prompt = providerSafeTarotPrompt(
+    "the couple / the the couple pours through two recognizable vessels with one foot grounded and one touching water. - Stage one decisive Tarot object in the foreground, the cast's readable hands/gaze/choice in the midground, and one restrained song motif in the background.",
+    "Temperance"
+  );
+  assert.match(prompt, /fully clothed couple stand side by side/);
+  assert.match(prompt, /one boot on land and one boot in shallow water/);
+  assert.match(prompt, /no embrace or intimate contact/);
+  assert.doesNotMatch(prompt, /the the couple|one foot grounded/i);
+});
+
+test("Six of Cups preserves adult lead identity while allowing childhood memory symbols", () => {
+  const prompt = providerSafeTarotPrompt(
+    "- Stage one decisive Tarot object in the foreground, the cast's readable hands/gaze/choice in the midground, and one restrained song motif in the background.",
+    "Six of Cups"
+  );
+  assert.match(prompt, /recognizably adult at their present-day ages/);
+  assert.match(prompt, /photographs, reflections, toys, flowers/);
+  assert.match(prompt, /rather than de-aging the lead couple/);
 });
 
 test("usage ledger applies the published GPT Image 2.5 token rates", () => {
