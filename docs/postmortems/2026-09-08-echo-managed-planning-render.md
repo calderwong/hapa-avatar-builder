@@ -1,0 +1,23 @@
+# Echo managed planning and render verification — September 8, 2026
+
+Status: A2 in progress. Source task: `01a072d3-d593-74f2-8c89-2470c2ee1a40`. Requirements: ECHO-06/17/18. Nine accepted requirements; human acoustic and taste review remain pending.
+
+## Outcome and reuse
+
+Reused the canonical selected-cut projection, compile/certification API, SongCardMintPanel, and Builder-managed HyperFrames renderer. The current Dear Papa saved cut spans 258.44 seconds with 12 readable registry stems. Its source and parent cut are preserved; plans and render attempts use an isolated task store.
+
+Both source-detail and bounded editor payloads hit the former 8 MiB request limit. Planning now compresses large JSON requests without deleting fields; authenticated planning accepts at most 8 MiB gzip/32 MiB decoded JSON. Plain JSON clients retain a 32 MiB planning-only bound; other endpoints retain their existing limits. Malformed gzip/JSON, unsupported encoding, decompression expansion and cancellation are checked. The real request falls from 15,116,724 bytes to 2,052,011 bytes (86.43% less transfer); persisted project and graph deep-equal the submitted values. This is payload reduction, not a measured application latency improvement.
+
+The first managed attempt passed certification but failed four pixel expectations near intro/outro. Inspection proved the show declares quiet sections with two protected persistent shader slots; the renderer correctly suppresses the ordinary third cue. Pixel capture still expected all scheduled cues, unlike the existing readiness owner. Capture now uses the existing source-manifest admission function, and acceptance also rejects unexpected/reordered layers and mismatched budget receipts. Re-evaluating all 52 unchanged captures passes; no pixels, section policy, cue identity, opacity threshold or source timing were altered to satisfy the gate. The failed report is retained.
+
+## Verification and remaining work
+
+Twelve transport/UI checks, 13 pixel/readiness checks, one progress-parser check, and the delivery build pass. The actual Builder native UI also posts a gzip plan successfully (2,177,089bytes), and the stored project/graph retain the selected saved-cut IDs. The actual compressed HTTP plan is persisted losslessly. A second attempt captured 7,754 frames and assembled a full MP4, but five of eight encoded spatial samples failed with only an 800×600 upper-left region. This was contaminated by Codex diagnostic attachment, not evidence of a new product viewport defect. The intended read-only Puppeteer connection omitted `defaultViewport: null`; acquiring pages applies its 800×600 default. A separate blank-browser proof reproduces 1920×1080→800×600 on default connection and preserves 1920×1080 with null. The damaged output is retained and rejected. No viewport workaround or tolerance relaxation was shipped.
+
+The app progress parser previously recognized only `Streaming frame`, while this installed HyperFrames capture route emits `Capturing frame`. The existing renderer now recognizes both and retains its bounded 512 KiB output tail as a local QA log. CORS allows the new Content-Encoding header. Subsequent verification uses only job/process/file progress; no attachment during capture. AGENTS.md carries this guard. The final attempt uses the exact plan produced by the actual UI, with its canonical Song Registry audio ID, and a 25-minute supervisor. Record its final disposition here before publication.
+
+## Learning
+
+What helped: exercising the actual managed path revealed two blockers hidden by standalone short render proofs. What was noise: the diagnostic observer invalidated an otherwise completed full-song attempt; its limited 20-minute supervision extension did not cause the failure and was resumed/cleaned normally. The initial source-profile request and the second bounded-profile request both failed before revealing that the normal planning payload itself exceeds the cap. Old sample-duration/stem failures were not retried. Use the current full-song owner projection, inspect serialized payload size, and follow the existing source-derived admission rule rather than recreating one in a verifier. Keep all render attempts attributed; a planning/capture pass is not an encoded-output pass.
+
+Lesson Card candidate: test the complete user path at the batch boundary; preserve lossless input semantics and derive expected budget behavior from declared source policy, never from the observed renderer output. No broad regression repeat, Conviction inference, source rewrite, mint, human acceptance, or GitHub mutation was performed.

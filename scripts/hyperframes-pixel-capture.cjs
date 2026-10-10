@@ -69,7 +69,10 @@ function expectedLayer(instance) {
   };
 }
 
-function derivedSamples(manifest, timestamps) {
+function derivedSamples(manifest, timestamps, deriveAdmitted) {
+  if (manifest.automation?.visualBudgetPolicy?.schemaVersion === "hapa.echo.section-visual-budget.v1") {
+    return deriveAdmitted(manifest, timestamps);
+  }
   const visualizers = manifestVisualizerInstances(manifest);
   return timestamps.map((timestamp) => {
     const active = visualizers.filter((instance) => {
@@ -231,7 +234,7 @@ console.log(`[lyric-capture] boot pid=${process.pid}`);
 app.whenReady().then(async () => {
   const { echoLyricTemplateFrameState } = await import("../src/domain/echo-lyric-template-runtime.js");
   console.log("[lyric-capture] app ready");
-  const [{ evaluateHyperFramesPixelAcceptance }, { resolveEchoOutputProfile }] = await Promise.all([
+  const [{ evaluateHyperFramesPixelAcceptance, deriveHyperFramesPixelExpectations }, { resolveEchoOutputProfile }] = await Promise.all([
     import("./hyperframes-pixel-acceptance.mjs"),
     import("../src/domain/echo-output-profile.js"),
   ]);
@@ -266,7 +269,7 @@ app.whenReady().then(async () => {
     const expectations = suppliedExpectations || {
       schemaVersion: "hapa.hyperframes.derived-pixel-expectations.v1",
       source: manifestPath,
-      samples: derivedSamples(manifest, timestamps),
+      samples: derivedSamples(manifest, timestamps, deriveHyperFramesPixelExpectations),
     };
     const expectationByTime = new Map((expectations.samples || []).map((row) => [Number(row.timestamp).toFixed(6), row]));
     fs.mkdirSync(output, { recursive: true });

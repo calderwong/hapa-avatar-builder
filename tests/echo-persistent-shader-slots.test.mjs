@@ -21,6 +21,8 @@ test("every song receives two requested always-on defaults and one open slot", (
   assert.equal(slots[1].allow_alternate_isolated_stems, false);
   assert.equal(slots[2].shader_id, "none");
   assert.deepEqual(slots.map((slot) => slot.opacity), [0.14, 0.2, 0.18]);
+  assert.deepEqual(slots.map((slot) => slot.layer_opacity), [1, 1, 1]);
+  assert.deepEqual(slots.map((slot) => slot.knockout_blacks), [true, true, true]);
   assert.deepEqual(slots.map((slot) => slot.blend_mode), ["screen", "screen", "screen"]);
   assert.ok(slots.every((slot) => slot.start_sec === 0 && slot.end_sec === 213.4 && slot.always_on));
 });
@@ -35,24 +37,26 @@ test("persistent segments include only selected slots and always span the song",
     "track-shader-always-on-1",
     "track-shader-always-on-2",
   ]);
-  assert.deepEqual(segments.map((segment) => [segment.opacity, segment.blend_mode]), [
-    [0.14, "screen"],
-    [0.2, "screen"],
+  assert.deepEqual(segments.map((segment) => [segment.opacity, segment.layer_opacity, segment.blend_mode]), [
+    [0.14, 1, "screen"],
+    [0.2, 1, "screen"],
   ]);
 });
 
-test("operator shade values are clamped and preserved in persistent segments", () => {
+test("operator shade and layer values are clamped and preserved in persistent segments", () => {
   const slots = normalizeEchoPersistentShaderSlots({
     duration: 12,
     persistent_shader_slots: [
-      { opacity: -0.25 },
-      { opacity: 0.37 },
-      { enabled: true, shader_id: "isf:custom", opacity: 1.4 },
+      { opacity: -0.25, layer_opacity: 1.8 },
+      { opacity: 0.37, layer_opacity: 0.5 },
+      { enabled: true, shader_id: "isf:custom", opacity: 1.4, layer_opacity: -1 },
     ],
   });
   assert.deepEqual(slots.map((slot) => slot.opacity), [0, 0.37, 1]);
+  assert.deepEqual(slots.map((slot) => slot.layer_opacity), [1, 0.5, 0]);
   const segments = echoPersistentShaderSegments({ duration: 12, persistent_shader_slots: slots });
   assert.deepEqual(segments.map((segment) => segment.opacity), [0, 0.37, 1]);
+  assert.deepEqual(segments.map((segment) => segment.layer_opacity), [1, 0.5, 0]);
 });
 
 test("an operator can switch a configured slot off without losing its shader choice", () => {

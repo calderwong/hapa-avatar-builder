@@ -10,12 +10,12 @@
     "acceptanceState": "exact-build-guided-human-acceptance-pending"
   },
   "source": {
-    "canonicalImplementationRevision": "fe3a5d7e0a3209f0a62c166c104b1bd441d06075",
+    "canonicalImplementationRevision": "3190bae90fef737596abae6146e720744f273d43",
     "canonicalCheckout": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
     "revisionAuthority": "git-rev-parse-HEAD",
     "buildSourceAuthority": "dist/hapa-echo-delivery-build.json",
     "workingTreeClean": false,
-    "workingTreeChangeCount": 51,
+    "workingTreeChangeCount": 31,
     "unrelatedWorkingTreeChangesPreserved": true,
     "truthBoundary": "The Git revision identifies committed implementation history; the delivery receipt independently binds the exact built source and served files."
   },
@@ -231,21 +231,21 @@
     "status": "current-delivery-identity-verified",
     "verification": "strict-static-import-graph-and-served-bundle-identity",
     "recordGardenChunk": {
-      "file": "dist/assets/EchoRecordGarden3DView-DLqk6f6Y.js",
-      "bytes": 206845,
-      "viteSizeKb": 206.85,
-      "viteGzipKb": 66.08,
-      "sha256": "935dada7fcc2f9edd341efb09b8588cb48113186d0b418c77c5af89b897a3dbe"
+      "file": "dist/assets/EchoRecordGarden3DView-CB0zOE5f.js",
+      "bytes": 206856,
+      "viteSizeKb": 206.86,
+      "viteGzipKb": 66.06,
+      "sha256": "8f8340b4e9414ff6f5b26f2a9e8d61973147219eb1559e25d0de12f5b3cb62d6"
     },
     "deliveryReceipt": {
       "schemaVersion": "hapa.echo.delivery-build-receipt.v1",
       "contractVersion": "echo-delivery-static-import-graph-v3",
-      "sourceSha256": "sha256:4641d2bb2a87b55b460f4f4a391e23f93f28b8c4472af84c2eeb285a32f140bc",
-      "servedBundleSha256": "sha256:fa202019d5777abf16647e8f08c13a96d3a02b028d4203a9e10590faf73f5ff3",
+      "sourceSha256": "sha256:ecd60495d8a87ce3f8714267ea5aefd13a4a88213843e205c13dfd49dd28b9a7",
+      "servedBundleSha256": "sha256:7c6274bc4147930bc39b25aefdd941a98f8263d40d3f3efb4105948f1280c8d2",
       "buildToolSha256": "sha256:e7bc85bb82c313b1bba9451f760090581597f3fcda73d6f843d67379b850c268",
-      "semanticSha256": "sha256:4364bd6e89f1cfa7464e830b773f045bf48e433611b9beae713c1f98478d07ba",
-      "fileSha256": "604858263590c6894e2448bd390880b3830c8b03e8346ce2e1065f5898b0361d",
-      "generatedAt": "2026-09-06T15:17:35.158Z"
+      "semanticSha256": "sha256:98fc14d37a220fff096a0df126f47c708f762c6a52d1a76f49d2d18c1e0cf9a4",
+      "fileSha256": "4c036bb03ffc4fb5338f91d10af730aca573209653aff68cffab35ec235e857a",
+      "generatedAt": "2026-09-08T04:39:59.438Z"
     },
     "warning": "Record Garden remains independently lazy-loaded; this refresh makes no size claim about unrelated application chunks."
   },
@@ -309,5 +309,5 @@
     "mintAuthorityClaimed": false,
     "completeVisualFamilyCoverageEverySongClaimed": false
   },
-  "generatedAt": "2026-09-06T15:17:35.208Z"
+  "generatedAt": "2026-09-08T04:46:01.766Z"
 }

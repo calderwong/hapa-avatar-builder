@@ -48,7 +48,7 @@ test("Echo resolves graph-backed shader layers through a bounded lookahead playb
 
   const exactBranch = between(echoSource, "if (hasDirectorShowGraph) {", "} else {\n      const legacyRenderer = legacyEchoRendererTruth");
   assert.match(exactBranch, /pool\.present\(card/);
-  assert.match(exactBranch, /const sourceLayeredCards = /);
+  assert.match(exactBranch, /const sourceLayeredCards = directorPreviewFrame \? graphActiveVisualizerCards/);
   assert.doesNotMatch(exactBranch, /getRenderer\(|spectrum-nebula|visualizerTitle/);
 });
 

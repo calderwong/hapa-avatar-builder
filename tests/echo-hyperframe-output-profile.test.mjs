@@ -95,8 +95,9 @@ test("Echo HyperFrame scripts declare selected persistent shader slots as full-s
   const script = generateEchoHyperframeScript(project);
   assert.match(script, /window\.HAPA_PERSISTENT_SHADER_SLOTS/u);
   assert.equal((script.match(/data-composition-id="hapa-persistent-visualizer"/gu) || []).length, 2);
-  assert.match(script, /data-track-id="track-shader-always-on-1"[\s\S]+data-duration="4"[\s\S]+data-shader-id="isf:5e7a7fc27c113618206de3e4"[\s\S]+data-opacity="0\.14"[\s\S]+data-blend-mode="screen"/u);
-  assert.match(script, /data-track-id="track-shader-always-on-2"[\s\S]+data-stem-focus="leadVocals"[\s\S]+data-stem-fallback="master"[\s\S]+data-opacity="0\.2"[\s\S]+data-blend-mode="screen"/u);
+  assert.match(script, /data-track-id="track-shader-always-on-1"[\s\S]+data-duration="4"[\s\S]+data-shader-id="isf:5e7a7fc27c113618206de3e4"[\s\S]+data-opacity="0\.14"[\s\S]+data-layer-opacity="1"[\s\S]+data-knockout-blacks="true"[\s\S]+data-blend-mode="screen"/u);
+  assert.match(script, /data-track-id="track-shader-always-on-2"[\s\S]+data-stem-focus="leadVocals"[\s\S]+data-stem-fallback="master"[\s\S]+data-opacity="0\.2"[\s\S]+data-layer-opacity="1"[\s\S]+data-blend-mode="screen"/u);
+  assert.match(script, /mix-blend-mode: plus-lighter/u);
   assert.doesNotMatch(script, /  <div id="always-on-shader-3"/u);
 });
 

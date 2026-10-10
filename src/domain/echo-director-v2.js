@@ -723,6 +723,12 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
         index % 2 === 0 ? "screen" : "plus-lighter"
       ));
       const opacity = echoRecipeBaseOpacity(segment.opacity ?? (index % 3 === 2 ? 0.34 : 0.48), segment.recipe_treatment);
+      const layerOpacity = Number.isFinite(Number(segment.layer_opacity ?? segment.layerOpacity))
+        ? Math.max(0, Math.min(1, Number(segment.layer_opacity ?? segment.layerOpacity)))
+        : 1;
+      const knockoutBlacks = sourceKind === "persistent-full-song"
+        ? segment.knockout_blacks !== false && segment.knockoutBlacks !== false
+        : false;
       const sourceAvailable = Boolean(shader?.source);
       const sourceCueOverride = Boolean(shader && (shader.directorEligible === false || shader.enabled === false));
       const eligibility = sourceAvailable
@@ -741,6 +747,8 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
         controls,
         blendMode,
         opacity,
+        layerOpacity,
+        knockoutBlacks,
         target: "program",
         mix: 1,
         transition: String(segment.transition || "crossfade"),
@@ -792,6 +800,8 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
         controls,
         blendMode,
         opacity,
+        layerOpacity,
+        knockoutBlacks,
         fidelity,
         manifestResolution: resolution.receipt,
         eligibility,
@@ -1104,6 +1114,8 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       },
       parameters: {
         opacity: echoRecipeOpacity(visualizer.opacity, normalizedRecipe),
+        layerOpacity: visualizer.layerOpacity ?? 1,
+        knockoutBlacks: visualizer.knockoutBlacks === true,
         blendMode: visualizer.blendMode,
         target: "program",
         motion: "stem-modulated",

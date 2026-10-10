@@ -198,6 +198,8 @@ export function buildPortableVisualizerCard(shader = {}, options = {}) {
     layer: {
       role: String(options.layerRole || "atmosphere"),
       opacity: Number(options.opacity ?? 0.5),
+      layerOpacity: Number(options.layerOpacity ?? options.layer_opacity ?? 1),
+      knockoutBlacks: options.knockoutBlacks === true || options.knockout_blacks === true,
       blend: String(options.blendMode || "screen"),
       target: String(options.target || "program"),
       mix: Number(options.mix ?? 1),

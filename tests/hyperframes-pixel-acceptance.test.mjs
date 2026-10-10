@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   evaluateHyperFramesPixelAcceptance,
+  deriveHyperFramesPixelExpectations,
   matchesExpectedLayer,
   normalizedStemRole,
 } from "../scripts/hyperframes-pixel-acceptance.mjs";
@@ -134,4 +135,28 @@ test("blank shader canvas diagnostics preserve the exact cue and visualizer for 
     effectiveOpacity: null,
   });
   assert.equal(result.diagnostics.blankShaderCanvasFrameDetails[0].canvasMetrics.lumaMax, 0);
+});
+
+
+test("pixel expectations honor declared quiet/verse admission and reject incorrect suppression or extra draws", () => {
+  const layer = (id, protectedSlot = false) => ({ id, cueId: id, visualizerId: `isf:${id}`, stemFocus: "master", start: 0, end: 10, alwaysOn: protectedSlot, trackIndex: protectedSlot ? 2 : 1 });
+  const show = { duration: 10, instances: { visualizers: [layer("cue"), layer("slot-a", true), layer("slot-b", true)], media: [], lyrics: [] }, automation: { visualBudgetPolicy: { schemaVersion: "hapa.echo.section-visual-budget.v1", maxVisualizerLayers: 6, sections: [{ id: "intro", startSeconds: 0, endSeconds: 4, energy: .2 }, { id: "verse", startSeconds: 4, endSeconds: 10, energy: .5 }] } } };
+  const expected = deriveHyperFramesPixelExpectations(show, [3.9, 4]);
+  assert.deepEqual(expected[0].layers.map(l => l.cueId), ["slot-a", "slot-b"]);
+  assert.equal(expected[1].layers.length, 3);
+  assert.deepEqual(expected[0].visualBudget.suppressedIds, ["cue"]);
+  const row = frame(); row.expected = expected[0];
+  row.renderState.layers = expected[0].layers.map(l => ({ ...l, effectiveOpacity: .2 }));
+  row.renderState.drawnLayerCount = 2; row.renderState.visualBudget = structuredClone(expected[0].visualBudget);
+  const evaluate = () => evaluateHyperFramesPixelAcceptance({ frames: [row], timelineReady: true });
+  assert.equal(evaluate().ok, true);
+  row.renderState.visualBudget.suppressedIds = [];
+  assert.equal(evaluate().acceptance.declaredVisualBudgetMatches, false);
+  row.renderState.visualBudget = structuredClone(expected[0].visualBudget);
+  row.renderState.layers.push({ ...expected[1].layers.find(l => l.cueId === "cue"), effectiveOpacity: .2 });
+  assert.equal(evaluate().ok, false);
+  row.renderState.layers.pop(); row.renderState.layers.reverse();
+  assert.equal(evaluate().ok, false);
+  row.renderState.layers.pop();
+  assert.equal(evaluate().ok, false);
 });

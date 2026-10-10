@@ -78,8 +78,10 @@ export function generateEchoHyperframeScript(project = {}) {
     html += `       data-stem-focus="${slot.stem_focus}"\n`;
     html += `       data-stem-fallback="${slot.stem_fallback}"\n`;
     html += `       data-opacity="${slot.opacity}"\n`;
+    html += `       data-layer-opacity="${slot.layer_opacity ?? 1}"\n`;
+    html += `       data-knockout-blacks="${slot.knockout_blacks === false ? "false" : "true"}"\n`;
     html += `       data-blend-mode="${slot.blend_mode}"\n`;
-    html += `       style="width: 100%; height: 100%; position: absolute; inset: 0; pointer-events: none; z-index: ${3 + idx};"></div>\n`;
+    html += `       style="width: 100%; height: 100%; position: absolute; inset: 0; pointer-events: none; z-index: ${3 + idx}; mix-blend-mode: ${slot.knockout_blacks === false ? (slot.blend_mode || "screen") : "plus-lighter"}; opacity: ${Number(slot.opacity ?? 1) * Number(slot.layer_opacity ?? 1)};"></div>\n`;
   });
   html += `\n`;
 

@@ -1618,7 +1618,14 @@ export function summarizeHyperFramesFailure(error) {
   return finalLine.length <= 360 ? finalLine : "HyperFrames could not finish the local MP4. Retry to resume from the verified saved edit.";
 }
 
-function runHyperFramesRender(args, { cwd, report, signal, registerProcess = null }) {
+export function songCardCapturedFrameProgress(output) {
+  const match = [...String(output || "").matchAll(/(?:Streaming|Capturing) frame\s+([0-9]+)\/([0-9]+)/giu)].at(-1);
+  if (!match) return null;
+  const completed = Number(match[1]), total = Number(match[2]);
+  return total > 0 && completed >= 0 && completed <= total ? { completed, total } : null;
+}
+
+function runHyperFramesRender(args, { cwd, report, signal, registerProcess = null, logPath = null }) {
   return new Promise((resolve, reject) => {
     throwIfAborted(signal);
     const child = spawnChild(process.execPath, args, {
@@ -1643,6 +1650,10 @@ function runHyperFramesRender(args, { cwd, report, signal, registerProcess = nul
       if (settled) return;
       settled = true;
       cleanup();
+      if (logPath) {
+        try { fs.writeFileSync(logPath, outputTail, { mode: 0o600 }); }
+        catch (logError) { if (!error) error = logError; }
+      }
       if (error) reject(error);
       else resolve();
     };
@@ -1652,10 +1663,9 @@ function runHyperFramesRender(args, { cwd, report, signal, registerProcess = nul
     let lastReportedPercent = 39;
     const observe = (chunk) => {
       outputTail = `${outputTail}${String(chunk || "")}`.slice(-512 * 1024);
-      const frames = [...outputTail.matchAll(/Streaming frame\s+([0-9]+)\/([0-9]+)/giu)].at(-1);
+      const frames = songCardCapturedFrameProgress(outputTail);
       if (frames) {
-        const completed = Number(frames[1]);
-        const total = Number(frames[2]);
+        const { completed, total } = frames;
         const percent = total > 0 ? Math.min(85, 45 + Math.floor((completed / total) * 40)) : 45;
         if (percent > lastReportedPercent) {
           lastReportedPercent = percent;
@@ -3313,7 +3323,7 @@ async function defaultPipeline({
       "--protocol-timeout=600000",
       "--player-ready-timeout=30000",
       packageDirectory,
-    ], { cwd: ROOT, report, signal, registerProcess });
+    ], { cwd: ROOT, report, signal, registerProcess, logPath: path.join(qaDirectory, "hyperframes-render.log") });
   } catch (error) {
     if (signal?.aborted) throw abortError(signal);
     throw localRendererError("local_hyperframes_render_failed", summarizeHyperFramesFailure(error), 500, {

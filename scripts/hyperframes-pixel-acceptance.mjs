@@ -1,9 +1,34 @@
 import {
   HYPERFRAMES_STEM_ROLE_ALIASES,
   normalizeHyperFramesStemRole,
+  expectedHyperFramesVisualAdmission,
 } from "../src/domain/hyperframes-visualizer-runtime.js";
 
 export const STEM_ROLE_ALIASES = HYPERFRAMES_STEM_ROLE_ALIASES;
+
+export function deriveHyperFramesPixelExpectations(show, timestamps) {
+  return timestamps.map((timestamp) => {
+    const admission = expectedHyperFramesVisualAdmission(show, timestamp);
+    return {
+      timestamp,
+      layers: admission.layers.map((instance) => ({
+        cueId: instance.cueId || instance.id,
+        visualizerId: instance.visualizerId,
+        stemFocus: instance.stemFocus,
+        start: instance.start,
+        end: instance.end,
+      })),
+      visualBudget: admission.receipt,
+      derivedFrom: "executable-show.json:declared-section-admission",
+    };
+  });
+}
+
+function stable(value) {
+  if (Array.isArray(value)) return value.map(stable);
+  return value && typeof value === "object"
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
+}
 
 function finite(value, fallback = 0) {
   return Number.isFinite(Number(value)) ? Number(value) : fallback;
@@ -68,11 +93,15 @@ export function evaluateHyperFramesPixelAcceptance({
   const mismatchedFrames = [];
   const nonPositiveOpacityFrames = [];
   const semanticAliasMatches = [];
+  const budgetMismatches = [];
 
   for (const frame of rows) {
     const actualLayers = renderLayers(frame);
     const expectedLayers = frameExpectedLayers(frame);
     const missing = [];
+    if (frame.expected?.visualBudget && JSON.stringify(stable(frame.expected.visualBudget)) !== JSON.stringify(stable(frame.renderState?.visualBudget))) {
+      budgetMismatches.push({ timestamp: finite(frame.timestamp), expected: frame.expected.visualBudget, actual: frame.renderState?.visualBudget || null });
+    }
     const nonPositive = actualLayers
       .filter((layer) => !(finite(layer.effectiveOpacity, 0) > 0))
       .map(layerSummary);
@@ -94,12 +123,16 @@ export function evaluateHyperFramesPixelAcceptance({
         });
       }
     }
-    if (expectedLayers.length === 0 || missing.length > 0) {
+    const unexpected = actualLayers.filter(actual => !expectedLayers.some(expected => matchesExpectedLayer(actual, expected)));
+    const orderMatches = actualLayers.length === expectedLayers.length && actualLayers.every((actual, index) => matchesExpectedLayer(actual, expectedLayers[index]));
+    if (expectedLayers.length === 0 || missing.length > 0 || unexpected.length > 0 || !orderMatches) {
       mismatchedFrames.push({
         timestamp: finite(frame.timestamp),
         expected: expectedLayers.map(layerSummary),
         actual: actualLayers.map(layerSummary),
         missing,
+        unexpected: unexpected.map(layerSummary),
+        orderMatches,
       });
     }
     if (expectedLayers.length === 0 || actualLayers.length === 0 || nonPositive.length > 0) {
@@ -161,6 +194,7 @@ export function evaluateHyperFramesPixelAcceptance({
     shaderCanvasDrawn: rows.length === 0 || unprovenVisualizerIds.length === 0,
     blankShaderCanvasFrames: rows.filter((frame) => frame.canvasMetrics?.nonBlank !== true).map((frame) => finite(frame.timestamp)),
     renderStateMatchesExpected: rows.length > 0 && mismatchedFrames.length === 0,
+    declaredVisualBudgetMatches: budgetMismatches.length === 0,
     expectedDistinctIdTransitions,
     distinctIdTransitions,
     idTransitionsMatchExpected,
@@ -178,6 +212,7 @@ export function evaluateHyperFramesPixelAcceptance({
     && acceptance.nonBlank
     && acceptance.nonFlat
     && acceptance.renderStateMatchesExpected
+    && acceptance.declaredVisualBudgetMatches
     && acceptance.idTransitionsMatchExpected
     && acceptance.idChangeCausesPixelChange;
 
@@ -191,6 +226,7 @@ export function evaluateHyperFramesPixelAcceptance({
       blankShaderCanvasFrameDetails,
       unprovenVisualizerIds,
       semanticAliasMatches,
+      budgetMismatches,
     },
   };
 }

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { collectEmbeddedSongCardSnapshots } from "../domain/song-card-constituents.js";
+import { prepareSongCardPlanRequest } from "../domain/song-card-plan-transport.js";
 import {
   explainSongCardRenderFailure,
   normalizeSongCardRenderFailure,
@@ -45,7 +46,7 @@ export function ensureSongCardLocalSession() {
 }
 
 export async function songCardAdminFetch(input, init = {}) {
-  const options = { ...init, credentials: init.credentials || "same-origin" };
+  const options = await prepareSongCardPlanRequest(input, { ...init, credentials: init.credentials || "same-origin" });
   let response = await fetch(input, options);
   if (![401, 503].includes(response.status)) return response;
   const failure = await response.clone().json().catch(() => ({}));
