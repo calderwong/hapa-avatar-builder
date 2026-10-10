@@ -1,3 +1,7 @@
+import SongAudioUpload from './SongAudioUpload.jsx';
+import { matchesFileFilter } from '../domain/audio-atlas-ui.js';
+import SongAudioAvailability, { useSongAudioInventory } from "./SongAudioAvailability.jsx";
+import AudioAtlasPanel from "./AudioAtlasPanel.jsx";
 import { echoTimelineMediaInstances, hyperFramesMediaOpacityState } from "../domain/echo-media-presentation.js";
 import { prepareEchoAudioPlayback } from '../domain/echo-audio-playback.js';
 import { transitionLivingLightAudition } from '../domain/living-light-audition.js';
@@ -140,6 +144,7 @@ import {
   normalizeEchoLyricContract,
 } from "../domain/echo-lyric-contract.js";
 import EchoKanbanBoard from "./EchoKanbanBoard.jsx";
+import EchoSongIngestPipeline from "./EchoSongIngestPipeline.jsx";
 import {
   ECHO_PREVIEW_RECORD_FPS,
   ECHO_PREVIEW_RECORD_MAX_DURATION_MS,
@@ -1789,6 +1794,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const [visualSignalSolo, setVisualSignalSolo] = useState({ key: "", role: "" });
   const [preparedAudio, setPreparedAudio] = useState({ status: "idle", key: "", value: null });
   const [preparedAudioRetry, setPreparedAudioRetry] = useState(0);
+  const audioInventory = useSongAudioInventory();
+  const [audioFileFilter, setAudioFileFilter] = useState("all");
+  const [atlasSelection, setAtlasSelection] = useState(null);
   const [gapsReport, setGapsReport] = useState(null);
   const [enriching, setEnriching] = useState(false);
   const [panelStatus, setPanelStatus] = useState({});
@@ -5683,7 +5691,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
 
 
   const overallScore = gapsReport?.overallScore || 0;
-  const songsReport = gapsReport?.songs || [];
+  const legacySongsReport = gapsReport?.songs || [];
+  const gapById = new Map(legacySongsReport.map(song => [song.id, song]));
+  // The canonical song inventory includes songs absent from the older completeness report.
+  const songsReport = audioInventory.summary ? Object.values(audioInventory.songs).map(song => ({
+    ...(gapById.get(song.id) || { checklist: {}, score: null, completenessUnavailable: true }),
+    id: song.id, title: song.title,
+  })) : legacySongsReport;
 
   const filteredSongs = songsReport.filter(song => {
     return searchQuery === "" || 
@@ -5697,11 +5711,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
       <header className="hapa-songs-hero hapa-panel" data-variant="hot">
         <div>
           <p className="eyebrow">Echos of Other Eras</p>
-          <h2>Album Consolidation App</h2>
-          <span>Human-Agent Collaborative Workspace to analyze, enrich, and validate song and media metadata.</span>
+          <h2>Echo album workspace</h2>
+          <span>Check audio files, listen to stems, and develop song visuals.</span>
         </div>
         <div className="hapa-songs-readouts">
-          <StatusChip label="COMPLETENESS" value={`${overallScore}%`} tone={overallScore === 100 ? "green" : "rose"} />
+          <StatusChip label="METADATA" value={`${overallScore}%`} tone={overallScore === 100 ? "green" : "rose"} />
           <StatusChip label="SONGS" value={directorProjects.length || "—"} tone="cyan" />
           <StatusChip label="VIDEOS" value={gapsReport?.summary?.totalVideos || 0} tone="fuchsia" />
           <button
@@ -5730,6 +5744,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
           </button>
         </div>
       </header>
+
+      <AudioAtlasPanel songId={selectedProjectSongId} selection={atlasSelection} inventory={audioInventory} />
+      <details className="echo-song-import-disclosure"><summary>Add or import a song</summary><EchoSongIngestPipeline /></details>
 
       <div aria-label="Echo panel loading status" aria-live="polite" style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 14 }}>
         {Object.entries({ catalog: "Songs", board: "Board", gaps: "Analysis", shaders: "Shaders" }).map(([key, label]) => {
@@ -5926,63 +5943,21 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
 
           {activeDirectoryTab === "songs" ? (
             <>
-              {/* Songs Title & Search */}
-              <div className="section-head hapa-panel-head" style={{ flexShrink: 0 }}>
-                <span><Music size={15} /> Dear Papa Song Directory ({gapsReport?.summary?.averageSongCompleteness}% Complete)</span>
+              <div className="song-audio-toolbar">
+                <div className="section-head hapa-panel-head"><span><Music size={15} /> Song library · {songsReport.length} songs</span></div>
+                <p style={{fontSize:13,margin:0}}>Check your audio files, then open a song to listen and review.</p>
+                <div className="song-audio-check" role="status"><button disabled={audioInventory.status==='loading'} onClick={audioInventory.refresh}>{audioInventory.status==='loading'?'Checking files…':'Recheck files'}</button><span>{audioInventory.error || (audioInventory.summary ? `${audioInventory.summary.wav} WAV · ${audioInventory.summary.mp3} MP3 · ${audioInventory.summary.complete_wav_stems} WAV stem sets · ${audioInventory.summary.complete_mp3_stems} MP3 stem sets` : 'Checking local sources…')}</span></div>
+                <label>Search songs<input placeholder="Search songs by title or ID..." value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} /></label>
+                <label>File availability<select aria-label="File availability" value={audioFileFilter} onChange={e=>setAudioFileFilter(e.target.value)}><option value="all">All songs</option><option value="attention">Any missing or unchecked files</option><option value="wav">WAV missing or unchecked</option><option value="mp3">MP3 missing or unchecked</option><option value="wav_stems">WAV stems incomplete or unchecked</option><option value="mp3_stems">MP3 stems incomplete or unchecked</option></select></label>
+                <small>{filteredSongs.filter(song=>matchesFileFilter(audioInventory.songs[song.id],audioFileFilter)).length} matching songs</small>
               </div>
-
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', padding: '6px 10px', flexShrink: 0 }}>
-                <Search size={14} style={{ opacity: 0.6 }} />
-                <input 
-                  type="text" 
-                  placeholder="Search songs by title or ID..." 
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{ background: 'none', border: 'none', color: '#fff', fontSize: '11px', width: '100%', outline: 'none' }}
-                />
-              </div>
-
-              <div className="songs-gaps-grid" style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, overflowY: 'auto' }}>
-                {filteredSongs.map(song => (
-                  <div key={song.id} style={{ display: 'flex', flexDirection: 'column', borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '6px 8px' }}>
-                    <div 
-                      onClick={() => setExpandedSongId(expandedSongId === song.id ? null : song.id)}
-                      style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}
-                    >
-                      <span style={{ fontWeight: expandedSongId === song.id ? 'bold' : 'normal', color: expandedSongId === song.id ? 'var(--hapa-neon-cyan)' : 'inherit' }}>
-                        {expandedSongId === song.id ? '▼ ' : '▶ '} {song.title}
-                      </span>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <span title="Sections" style={{ opacity: song.checklist.hasSections ? 1 : 0.2 }}>📊</span>
-                        <span title="Beats" style={{ opacity: song.checklist.hasBeats ? 1 : 0.2 }}>⏱️</span>
-                        <span title="Vocal Density" style={{ opacity: song.checklist.hasVocalDensity ? 1 : 0.2 }}>🎙️</span>
-                        <span title="Stems" style={{ opacity: song.checklist.hasStems ? 1 : 0.2 }}>🎹</span>
-                        <span title="Spine" style={{ opacity: song.checklist.hasNarrativeSpine ? 1 : 0.2 }}>📖</span>
-                        <span style={{ fontWeight: 'bold', color: '#10b981' }}>{song.score}%</span>
-                      </div>
-                    </div>
-                    {expandedSongId === song.id && (
-                      <div style={{ padding: '10px', background: 'rgba(0,0,0,0.3)', borderRadius: '4px', marginTop: '8px', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                          <div><strong>Sections:</strong> {song.checklist.hasSections ? '✅ 9 markers (Intro, Verse, Chorus, Bridge, Outro)' : '❌ Missing'}</div>
-                          <div><strong>Beat Grid:</strong> {song.checklist.hasBeats ? '✅ 48 downbeats mapped (2.5s)' : '❌ Missing'}</div>
-                          <div><strong>Vocal Density:</strong> {song.checklist.hasVocalDensity ? '✅ Mapped (Instrumental vs Vocals)' : '❌ Missing'}</div>
-                          <div><strong>Stems:</strong> {song.checklist.hasStems ? '✅ 12 stems (Vocals, Drums, Bass, etc.)' : '❌ Missing'}</div>
-                          <div><strong>Narrative Spine:</strong> {song.checklist.hasNarrativeSpine ? '✅ Performance journey loaded' : '❌ Missing'}</div>
-                          <div><strong>Canon Links:</strong> {song.checklist.hasCanonLinks ? '✅ Suno-playlist hard link' : '❌ Missing'}</div>
-                        </div>
-                        <div style={{ marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '6px' }}>
-                          <strong>Spine:</strong> <span style={{ opacity: 0.8 }}>Local spine for "{song.title}": Narrative journey tracing motifs from performance perspective.</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {filteredSongs.length === 0 && (
-                  <div style={{ textAlign: 'center', opacity: 0.5, fontSize: '11px', padding: '12px' }}>
-                    No songs match filter
-                  </div>
-                )}
+              <div className="songs-gaps-grid" style={{display:'flex',flexDirection:'column',gap:8,flex:1,overflowY:'auto'}}>
+                {filteredSongs.filter(song=>matchesFileFilter(audioInventory.songs[song.id],audioFileFilter)).map(song=><article className="song-audio-row hapa-card" data-card-type="media" data-granularity="mini" key={song.id}>
+                  <button aria-expanded={expandedSongId===song.id} onClick={()=>setExpandedSongId(expandedSongId===song.id?null:song.id)}><strong>{song.title}</strong><span>{expandedSongId===song.id?'Hide details −':'Details +'}</span></button>
+                  <SongAudioAvailability entry={audioInventory.songs[song.id]} loading={audioInventory.status==='loading'} error={audioInventory.error} />
+                  {expandedSongId===song.id&&<div className="song-audio-expanded"><SongAudioUpload key={song.id} songId={song.id} title={song.title} onSaved={audioInventory.refresh} /><button onClick={()=>setAtlasSelection({songId:song.id,nonce:Date.now()})}>Open in Audio Atlas →</button><details><summary>File locations & missing stems</summary><SongAudioAvailability entry={audioInventory.songs[song.id]} details loading={audioInventory.status==='loading'} error={audioInventory.error} /></details><details><summary>Other song metadata</summary><p>{song.completenessUnavailable?'Metadata completeness has not been assessed.':`Metadata checklist: ${song.score}% complete. This does not measure audio quality or timing accuracy.`}</p>{Object.entries(song.checklist).map(([key,value])=><p key={key}>{key.replace(/^has/,'').replace(/([A-Z])/g,' $1').trim()}: {value?'Recorded':'Not recorded'}</p>)}</details></div>}
+                </article>)}
+                {!filteredSongs.some(song=>matchesFileFilter(audioInventory.songs[song.id],audioFileFilter))&&<p>No songs match. Clear the search or choose All songs.</p>}
               </div>
             </>
           ) : activeDirectoryTab === "media" ? (
@@ -6514,7 +6489,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                           aria-label={`Open ${proj.song_title}`}
                           aria-pressed={isSelected}
                           disabled={directorEditingLocked || (directorHasUnsavedChanges && !isSelected)}
-                          title={directorHasUnsavedChanges && !isSelected ? "Save or cancel the current edit before switching songs." : ""}
+                          title={directorHasUnsavedChanges && !isSelected ? "Save or cancel the current edit before switching songs." : proj.song_title}
                           onClick={() => { void handleSelectDirectorProjectSong(proj.song_id); }}
                           style={{ 
                             width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit',
@@ -6531,11 +6506,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                             transition: 'all 0.15s ease'
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
-                            <span style={{ color: isSelected ? 'var(--hapa-neon-violet)' : 'inherit', fontWeight: isSelected ? 'bold' : 'normal', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '120px' }}>
-                              {proj.song_title}
-                            </span>
-                          </div>
+                          <span style={{ flex: 1, minWidth: 0, marginRight: '8px', color: isSelected ? 'var(--hapa-neon-violet)' : 'inherit', fontWeight: isSelected ? 'bold' : 'normal', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                            {proj.song_title}
+                          </span>
                           
                           <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
                             <span style={{ 
@@ -7283,6 +7256,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                             </span>
                           </div>
                         </header>
+
+                        <details key={activeProject.song_id} aria-label="Selected song audio files" style={{ border: '1px solid var(--hapa-border)', borderRadius: '4px', padding: '8px 10px' }}>
+                          <summary style={{ cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>Audio files · WAV, MP3 &amp; stems</summary>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+                            <SongAudioAvailability entry={audioInventory.songs[activeProject.song_id]} loading={audioInventory.status === 'loading'} error={audioInventory.error} />
+                            <button type="button" className="hapa-button" onClick={() => setAtlasSelection({ songId: activeProject.song_id, nonce: Date.now() })}>Manage audio files</button>
+                          </div>
+                        </details>
 
                         {/* Monospace Telemetry HUD Bar */}
                         {(() => {

@@ -1,11 +1,21 @@
 #!/usr/bin/env node
+import { createSongAudioUpload } from './song-audio-upload.mjs';
+import { createAudioAtlas } from './audio-atlas.mjs';
+import { handleAudioAtlas } from './audio-atlas-routes.mjs';
 import { verifyEchoPlaybackAudioReceipt } from './echo-playback-audio.mjs';
+import { readSongCardPlanRequest } from './song-card-plan-request.mjs';
 import { readEchoPlaybackProxyFrameIndex } from './echo-playback-proxy.mjs';
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { execFile, execFileSync, spawn, execSync, exec } from "node:child_process";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile, stat, readdir, access, rm, rename } from "node:fs/promises";
+import {readLivingLightSongCatalog} from './living-light-catalog.mjs';
+import {selectEchoPlaybackSource} from './echo-playback-selection.mjs';
+import {createLivingLightService} from './living-light-service.mjs';
+import {livingLightUiPolicy,bindBuilderListener,builderListenerBind,loopbackUiRedirect,startLivingLightLoopbackUi} from './living-light-loopback-ui.mjs';
+import {handleLivingLight,livingLightBrowserContext} from './living-light-routes.mjs';
+import {readLivingLightSourceEvidence} from './living-light-source-evidence.mjs';
 import fs from "node:fs";
 import { homedir, networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
@@ -16,6 +26,8 @@ import { createPreparedEchoPerformanceStore } from "./echo-prepared-performance-
 import { createEchoPerformancePreparation } from "./echo-performance-preparation.mjs";
 import { openEchoPreviewPreparation, echoPreviewSelectionInput } from "./echo-preview-preparation.mjs";
 import { echoPerformanceInputs } from "./echo-performance-inputs.mjs";
+import {createLivingLightPerformancePort} from './living-light-performance-port.mjs';
+import {livingLightPerformanceInputs, LIVING_LIGHT_SOURCE_POLICY} from "./living-light-performance-inputs.mjs";
 import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
 import { createEchoKanbanStore } from "./echo-kanban-store.mjs";
 import { createEchoKanbanMirrorReader } from "./echo-kanban-mirror.mjs";
@@ -275,6 +287,7 @@ import {
   buildEchoAlbumCondensedReference,
   buildEchoAlbumMasterReference,
 } from "../src/domain/echo-master-reference-export.js";
+import { createEchoSongIngestService } from "./echo-song-ingest.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -534,8 +547,12 @@ async function currentEchoRecordGardenAcceptanceContext() {
 }
 const execFileAsync = promisify(execFile);
 const DATA_DIR = path.join(ROOT, "data");
-const echoPreparedPerformanceStore = createPreparedEchoPerformanceStore({ root: path.join(DATA_DIR, "cache/echo-performance") });
-const echoPerformancePreparation = createEchoPerformancePreparation({ root: ROOT });
+const echoPerformanceCacheRoot = process.env.HAPA_ECHO_PERFORMANCE_CACHE_ROOT || path.join(DATA_DIR, "cache/echo-performance");
+const echoPreparedPerformanceStore = createPreparedEchoPerformanceStore({ root: echoPerformanceCacheRoot });
+const echoPerformancePreparation = createEchoPerformancePreparation({ root: ROOT,
+  performanceCacheRoot:echoPerformanceCacheRoot, analysisCacheRoot:process.env.HAPA_ECHO_ANALYSIS_CACHE_ROOT || path.join(DATA_DIR,'cache/stem-analysis'),
+  ...(process.env.HAPA_ECHO_PLAYBACK_CACHE_ROOT ? {playbackCacheRoot:path.resolve(process.env.HAPA_ECHO_PLAYBACK_CACHE_ROOT)} : {}),
+  ...(process.env.HAPA_ECHO_PREPARATION_JOB_ROOT ? {jobRoot:path.resolve(process.env.HAPA_ECHO_PREPARATION_JOB_ROOT)} : {}) });
 const echoKanbanStore = createEchoKanbanStore({
   boardPath: process.env.HAPA_ECHO_KANBAN_PATH || path.join(homedir(), "Desktop/Echos-of-Other-Eras-Album-App/kanban.json"),
   stateRoot: process.env.HAPA_ECHO_KANBAN_STATE_ROOT || path.join(DATA_DIR, "echo-kanban"),
@@ -725,6 +742,10 @@ function withSongCardRenderExecutor(payload = {}) {
 }
 const DEAR_PAPA_SONGBOOK_PATH = process.env.HAPA_DEAR_PAPA_SONGBOOK || path.join(ROOT, "data/dear-papa-songbook.json");
 const HAPA_SONG_STORE_PATH = process.env.HAPA_SONG_STORE || path.join(ROOT, "data/hapa-songs-store.json");
+const echoSongIngestService = createEchoSongIngestService({
+  root: ROOT,
+  runtimeRoot: process.env.HAPA_ECHO_SONG_INGEST_ROOT || undefined,
+});
 const ECHO_REFERENCE_MINING_ROOT = process.env.HAPA_ECHO_REFERENCE_MINING_ROOT || path.join(ROOT, "data/echo-reference-mining");
 const echoReferenceMiningStore = createEchoReferenceMiningStore({
   root: ECHO_REFERENCE_MINING_ROOT,
@@ -1112,8 +1133,15 @@ ALLOWED_ORIGINS.add(`http://localhost:${port}`);
 const httpsPortArg = args.get("https-port") ?? process.env.HAPA_AVATAR_HTTPS_PORT ?? (usesAppLaunchDefaults ? true : "");
 const httpsPort = httpsPortArg === true ? port + 1 : Math.max(0, Number(httpsPortArg || 0) || 0);
 const httpsHost = String(args.get("https-host") || process.env.HAPA_AVATAR_HTTPS_HOST || host);
+const livingLightLocalUiPolicy = livingLightUiPolicy({staticDir,host,port,httpsPort,explicitPort:args.get("local-ui-port") ?? process.env.HAPA_AVATAR_LOCAL_UI_PORT});
+if (livingLightLocalUiPolicy.startCompanion) {
+  ALLOWED_ORIGINS.add(livingLightLocalUiPolicy.origin);
+  ALLOWED_ORIGINS.add(`http://localhost:${livingLightLocalUiPolicy.port}`);
+}
+let livingLightLocalUiHandle = null;
+let livingLightLocalUiError = null;
 const LOCAL_UI_SESSION_COOKIE = `hapa_avatar_local_session_${port}`;
-const LOCAL_UI_SESSION_ENABLED = ["127.0.0.1", "localhost", "::1", "0.0.0.0", "::"].includes(host.toLowerCase())
+const LOCAL_UI_SESSION_ENABLED = (livingLightLocalUiPolicy.startCompanion || ["127.0.0.1", "localhost", "::1", "0.0.0.0", "::"].includes(host.toLowerCase()))
   && (Boolean(staticDir) || process.env.HAPA_AVATAR_TRUST_LOCAL_UI === "1" || args.get("trust-local-ui") === true);
 const LOCAL_UI_SESSION_TOKEN = LOCAL_UI_SESSION_ENABLED ? randomBytes(32).toString("base64url") : "";
 const SONG_CARD_ARTIFACT_SIGNING_KEY = AVATAR_ADMIN_TOKEN || LOCAL_UI_SESSION_TOKEN;
@@ -1129,6 +1157,8 @@ let httpsBridgeStartupError = "";
 
 async function handleServerRequest(req, res) {
   try {
+    const localUiRedirect = loopbackUiRedirect(req,{primaryPort:port,policy:livingLightLocalUiPolicy,active:livingLightLocalUiHandle?.state==='listening'});
+    if (localUiRedirect) {res.writeHead(302,{'Location':localUiRedirect,'Cache-Control':'no-store'});res.end();return;}
     await route(req, res);
   } catch (error) {
     sendJson(res, Number(error?.statusCode || 500), {
@@ -1138,12 +1168,18 @@ async function handleServerRequest(req, res) {
   }
 }
 
-const server = createHttpServer(handleServerRequest);
+const server = createHttpServer(bindBuilderListener(handleServerRequest,{host,role:'primary'}));
+try {
+  livingLightLocalUiHandle = await startLivingLightLoopbackUi({policy:livingLightLocalUiPolicy,handler:handleServerRequest});
+  if (livingLightLocalUiHandle.state==='listening') console.log(`Builder local UI listening on ${livingLightLocalUiHandle.origin}; Phone Card listeners retain their configured binds`);
+} catch (error) {livingLightLocalUiError=error.code||'living_light_ui_start_failed';ALLOWED_ORIGINS.delete(livingLightLocalUiPolicy.origin);ALLOWED_ORIGINS.delete(`http://localhost:${livingLightLocalUiPolicy.port}`);console.warn(`Builder loopback UI unavailable: ${error.message}`);}
 
 let overcardHostHandle = null;
 try {
   overcardHostHandle = await ensureLocalOvercardHost({
     nodeId: "hapa-avatar-builder-overcard-host",
+    dataRoot: process.env.HAPA_AVATAR_OVERCARD_DATA_ROOT || undefined,
+    baseUrl: process.env.HAPA_OVERCARD_HOST_URL || undefined,
     allowedOrigins: [...new Set([
       ...ALLOWED_ORIGINS,
       `http://127.0.0.1:${port}`,
@@ -1175,10 +1211,16 @@ async function stopOwnedOvercardHost() {
   await overcardHostHandle?.close();
   overcardHostHandle = null;
 }
+let audioAtlasService = null;
+let livingLightService = null;
+let songAudioUploadService = null;
 let shutdownPromise = null;
 function shutdownBuilder(signal) {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = Promise.allSettled([
+    audioAtlasService?.close() || Promise.resolve(),
+    Promise.resolve().then(() => livingLightService?.close()),
+    livingLightLocalUiHandle?.close() || Promise.resolve(),
     echoPerformancePreparation.close(),
     echoPreviewPreparationPromise?.then(service => service.close()).catch(() => {}),
     songCardLocalRenderBridge?.shutdown?.({ reason: signal }) || Promise.resolve(),
@@ -1192,7 +1234,7 @@ process.once("SIGTERM", () => { void shutdownBuilder("SIGTERM"); });
 if (httpsPort) {
   ensureLocalHttpsCredentials()
     .then((credentials) => {
-      const httpsServer = createHttpsServer(credentials, handleServerRequest);
+      const httpsServer = createHttpsServer(credentials, bindBuilderListener(handleServerRequest,{host:httpsHost,role:'phone-https'}));
       httpsServer.listen(httpsPort, httpsHost, () => {
         httpsBridgeActive = true;
         console.log(`Hapa Avatar Builder secure phone bridge listening on https://${httpsHost}:${httpsPort}`);
@@ -2544,6 +2586,86 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === '/api/echos/living-light/catalog' && req.method === 'GET') {
+    try { sendJson(res, 200, await readLivingLightSongCatalog({songStorePath: HAPA_SONG_STORE_PATH, root: ROOT, songId:url.searchParams.get('songId')})); }
+    catch (error) { sendJson(res, 422, {ok:false,error:'living_light_catalog_failed',message:error.message}); }
+    return;
+  }
+
+  if (pathname==='/api/echos/living-light/local-ui' && req.method==='GET') {sendJson(res,200,{ok:true,state:livingLightLocalUiHandle?.state||'unavailable',origin:livingLightLocalUiHandle?.origin||null,error:livingLightLocalUiError});return;}
+
+  if (pathname.startsWith('/api/echos/living-light/')) {
+    const browserContext = (request, bootstrap = false) => livingLightBrowserContext(request, {allowedOrigins: ALLOWED_ORIGINS, loopbackAddress, serverBind: builderListenerBind(request,host), bootstrap});
+    const authorize = (request, response) => {
+      if (request.headers.authorization) {
+        if (AVATAR_ADMIN_TOKEN && timingSafeTextEqual(request.headers.authorization, `Bearer ${AVATAR_ADMIN_TOKEN}`)) return {mode:'authenticated-api',actor:{actorId:'agent:local-api',kind:'agent',displayName:'Authenticated API client'}};
+        sendJson(response,401,{error:'unauthorized',preDispatch:true});return null;
+      }
+      if (hasTrustedLocalUiSession(request)) {
+        if (!browserContext(request)) {sendJson(response,403,{error:'living_light_origin_rejected',preDispatch:true});return null;}
+        return {mode:'trusted-local-ui',actor:{actorId:'human:local-operator',kind:'human',displayName:'Local operator'}};
+      }
+      sendJson(response,401,{error:'unauthorized',preDispatch:true});return null;
+    };
+    const bootstrap = async (request,response) => {
+      if (!LOCAL_UI_SESSION_ENABLED || !browserContext(request,true) || request.headers['transfer-encoding'] || Number(request.headers['content-length']||0)!==0) {sendJson(response,403,{error:'living_light_session_denied',preDispatch:true});return;}
+      const bytes=await readRawBody(request,1);if(bytes.length){sendJson(response,400,{error:'empty_session_body_required',preDispatch:true});return;}
+      response.setHeader('Set-Cookie',localUiSessionCookie(request));response.setHeader('Cache-Control','no-store');sendJson(response,201,{ok:true,authMode:'trusted-local-ui',processScoped:true});
+    };
+    // Construct only after authorization; an anonymous read cannot create a store.
+    const suffix=pathname.slice('/api/echos/living-light'.length);
+    if (suffix==='/session' && req.method==='POST') {await bootstrap(req,res);return;}
+    const caller=authorize(req,res);if(!caller)return;
+    livingLightService ||= createLivingLightService({root:ROOT,storePath:process.env.HAPA_LIVING_LIGHT_AUTHORING_STORE,custodyOwner:avatarCardCustodyService,resolveSong:async songId=>(await readJson(HAPA_SONG_STORE_PATH)).songs.find(song=>song.id===songId)});
+    const performance = createLivingLightPerformancePort({readSongStore:()=>readJson(HAPA_SONG_STORE_PATH),resolveOptions:{root:ROOT,mediaDir:MEDIA_DIR,songRegistryPath:SONG_REGISTRY_DATA_PATH,songbookPath:DEAR_PAPA_SONGBOOK_PATH,songStorePath:HAPA_SONG_STORE_PATH},preparation:echoPerformancePreparation,preparedStore:echoPreparedPerformanceStore});
+    if (await handleLivingLight({req,res,url,service:livingLightService,authorize:()=>caller,bootstrap,readBody,sendJson,performance,sourceEvidence:options=>readLivingLightSourceEvidence({root:ROOT,songStorePath:HAPA_SONG_STORE_PATH,...options})}))return;
+  }
+
+  if (pathname.startsWith('/api/echos/audio-atlas')) {
+    audioAtlasService ||= createAudioAtlas({ root: ROOT, songStore: HAPA_SONG_STORE_PATH });
+    songAudioUploadService ||= createSongAudioUpload({ root: ROOT, storePath: HAPA_SONG_STORE_PATH, onSaved: () => invalidateJsonCache(HAPA_SONG_STORE_PATH) });
+    if (await handleAudioAtlas({ req, res, url, atlas: audioAtlasService, uploads: songAudioUploadService, requireAdmin, readBody, sendJson, serveLocalFile })) return;
+  }
+
+  if (pathname === "/api/echos/song-ingest" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    const current = echoSongIngestService.get(url.searchParams.get("runId") || "");
+    sendJson(res, 200, {
+      ok: true,
+      schemaVersion: "hapa.echo-song-ingest-status.v1",
+      current,
+      runs: echoSongIngestService.listRuns().map((run) => ({
+        runId: run.runId,
+        state: run.state,
+        title: run.song?.title || "",
+        trackNumber: run.song?.trackNumber || 0,
+        updatedAt: run.updatedAt,
+      })),
+    });
+    return;
+  }
+
+  if (pathname === "/api/echos/song-ingest/inspect" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      sendJson(res, 201, { ok: true, run: echoSongIngestService.inspect(await readBody(req)) });
+    } catch (error) {
+      sendJson(res, 422, { ok: false, error: "echo_song_ingest_inspection_failed", message: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/song-ingest/register" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      sendJson(res, 201, { ok: true, run: echoSongIngestService.register(body.runId || "") });
+    } catch (error) {
+      sendJson(res, 422, { ok: false, error: "echo_song_ingest_registration_failed", message: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+
   if (pathname === "/api/echos/references" && req.method === "GET") {
     const songId = String(url.searchParams.get("songId") || "").trim();
     const summaryOnly = url.searchParams.get("summary") === "1";
@@ -3368,13 +3490,13 @@ async function route(req, res) {
   }
 
   if (pathname === "/api/echos/playback-audio" && req.method === "GET") {
-    const job = echoPerformancePreparation.get(url.searchParams.get('jobId'));
-    if (job?.kind !== 'playback-audio' || job.status !== 'ready' || !await verifyEchoPlaybackAudioReceipt(job.result)) {
+    const receipt = echoPerformancePreparation.getPlaybackReceipt(url.searchParams.get('jobId'));
+    if (!receipt || !await verifyEchoPlaybackAudioReceipt(receipt)) {
       sendJson(res, 409, { error: 'echo_playback_audio_stale', message: 'Prepared audio is unavailable or its source changed. Retry audio.' }); return;
     }
-    res.setHeader('X-Hapa-Audio-Source-Sha256', job.result.sourceHash);
-    res.setHeader('X-Hapa-Audio-PCM-Sha256', job.result.pcmSha256);
-    await serveLocalFile(job.result.path, req, res); return;
+    res.setHeader('X-Hapa-Audio-Source-Sha256', receipt.sourceHash);
+    res.setHeader('X-Hapa-Audio-PCM-Sha256', receipt.pcmSha256);
+    await serveLocalFile(receipt.path, req, res); return;
   }
 
   if (pathname === '/api/echos/playback-proxy-frame-index' && req.method === 'GET') {
@@ -3395,7 +3517,38 @@ async function route(req, res) {
   if ((pathname === "/api/echos/music-performance" && req.method === "GET")
     || (["/api/echos/music-performance/prepare", "/api/echos/playback-audio/prepare"].includes(pathname) && req.method === "POST")) {
     try {
-      const songId = safeEchoDirectionPathSegment(url.searchParams.get("songId"), "song");
+      const sourcePolicy = url.searchParams.get('sourcePolicy');
+      if(sourcePolicy !== null) {
+        if(!requireAdmin(req,res)) return;
+        if(sourcePolicy !== LIVING_LIGHT_SOURCE_POLICY || !['/api/echos/music-performance','/api/echos/music-performance/prepare'].includes(pathname) || url.searchParams.has('assetId') || (req.method === 'POST' && pathname !== '/api/echos/music-performance/prepare')) throw Object.assign(new Error('Unsupported preparation source policy.'), {code:'living_light_source_policy_invalid',statusCode:422});
+        const songId = url.searchParams.get('songId');
+        if(!songId || songId.length > 300) throw Object.assign(new Error('Select an exact registered Song ID.'), {code:'living_light_song_invalid',statusCode:422});
+        const songStore = await readJson(HAPA_SONG_STORE_PATH);
+        const options = {root:ROOT,mediaDir:MEDIA_DIR,songRegistryPath:SONG_REGISTRY_DATA_PATH,songbookPath:DEAR_PAPA_SONGBOOK_PATH,songStorePath:HAPA_SONG_STORE_PATH};
+        const input = livingLightPerformanceInputs({songId,songStore,resolveOptions:options});
+        if(req.method === 'POST') {
+          if(req.aborted || res.destroyed) return;
+          const job = echoPerformancePreparation.start({kind:'performance',songId,variantId:LIVING_LIGHT_SOURCE_POLICY,masterPath:input.masterPath,graph:input.graph});
+          sendJson(res,202,job);return;
+        }
+        const result = await echoPreparedPerformanceStore.load({masterPath:input.masterPath,stems:input.graph.stems.items,lyrics:{},sourcePolicy,songId});
+        for(const bus of result.performance.buses)bus.provenance=(bus.provenance||[]).map(row=>({id:row.id}));
+        res.setHeader('Cache-Control','no-store');sendJson(res,200,{...result,songId,sourcePolicy,audioUri:`hapa-master:${encodeURIComponent(songId)}`});return;
+      }
+      const selectedAssetId = url.searchParams.get('assetId');
+      const songId = selectedAssetId !== null ? url.searchParams.get('songId') : safeEchoDirectionPathSegment(url.searchParams.get("songId"), "song");
+      if (selectedAssetId !== null && (!songId || songId.length > 300)) throw Object.assign(new Error('Select an exact registered Song ID.'), {code:'echo_playback_song_unresolved',statusCode:422});
+      if (selectedAssetId !== null) {
+        if (pathname !== '/api/echos/playback-audio/prepare' || req.method !== 'POST') throw Object.assign(new Error('Individual stem selection is for source-local audition only.'), {code:'echo_stem_analysis_not_selected',statusCode:422});
+        if (!selectedAssetId) throw Object.assign(new Error('Select an exact stem asset ID.'), {code:'echo_playback_asset_invalid',statusCode:422});
+        const requestId = String(url.searchParams.get('requestId') || '');
+        if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestId)) throw Object.assign(new Error('Playback preparation requires a unique request ID.'), {statusCode:422});
+        const songStore = await readJson(HAPA_SONG_STORE_PATH);
+        const source = selectEchoPlaybackSource({songId,assetId:selectedAssetId,songStore,resolveOptions:{root:ROOT,mediaDir:MEDIA_DIR,songRegistryPath:SONG_REGISTRY_DATA_PATH,songbookPath:DEAR_PAPA_SONGBOOK_PATH,songStorePath:HAPA_SONG_STORE_PATH}});
+        if (req.aborted || res.destroyed) return;
+        const job = echoPerformancePreparation.start({kind:'playback-audio',requestId,songId,variantId:'source-local-audition',masterPath:source.sourcePath,sourceUri:source.sourceUri,sourceSelection:source.sourceSelection});
+        sendJson(res,202,job); return;
+      }
       const variant = url.searchParams.get("variantId");
       const selectedVariantId = variant && variant !== "legacy" ? safeEchoDirectionPathSegment(variant, "variant") : "";
       const payload = await readJson(path.join(DATA_DIR, "music-video-projects", `${songId}-video-project.json`));
@@ -3414,9 +3567,10 @@ async function route(req, res) {
       if (req.method === 'POST') {
         if (req.aborted || res.destroyed) return;
         const playback = pathname === '/api/echos/playback-audio/prepare';
+        const playbackSource = playback ? selectEchoPlaybackSource({songId,audioUri,songStore,resolveOptions:options}) : null;
         const requestId = String(url.searchParams.get('requestId') || '');
         if (playback && !/^[a-zA-Z0-9-]{16,80}$/.test(requestId)) throw Object.assign(new Error('Playback preparation requires a unique request ID.'), {statusCode:422});
-        const job = echoPerformancePreparation.start({ kind: playback ? 'playback-audio' : 'performance', requestId: playback ? requestId : null, sourceUri: audioUri, songId, variantId: selectedVariantId || 'legacy', masterPath: master.resolvedPath,
+        const job = echoPerformancePreparation.start({ kind: playback ? 'playback-audio' : 'performance', requestId: playback ? requestId : null, sourceUri: playbackSource?.sourceUri || audioUri, sourceSelection:playbackSource?.sourceSelection, songId, variantId: selectedVariantId || 'legacy', masterPath: playbackSource?.sourcePath || master.resolvedPath,
           graph: { ...graph, stems: { ...graph?.stems, items: stems } } });
         sendJson(res, 202, job);
         return;
@@ -3823,7 +3977,7 @@ async function route(req, res) {
     const songId = decodeURIComponent(songCardPlanMatch[1]);
     const operation = createSongCardPlanOperation(req, res, `song:${songId}`);
     try {
-      const body = await readBody(req);
+      const body = await readSongCardPlanRequest(req, { signal: operation.signal });
       operation.checkpoint("request-body-read");
       const input = await hydrateSongCardMintInput(body, { signal: operation.signal });
       await yieldSongCardPlanTurn(operation.signal);
@@ -12334,7 +12488,7 @@ function setCors(req, res) {
   if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,POST,PUT,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range, Authorization, Idempotency-Key, If-Match, If-None-Match, If-Range");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Content-Encoding, Range, Authorization, Idempotency-Key, If-Match, If-None-Match, If-Range");
   return true;
 }
 

@@ -64,9 +64,12 @@ test('existing queue prepares playback without a graph or analysis, pins ready s
   const f = await fixture(t); let analysisCalls = 0;
   const service = createEchoPerformancePreparation({ root: f.root, maxRetained: 1, runStage: async () => { analysisCalls++; } });
   t.after(() => service.close());
-  const input = { kind: 'playback-audio', songId: 'song', masterPath: f.sourcePath, sourceUri: 'registry:master', requestId: 'request-0000000001' };
+  const input = { kind: 'playback-audio', songId: 'song', masterPath: f.sourcePath, sourceUri: 'registry:master', requestId: 'request-0000000001',sourceSelection:{kind:'stem',songId:'song',assetId:'exact-asset',clock:'source-local',alignmentState:'alignment-unverified'} };
   const job = service.start(input), result = await terminal(service, job.id);
   assert.equal(result.status, 'ready', result.message); assert.equal(result.result.pcmSha256, f.pcmHash);
+  assert.deepEqual(result.result.sourceSelection,input.sourceSelection);
+  assert.equal(result.result.path,undefined);assert.equal(result.result.sourcePath,undefined);assert.equal(result.result.leaseId,undefined);
+  assert.equal(service.getPlaybackReceipt(job.id).sourcePath,await fs.realpath(f.sourcePath));
   assert.equal(analysisCalls, 0); assert.equal(service.latest('song'), null);
   assert.equal(service.findRequest(input.requestId).id, job.id);
   assert.throws(() => service.start({ ...input, requestId: 'request-0000000002' }), { code: 'echo_preparation_retention_full' });
@@ -74,7 +77,8 @@ test('existing queue prepares playback without a graph or analysis, pins ready s
   const next = service.start({ ...input, requestId: 'request-0000000002' });
   assert.equal((await terminal(service, next.id)).result.cached, true);
   await service.close(); assert.equal(service.get(next.id).status, 'released');
-  const leases = JSON.parse(await fs.readFile(path.join(path.dirname(result.result.path), 'leases.json'), 'utf8'));
+  assert.equal(service.getPlaybackReceipt(next.id),null);
+  const leases = JSON.parse(await fs.readFile(path.join(f.root,'data/cache/echo-playback-audio',result.result.key,'leases.json'), 'utf8'));
   assert.deepEqual(leases.leases, {});
 });
 

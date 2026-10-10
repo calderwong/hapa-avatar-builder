@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, safeStorage, session } = require("electron");
 const http = require("node:http");
+const { resolveBuilderLocalUiUrl } = require("./builder-local-ui.cjs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -7,7 +8,12 @@ const crypto = require("node:crypto");
 const { ensureLocalOvercardHost, probeOvercardHost } = require("@hapa/overcard/host");
 const { createProviderCredentialStore } = require("./provider-credential-store.cjs");
 const { createEchoReferenceIntelligence } = require("./echo-reference-intelligence.cjs");
-const { createEchoTarotImageGeneration } = require("./echo-tarot-image-generation.cjs");
+const { createEchoTarotImageGeneration, MAIN_COUPLE_PROFILE, MAIN_MAN_PROFILE } = require("./echo-tarot-image-generation.cjs");
+const {
+  createEchoTarotLoopGeneration,
+  MAIN_COUPLE_LOOP_PROFILE,
+  MAIN_MAN_LOOP_PROFILE,
+} = require("./echo-tarot-loop-generation.cjs");
 
 const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 if (!HAS_SINGLE_INSTANCE_LOCK) app.quit();
@@ -46,6 +52,11 @@ let windowCreationPromise = null;
 let providerCredentialStore = null;
 let echoReferenceIntelligence = null;
 let echoTarotImageGeneration = null;
+let echoTarotManImageGeneration = null;
+let echoTarotCoupleImageGeneration = null;
+let echoTarotLoopGeneration = null;
+let echoTarotManLoopGeneration = null;
+let echoTarotCoupleLoopGeneration = null;
 
 function overcardOrigins(rendererUrl = "") {
   const values = [
@@ -193,6 +204,51 @@ async function handleReferenceIntelligenceOperation(event, operation) {
   }
 }
 
+async function handleTarotManGenerationOperation(event, operation) {
+  if (!isTrustedCredentialSender(event)) return { ok: false, message: "Tarot image generation access was denied for this window." };
+  if (!echoTarotManImageGeneration) return { ok: false, message: "The local Hapa Main Man Tarot generation service is not ready." };
+  try {
+    return { ok: true, ...(await operation()) };
+  } catch (error) {
+    console.warn(`[Echo Tarot Main Man] ${error?.code || "operation_failed"}: ${String(error?.message || error).replace(/\bsk-[a-zA-Z0-9_-]{8,}\b/g, "[redacted]")}`);
+    return {
+      ok: false,
+      code: error?.code || "tarot_main_man_operation_failed",
+      message: String(error?.message || "The local Hapa Main Man Tarot operation failed.").replace(/\bsk-[a-zA-Z0-9_-]{8,}\b/g, "[redacted]"),
+    };
+  }
+}
+
+async function handleTarotCoupleGenerationOperation(event, operation) {
+  if (!isTrustedCredentialSender(event)) return { ok: false, message: "Tarot image generation access was denied for this window." };
+  if (!echoTarotCoupleImageGeneration) return { ok: false, message: "The local Hapa Main Couple Tarot generation service is not ready." };
+  try {
+    return { ok: true, ...(await operation()) };
+  } catch (error) {
+    console.warn(`[Echo Tarot Main Couple] ${error?.code || "operation_failed"}: ${String(error?.message || error).replace(/\bsk-[a-zA-Z0-9_-]{8,}\b/g, "[redacted]")}`);
+    return {
+      ok: false,
+      code: error?.code || "tarot_main_couple_operation_failed",
+      message: String(error?.message || "The local Hapa Main Couple Tarot operation failed.").replace(/\bsk-[a-zA-Z0-9_-]{8,}\b/g, "[redacted]"),
+    };
+  }
+}
+
+async function handleTarotLoopOperation(event, runner, operation) {
+  if (!isTrustedCredentialSender(event)) return { ok: false, message: "Tarot loop generation access was denied for this window." };
+  if (!runner) return { ok: false, message: "The local Tarot loop generation service is not ready." };
+  try {
+    return { ok: true, ...(await operation()) };
+  } catch (error) {
+    console.warn(`[Echo Tarot Loop] ${error?.code || "operation_failed"}: ${String(error?.message || error).replace(/(?:Bearer|Key)\s+[^\s"']+/gi, (match) => `${match.split(/\s+/)[0]} [redacted]`)}`);
+    return {
+      ok: false,
+      code: error?.code || "tarot_loop_operation_failed",
+      message: String(error?.message || "The local Tarot loop operation failed.").replace(/(?:Bearer|Key)\s+[^\s"']+/gi, (match) => `${match.split(/\s+/)[0]} [redacted]`),
+    };
+  }
+}
+
 function installMediaPermissionHandlers() {
   const ses = session.defaultSession;
   ses.setPermissionRequestHandler((webContents, permission, callback, details = {}) => {
@@ -270,10 +326,15 @@ function isAvatarBuilderHtml(probe) {
 }
 
 async function probePort(port) {
-  const [root, health] = await Promise.all([
+  let [root, health] = await Promise.all([
     httpGet(port, "/"),
     httpGet(port, "/api/health")
   ]);
+  let uiUrl = `http://${HOST}:${port}`;
+  if (root.statusCode === 302) {
+    try { uiUrl = await resolveBuilderLocalUiUrl(uiUrl); if (uiUrl !== `http://${HOST}:${port}`) root = await httpGet(Number(new URL(uiUrl).port), "/"); }
+    catch (error) { root = { ok: false, statusCode: 0, headers: {}, body: "", error }; }
+  }
   let healthPayload = null;
   try {
     healthPayload = JSON.parse(health.body || "{}");
@@ -285,6 +346,7 @@ async function probePort(port) {
   return {
     port,
     hasUi: isAvatarBuilderHtml(root),
+    uiUrl,
     apiOk,
     buildMatches: apiOk && buildSignature === EXPECTED_BUILD_SIGNATURE,
     buildSignature,
@@ -322,7 +384,7 @@ async function waitForUi(port) {
   let lastProbe = null;
   while (Date.now() - started < 12000) {
     lastProbe = await probePort(port);
-    if (lastProbe.hasUi) return `http://${HOST}:${port}`;
+    if (lastProbe.hasUi) return lastProbe.uiUrl;
     if (apiProcess?.exitCode !== null) break;
     await delay(250);
   }
@@ -341,14 +403,14 @@ async function resolveDesktopUrl() {
   }
 
   if (process.env.HAPA_AVATAR_DESKTOP_URL) {
-    desktopUrl = process.env.HAPA_AVATAR_DESKTOP_URL;
+    desktopUrl = await resolveBuilderLocalUiUrl(process.env.HAPA_AVATAR_DESKTOP_URL);
     process.env.HAPA_AVATAR_API_BASE ||= desktopUrl;
     console.log(`[desktop] Loading configured desktop URL ${desktopUrl}`);
     return desktopUrl;
   }
 
   if (process.env.HAPA_AVATAR_EXTERNAL_API) {
-    desktopUrl = `http://${HOST}:${DEFAULT_PORT}`;
+    desktopUrl = await resolveBuilderLocalUiUrl(`http://${HOST}:${DEFAULT_PORT}`);
     process.env.HAPA_AVATAR_API_BASE ||= desktopUrl;
     console.log(`[desktop] Loading external API desktop URL ${desktopUrl}`);
     return desktopUrl;
@@ -359,7 +421,7 @@ async function resolveDesktopUrl() {
     const probe = await probePort(port);
     probes.push(probe);
     if (probe.hasUi && probe.apiOk && probe.buildMatches) {
-      desktopUrl = `http://${HOST}:${port}`;
+      desktopUrl = probe.uiUrl;
       process.env.HAPA_AVATAR_API_BASE = desktopUrl;
       console.log(`[desktop] Reusing Hapa Avatar Builder UI server on ${desktopUrl}`);
       return desktopUrl;
@@ -577,6 +639,54 @@ if (HAS_SINGLE_INSTANCE_LOCK) {
       credentialStore: providerCredentialStore,
       referencePackPath: path.join(app.getPath("home"), "raw-models", "hapa-main-woman-reference-pack"),
     });
+    echoTarotManImageGeneration = createEchoTarotImageGeneration({
+      userDataPath: app.getPath("userData"),
+      credentialStore: providerCredentialStore,
+      referencePackPath: path.join(app.getPath("home"), "raw-models", "hapa-main-man-pack"),
+      profile: MAIN_MAN_PROFILE,
+      pilotConcurrency: 6,
+      fullConcurrency: 12,
+      pilotCount: 6,
+      pilotSelectors: [
+        { cardTitle: "The Fool" },
+        { cardTitle: "The High Priestess" },
+        { cardTitle: "Three of Swords" },
+        { cardTitle: "Page of Wands" },
+        { cardTitle: "The Hanged Man", songTitle: "Wide and Narrows" },
+        { cardTitle: "Three of Pentacles", songTitle: "Aquatic Monkey Favicon (Work in Your Underwear)”" },
+      ],
+    });
+    echoTarotCoupleImageGeneration = createEchoTarotImageGeneration({
+      userDataPath: app.getPath("userData"),
+      credentialStore: providerCredentialStore,
+      referencePackPath: path.join(app.getPath("home"), "raw-models", "hapa-main-couple-pack"),
+      profile: MAIN_COUPLE_PROFILE,
+      pilotConcurrency: 6,
+      fullConcurrency: 12,
+      pilotCount: 6,
+      pilotSelectors: [
+        { cardTitle: "The Lovers" },
+        { cardTitle: "The Fool" },
+        { cardTitle: "Two of Cups" },
+        { cardTitle: "Three of Swords" },
+        { cardTitle: "The Hanged Man", songTitle: "Wide and Narrows" },
+        { cardTitle: "The Devil", songTitle: "Dear Papa" },
+      ],
+    });
+    echoTarotLoopGeneration = createEchoTarotLoopGeneration({
+      userDataPath: app.getPath("userData"),
+      credentialStore: providerCredentialStore,
+    });
+    echoTarotManLoopGeneration = createEchoTarotLoopGeneration({
+      userDataPath: app.getPath("userData"),
+      credentialStore: providerCredentialStore,
+      profile: MAIN_MAN_LOOP_PROFILE,
+    });
+    echoTarotCoupleLoopGeneration = createEchoTarotLoopGeneration({
+      userDataPath: app.getPath("userData"),
+      credentialStore: providerCredentialStore,
+      profile: MAIN_COUPLE_LOOP_PROFILE,
+    });
     ipcMain.handle("hapa-overcard:status", async () => readOvercardStatus());
     ipcMain.handle("hapa-overcard:ensure", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
     ipcMain.handle("hapa-overcard:reconnect", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
@@ -598,6 +708,41 @@ if (HAS_SINGLE_INSTANCE_LOCK) {
     ipcMain.handle("hapa-echo-tarot-images:resume", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.resume()));
     ipcMain.handle("hapa-echo-tarot-images:review", (event, payload) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.review(payload)));
     ipcMain.handle("hapa-echo-tarot-images:asset", (event, payload) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.asset(payload)));
+    ipcMain.handle("hapa-echo-tarot-man-images:status", (event) => handleTarotManGenerationOperation(event, () => echoTarotManImageGeneration.status()));
+    ipcMain.handle("hapa-echo-tarot-man-images:start-pilot", (event) => handleTarotManGenerationOperation(event, () => echoTarotManImageGeneration.start({ apiBase: desktopUrl, mode: "pilot" })));
+    ipcMain.handle("hapa-echo-tarot-man-images:continue-full", (event) => handleTarotManGenerationOperation(event, () => echoTarotManImageGeneration.continueFull({ apiBase: desktopUrl })));
+    ipcMain.handle("hapa-echo-tarot-man-images:pause", (event) => handleTarotManGenerationOperation(event, () => echoTarotManImageGeneration.pause()));
+    ipcMain.handle("hapa-echo-tarot-man-images:resume", (event) => handleTarotManGenerationOperation(event, () => echoTarotManImageGeneration.resume()));
+    ipcMain.handle("hapa-echo-tarot-man-images:review", (event, payload) => handleTarotManGenerationOperation(event, () => echoTarotManImageGeneration.review(payload)));
+    ipcMain.handle("hapa-echo-tarot-man-images:asset", (event, payload) => handleTarotManGenerationOperation(event, () => echoTarotManImageGeneration.asset(payload)));
+    ipcMain.handle("hapa-echo-tarot-couple-images:status", (event) => handleTarotCoupleGenerationOperation(event, () => echoTarotCoupleImageGeneration.status()));
+    ipcMain.handle("hapa-echo-tarot-couple-images:start-pilot", (event) => handleTarotCoupleGenerationOperation(event, () => echoTarotCoupleImageGeneration.start({ apiBase: desktopUrl, mode: "pilot" })));
+    ipcMain.handle("hapa-echo-tarot-couple-images:continue-full", (event) => handleTarotCoupleGenerationOperation(event, () => echoTarotCoupleImageGeneration.continueFull({ apiBase: desktopUrl })));
+    ipcMain.handle("hapa-echo-tarot-couple-images:pause", (event) => handleTarotCoupleGenerationOperation(event, () => echoTarotCoupleImageGeneration.pause()));
+    ipcMain.handle("hapa-echo-tarot-couple-images:resume", (event) => handleTarotCoupleGenerationOperation(event, () => echoTarotCoupleImageGeneration.resume()));
+    ipcMain.handle("hapa-echo-tarot-couple-images:review", (event, payload) => handleTarotCoupleGenerationOperation(event, () => echoTarotCoupleImageGeneration.review(payload)));
+    ipcMain.handle("hapa-echo-tarot-couple-images:asset", (event, payload) => handleTarotCoupleGenerationOperation(event, () => echoTarotCoupleImageGeneration.asset(payload)));
+    ipcMain.handle("hapa-echo-tarot-loops:status", (event) => handleTarotLoopOperation(event, echoTarotLoopGeneration, () => echoTarotLoopGeneration.status()));
+    ipcMain.handle("hapa-echo-tarot-loops:start-pilot", (event) => handleTarotLoopOperation(event, echoTarotLoopGeneration, () => echoTarotLoopGeneration.start()));
+    ipcMain.handle("hapa-echo-tarot-loops:continue-full", (event, payload) => handleTarotLoopOperation(event, echoTarotLoopGeneration, () => echoTarotLoopGeneration.continueFull(payload)));
+    ipcMain.handle("hapa-echo-tarot-loops:pause", (event) => handleTarotLoopOperation(event, echoTarotLoopGeneration, () => echoTarotLoopGeneration.pause()));
+    ipcMain.handle("hapa-echo-tarot-loops:resume", (event) => handleTarotLoopOperation(event, echoTarotLoopGeneration, () => echoTarotLoopGeneration.resume()));
+    ipcMain.handle("hapa-echo-tarot-loops:review", (event, payload) => handleTarotLoopOperation(event, echoTarotLoopGeneration, () => echoTarotLoopGeneration.review(payload)));
+    ipcMain.handle("hapa-echo-tarot-loops:asset", (event, payload) => handleTarotLoopOperation(event, echoTarotLoopGeneration, () => echoTarotLoopGeneration.asset(payload)));
+    ipcMain.handle("hapa-echo-tarot-man-loops:status", (event) => handleTarotLoopOperation(event, echoTarotManLoopGeneration, () => echoTarotManLoopGeneration.status()));
+    ipcMain.handle("hapa-echo-tarot-man-loops:start-pilot", (event) => handleTarotLoopOperation(event, echoTarotManLoopGeneration, () => echoTarotManLoopGeneration.start()));
+    ipcMain.handle("hapa-echo-tarot-man-loops:continue-full", (event, payload) => handleTarotLoopOperation(event, echoTarotManLoopGeneration, () => echoTarotManLoopGeneration.continueFull(payload)));
+    ipcMain.handle("hapa-echo-tarot-man-loops:pause", (event) => handleTarotLoopOperation(event, echoTarotManLoopGeneration, () => echoTarotManLoopGeneration.pause()));
+    ipcMain.handle("hapa-echo-tarot-man-loops:resume", (event) => handleTarotLoopOperation(event, echoTarotManLoopGeneration, () => echoTarotManLoopGeneration.resume()));
+    ipcMain.handle("hapa-echo-tarot-man-loops:review", (event, payload) => handleTarotLoopOperation(event, echoTarotManLoopGeneration, () => echoTarotManLoopGeneration.review(payload)));
+    ipcMain.handle("hapa-echo-tarot-man-loops:asset", (event, payload) => handleTarotLoopOperation(event, echoTarotManLoopGeneration, () => echoTarotManLoopGeneration.asset(payload)));
+    ipcMain.handle("hapa-echo-tarot-couple-loops:status", (event) => handleTarotLoopOperation(event, echoTarotCoupleLoopGeneration, () => echoTarotCoupleLoopGeneration.status()));
+    ipcMain.handle("hapa-echo-tarot-couple-loops:start-pilot", (event) => handleTarotLoopOperation(event, echoTarotCoupleLoopGeneration, () => echoTarotCoupleLoopGeneration.start()));
+    ipcMain.handle("hapa-echo-tarot-couple-loops:continue-full", (event, payload) => handleTarotLoopOperation(event, echoTarotCoupleLoopGeneration, () => echoTarotCoupleLoopGeneration.continueFull(payload)));
+    ipcMain.handle("hapa-echo-tarot-couple-loops:pause", (event) => handleTarotLoopOperation(event, echoTarotCoupleLoopGeneration, () => echoTarotCoupleLoopGeneration.pause()));
+    ipcMain.handle("hapa-echo-tarot-couple-loops:resume", (event) => handleTarotLoopOperation(event, echoTarotCoupleLoopGeneration, () => echoTarotCoupleLoopGeneration.resume()));
+    ipcMain.handle("hapa-echo-tarot-couple-loops:review", (event, payload) => handleTarotLoopOperation(event, echoTarotCoupleLoopGeneration, () => echoTarotCoupleLoopGeneration.review(payload)));
+    ipcMain.handle("hapa-echo-tarot-couple-loops:asset", (event, payload) => handleTarotLoopOperation(event, echoTarotCoupleLoopGeneration, () => echoTarotCoupleLoopGeneration.asset(payload)));
     await startOperatorConsoleServer();
     return ensureMainWindow();
   }).catch((error) => {

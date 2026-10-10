@@ -167,6 +167,8 @@ The canonical Electron app exposes **Provider API keys** from the key icon in th
 
 The Echo Album **References** surface includes a durable per-song notebook for free-text notes, marked research URLs, Hapa Avatar links, image/video creative anchors, anecdotes, lessons, and reasoned Tarot Card pairings. The complete supplied 78-card *Echoes from Other Eras* editorial mapping is available with its pairing arguments and lyric evidence; its proposal status is preserved. Agents can read one song or the complete album projection from `GET /api/echos/song-notebook`. See `docs/ECHO_SONG_NOTEBOOK.md`.
 
+The same surface now includes the local-first **FAL H3 Max Turbo Tarot motion pipeline**. It gates album spend behind a three-card pilot, sends each completed Tarot still as both the first and end image, conforms provider results into exact silent five-second source-anchored loops, resumes from durable request receipts, and exposes still/motion review in the per-song and consolidated 165-card album gallery. The encrypted FAL key and provider media URLs remain outside the renderer, manifests, logs, and Git. See [`docs/ECHO_TAROT_FAL_LOOPS.md`](docs/ECHO_TAROT_FAL_LOOPS.md).
+
 ## Local Media Preview, Sorting, And Video Branches
 
 In the Builder view, use **Preview Local Media** or drop image/video files onto **Drop media to preview**. Media appears in the Media Intake tray with real previews. Drag image previews onto the exact required slot they belong in.

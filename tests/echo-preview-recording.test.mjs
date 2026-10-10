@@ -424,7 +424,7 @@ test("director preview exposes the record button, the recordings tab, and the ca
   assert.match(controls, /data-testid="echo-director-preview-record-quality"/);
 
   // The recordings shelf.
-  assert.match(viewSource, /\['preview', 'lyrics', 'tracks', 'variation', 'live', 'palmier', 'script', 'edl', 'journal', 'recordings'\]/);
+  assert.match(viewSource, /\['preview', 'lyrics', 'tracks', 'variation', 'live', 'palmier', 'script', 'edl', 'journal', 'recordings', 'living-light'\]/);
   assert.match(viewSource, /{tab === 'recordings' && '🎞 Recordings'}/);
   assert.match(viewSource, /data-testid="echo-preview-recordings-panel"/);
   assert.match(viewSource, /data-testid="echo-preview-recording-item"/);

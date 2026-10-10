@@ -81,7 +81,7 @@ acquire_launch_lock() {
 is_hapa_html() {
   local port="$1"
   local payload
-  payload="$(curl -fsS --connect-timeout 1 --max-time "$PROBE_TIMEOUT_SECONDS" "http://127.0.0.1:${port}/" 2>/dev/null || true)"
+  payload="$(curl -fLS --max-redirs 1 --connect-timeout 1 --max-time "$PROBE_TIMEOUT_SECONDS" "http://127.0.0.1:${port}/" 2>/dev/null || true)"
   [[ "$payload" == *"Hapa Avatar Builder"* ]]
 }
 

@@ -25687,6 +25687,20 @@ h1 {
 .echo-tarot-generation-monitor > header small { color: #67e8f9; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
 .echo-tarot-generation-monitor > header strong { color: #f5fbff; font-size: 13px; }
 .echo-tarot-generation-monitor.is-unavailable { grid-template-columns: auto 1fr; align-items: center; color: #91a9b7; }
+.echo-tarot-loop-monitor {
+  display: grid;
+  gap: 9px;
+  margin-top: 3px;
+  padding: 12px;
+  border-color: rgba(157, 116, 255, 0.38);
+  background: radial-gradient(circle at 90% 0, rgba(157, 116, 255, 0.14), transparent 45%), rgba(2, 7, 18, 0.86);
+}
+.echo-tarot-loop-monitor > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.echo-tarot-loop-monitor > header > div { display: flex; align-items: center; gap: 8px; color: #c6aaff; }
+.echo-tarot-loop-monitor > header span { display: grid; gap: 1px; }
+.echo-tarot-loop-monitor > header small { color: #67e8f9; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.echo-tarot-loop-monitor > header strong { color: #f5fbff; font-size: 13px; }
+.echo-tarot-loop-pricing { color: #b8c7d1; font: 9px/1.45 var(--hapa-mono); }
 .echo-tarot-generation-boundary { color: #a8bfcb; font-size: 10px; line-height: 1.45; }
 .echo-tarot-icon-button { width: 28px; min-height: 28px; padding: 0; }
 .echo-tarot-run-stats { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -25744,6 +25758,9 @@ h1 {
 .echo-tarot-card-preview-trigger:focus-visible > span { opacity: 1; transform: translateY(0); }
 .echo-tarot-output-card-meta { display: grid; gap: 2px; min-width: 0; }
 .echo-tarot-review-badge { display: inline-flex; align-items: center; gap: 4px; width: max-content; margin-top: 3px; padding: 3px 6px; border: 1px solid rgba(57, 255, 20, .24); border-radius: 999px; color: #9cf0d4; font: 700 8px/1 var(--hapa-mono); text-transform: uppercase; }
+.echo-tarot-loop-badge { display: inline-flex; align-items: center; gap: 4px; width: max-content; max-width: 100%; margin-top: 3px; padding: 3px 6px; border: 1px solid rgba(157, 116, 255, .32); border-radius: 999px; color: #cdbaff; font: 700 8px/1 var(--hapa-mono); text-transform: uppercase; }
+.echo-tarot-loop-badge.is-completed { border-color: rgba(57, 255, 20, .28); color: #9cf0d4; }
+.echo-tarot-loop-badge.is-failed { border-color: rgba(255, 113, 145, .38); color: #ff9ab4; }
 .echo-tarot-output-grid textarea { width: 100%; font-size: 9px; }
 .echo-tarot-feedback-actions { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px !important; }
 .echo-tarot-feedback-actions button { min-height: 26px; padding: 3px 4px; font-size: 9px; }
@@ -25777,7 +25794,10 @@ h1 {
 .echo-tarot-preview-body { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; height: calc(100% - 64px); padding: 18px; overflow: auto; }
 .echo-tarot-preview-stage { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 10px; min-height: 0; }
 .echo-tarot-preview-stage > img,
+.echo-tarot-preview-stage > video,
 .echo-tarot-preview-stage > .echo-tarot-asset-placeholder { width: 100%; height: 100%; min-height: 0; aspect-ratio: auto; border: 1px solid rgba(246, 201, 109, 0.3); border-radius: 10px; background: #020812; box-shadow: 0 0 30px rgba(246, 201, 109, 0.08); object-fit: contain; }
+.echo-tarot-preview-media-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.echo-tarot-preview-media-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; }
 .echo-tarot-preview-navigation { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .echo-tarot-preview-navigation button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; }
 .echo-tarot-preview-navigation button:disabled { opacity: .35; }
@@ -25796,6 +25816,8 @@ h1 {
 .echo-tarot-preview-dossier textarea { width: 100%; min-height: 112px; resize: vertical; border: 1px solid var(--hapa-line); border-radius: 7px; background: rgba(2, 8, 18, .72); color: var(--hapa-ink); font-size: 11px; line-height: 1.45; }
 .echo-tarot-preview-dossier textarea:focus { outline: 0; border-color: var(--hapa-line-hot); box-shadow: 0 0 0 3px rgba(0, 243, 255, .08); }
 .echo-tarot-preview-dossier .echo-tarot-feedback-actions button { min-height: 38px; }
+.echo-tarot-loop-review { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid rgba(157, 116, 255, .28); }
+.echo-tarot-loop-review > label { color: var(--hapa-muted); font: 700 8px/1 var(--hapa-mono); letter-spacing: .08em; text-transform: uppercase; }
 .echo-tarot-prompt-review {
   margin-top: 4px;
   padding: 8px;
@@ -25859,6 +25881,7 @@ h1 {
   .echo-tarot-preview-modal { width: calc(100vw - 20px); max-width: calc(100vw - 20px); height: calc(100vh - 20px); max-height: calc(100vh - 20px); }
   .echo-tarot-preview-body { grid-template-columns: 1fr; height: calc(100% - 64px); }
   .echo-tarot-preview-stage > img,
+  .echo-tarot-preview-stage > video,
   .echo-tarot-preview-stage > .echo-tarot-asset-placeholder { max-height: 72vh; }
   .echo-tarot-preview-dossier { margin-bottom: 10px; }
 }
@@ -25871,4 +25894,96 @@ h1 {
   .echo-tarot-output-card,
   .echo-tarot-card-preview-trigger > span,
   .echo-tarot-preview-modal[open] { animation: none !important; transition: none !important; }
+}
+/* Incremental Echo song ingest */
+.echo-song-ingest {
+  margin: 14px 0;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--hapa-neon-cyan, #5de4ff) 42%, transparent);
+  background:
+    radial-gradient(circle at 92% 8%, rgba(102, 67, 255, .17), transparent 34%),
+    linear-gradient(145deg, rgba(8, 13, 28, .96), rgba(16, 19, 38, .92));
+}
+.echo-song-ingest-head,
+.echo-song-ingest-runbar,
+.echo-song-ingest-stage-title,
+.echo-song-ingest-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.echo-song-ingest-head h3,
+.echo-song-ingest-runbar h4 { margin: 2px 0 4px; }
+.echo-song-ingest-head > div:first-child > p:last-child { margin: 0; max-width: 760px; opacity: .76; }
+.echo-song-ingest-progress {
+  width: 84px;
+  aspect-ratio: 1;
+  flex: 0 0 auto;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  border-radius: 50%;
+  border: 1px solid rgba(93, 228, 255, .55);
+  box-shadow: inset 0 0 24px rgba(93, 228, 255, .12), 0 0 28px rgba(103, 80, 255, .12);
+}
+.echo-song-ingest-progress strong { font-size: 1.35rem; color: var(--hapa-neon-cyan, #5de4ff); }
+.echo-song-ingest-progress span { font-size: .68rem; text-transform: uppercase; letter-spacing: .14em; opacity: .62; }
+.echo-song-ingest-form { margin: 16px 0; padding: 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; }
+.echo-song-ingest-form summary { cursor: pointer; font-weight: 700; }
+.echo-song-ingest-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.echo-song-ingest-fields label { display: grid; gap: 5px; font-size: .72rem; letter-spacing: .04em; opacity: .82; }
+.echo-song-ingest-fields input,
+.echo-song-ingest-fields textarea {
+  width: 100%;
+  color: inherit;
+  background: rgba(0,0,0,.28);
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: inherit;
+}
+.echo-song-ingest-lyrics { grid-column: 1 / -1; }
+.echo-song-ingest-runbar { margin: 16px 0 10px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.11); }
+.echo-song-ingest-actions > span { padding: 5px 8px; border: 1px solid rgba(93, 228, 255, .3); border-radius: 999px; font-size: .68rem; text-transform: uppercase; letter-spacing: .1em; }
+.echo-song-ingest-stages {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+.echo-song-ingest-stage {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,.11);
+  border-radius: 11px;
+  background: rgba(0, 0, 0, .2);
+}
+.echo-song-ingest-stage[data-status="complete"] { border-color: rgba(83, 232, 162, .47); background: rgba(39, 168, 112, .09); }
+.echo-song-ingest-stage[data-status="ready"] { border-color: rgba(93, 228, 255, .5); background: rgba(40, 155, 201, .09); }
+.echo-song-ingest-stage[data-status="queued"],
+.echo-song-ingest-stage[data-status="running"] { border-color: rgba(224, 164, 71, .5); background: rgba(190, 122, 26, .09); }
+.echo-song-ingest-stage[data-status="failed"] { border-color: rgba(255, 97, 135, .58); }
+.echo-song-ingest-stage-index { font: 700 .67rem/1.2 ui-monospace, monospace; color: var(--hapa-neon-cyan, #5de4ff); opacity: .74; }
+.echo-song-ingest-stage-title { align-items: flex-start; gap: 8px; }
+.echo-song-ingest-stage-title strong { font-size: .8rem; }
+.echo-song-ingest-stage-title span { flex: 0 0 auto; font-size: .58rem; text-transform: uppercase; letter-spacing: .08em; opacity: .62; }
+.echo-song-ingest-stage p { margin: 6px 0 3px; font-size: .7rem; line-height: 1.45; opacity: .82; }
+.echo-song-ingest-stage small { display: block; font-size: .63rem; line-height: 1.4; opacity: .54; }
+.echo-song-ingest-samples { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.echo-song-ingest-samples code { max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 3px 5px; border-radius: 4px; background: rgba(255,255,255,.07); font-size: .59rem; }
+.echo-song-ingest-history { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-top: 12px; }
+.echo-song-ingest-history > span { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; opacity: .58; }
+.echo-song-ingest-history button { border: 0; border-bottom: 1px solid rgba(93,228,255,.36); color: inherit; background: none; cursor: pointer; font-size: .7rem; }
+.echo-song-ingest-notice { margin: 12px 0 0; color: var(--hapa-neon-gold, #f6ca72); font-size: .75rem; }
+.echo-song-ingest footer { margin-top: 12px; font-size: .67rem; line-height: 1.45; opacity: .58; }
+@media (max-width: 1100px) { .echo-song-ingest-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 680px) {
+  .echo-song-ingest-head, .echo-song-ingest-runbar { align-items: flex-start; }
+  .echo-song-ingest-fields, .echo-song-ingest-stages { grid-template-columns: 1fr; }
 }

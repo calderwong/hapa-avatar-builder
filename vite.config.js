@@ -18,7 +18,12 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8787",
-        changeOrigin: true
+        changeOrigin: true,
+        configure(proxy) {
+          proxy.on('proxyReq', (proxyRequest, request) => {
+            if (request.url?.startsWith('/api/echos/living-light/')) proxyRequest.setHeader('Host', request.headers.host);
+          });
+        }
       },
       "/media": {
         target: "http://127.0.0.1:8787",

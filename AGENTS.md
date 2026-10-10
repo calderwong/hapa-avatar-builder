@@ -96,6 +96,8 @@ Universal Hapa Card Plane v1 is released. Avatar/Item JSON stores remain authori
 
 ### Process-spawning proof safety gate
 
+- Monitor an in-flight render through its job status and bounded process/file progress. A diagnostic browser attachment can mutate the test: Puppeteer `connect()` defaults to an 800×600 viewport when pages are acquired. Do not attach during acceptance capture. For a separately qualified inspection, specify `defaultViewport: null` and verify that the observer preserves the surface before using it; this setting alone is not a general read-only guarantee. Preserve any contaminated output as failed evidence and rerun only the affected gate. See `docs/postmortems/2026-09-08-echo-managed-planning-render.md`.
+
 - Never use `node -e`, `node --eval`, or `node --input-type=module -e` to smoke-test a module that calls `child_process.fork()` unless the fork boundary explicitly sets `execArgv: []` and carries a tested recursion sentinel. Node forks inherit the parent's execution arguments by default; an inherited eval program can execute again instead of the intended worker file.
 - Run the Card origin transport proof only through `node --test tests/card-origin-announcement-proof.test.mjs`. Do not replace that command with an inline eval shortcut.
 - Run the Stargate Gate Pass proof only through `node --test tests/stargate-gate-pass-proof.test.mjs`. Its worker boundary must retain `execArgv: []`, strip parent `NODE_OPTIONS`, carry `HAPA_STARGATE_GATE_PASS_PEER_WORKER=1`, and reject recursive proof entry.
@@ -149,6 +151,10 @@ For Echo Album continuation, read `$HAPA_FRONT_DOOR_ROOT/docs/REQUIREMENT_COMPLE
 18|
 19|Ownership & conflict rules: board event log wins task truth; `avatar-store.json` wins lore; SB ledger wins durability; Hermes `MEMORY.md` is a derived cache. No store writes another store's database directly — cross-store writes go through the owner's API/CLI. Builder→SB flows through the subscriber outbox (`data/subscribers/hapa-second-brain.ndjson`); SB→boards is read-only ingress links (`docs/KANBAN_UI_INGRESS.md`).
 20|
+
+## Living Light album integration — active implementation
+
+Calder authorized execution on 2026-10-06 after the detailed planning pass. Read `docs/LIVING_LIGHT_INTEGRATION.md` for the current native host boundary, source truth, board and acceptance limits. Board project: `hapa-living-light-avatar-builder`. Catalog definitions are not durable Cards or qualified audio signals. Existing Audio Atlas owns alignment and missing-media remediation. Preserve the GitHub freeze.
 
 <!-- HAPA_AUDIO_ATLAS_OWNER_V1 -->
 ## Audio Atlas is the song-understanding and lyric-timing owner (2026-10-09)
