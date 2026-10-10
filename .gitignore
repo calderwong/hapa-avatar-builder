@@ -36,3 +36,13 @@ data/kanban.json
 
 # Generated private native namespace; retained vendor sources are canonical.
 src/living-light/native.generated.js
+
+# Python bytecode caches.
+__pycache__/
+*.pyc
+
+# Echo render tracker: links into machine-local render output and generated run data.
+tools/echo-render-tracker/shots
+tools/echo-render-tracker/shots-krea2
+tools/echo-render-tracker/tracker-data.js
+tools/echo-render-tracker/alt-runs/alt-ledger.json

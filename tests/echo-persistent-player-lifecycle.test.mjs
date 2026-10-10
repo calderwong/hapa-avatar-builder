@@ -83,7 +83,7 @@ test('natural-end transport does not truncate audio at rounded project metadata 
  const tick=source.slice(begin,finish)+'\n}; tick();';
  let paused=0;const audio={paused:false,currentTime:213.7,duration:213.75,pause(){paused++;}};
  const clock={current:0},ticks=[];
- vm.runInNewContext(tick,{audioRef:{current:audio},activeProjectRef:{current:{duration:213.68}},currentTimeRef:clock,echoPlaybackEngineRef:{current:{tick:(time)=>ticks.push(time)}},setIsPlaying:()=>{},setCurrentTime:()=>{}});
+ vm.runInNewContext(tick,{audioPlaybackReceiptRef:{current:null},audioRef:{current:audio},activeProjectRef:{current:{duration:213.68}},currentTimeRef:clock,echoPlaybackEngineRef:{current:{tick:(time)=>ticks.push(time)}},setIsPlaying:()=>{},setCurrentTime:()=>{}});
  assert.equal(paused,0);assert.equal(audio.currentTime,213.7);assert.equal(clock.current,213.7);assert.deepEqual(ticks,[213.7]);
 });
 
