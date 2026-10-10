@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { deriveEchoDirectionVariantProject, echoDirectionVariantFingerprint } from '../src/domain/echo-direction-variants.js';
 import { buildCueGraph, normalizeStemRecords } from '../src/domain/echo-director-v2.js';
 import { normalizeEchoLyricContract } from '../src/domain/echo-lyric-contract.js';
@@ -50,13 +51,24 @@ export function echoPerformanceInputs({ project: source, variant = null, registr
   // Exactly one stem set: the Builder's current custody set when it has playable files,
   // otherwise one Registry generation. Never merge roles across sets or formats.
   const localStems = localCustodyStemRecords(project, songStore);
-  const registryStems = localStems.some(stem => stem.audioPath) ? localStems : normalizeStemRecords(project, registry);
-  const declaredStems = declaredGraph?.stems?.items;
-  const stems = declaredStems?.length ? declaredStems.map(stem => {
+  // Prefer the Builder's custody set only while its files exist; a moved library
+  // (e.g. a renumbered Suno export folder) falls back to one Registry generation.
+  const onDisk = stem => Boolean(stem.audioPath) && (!stem.audioPath.startsWith('/') || fs.existsSync(stem.audioPath));
+  const generation = normalizeStemRecords(project, registry);
+  const localMoved = localStems.some(stem => stem.audioPath) && !localStems.every(stem => !stem.audioPath || onDisk(stem));
+  const generationPlayable = generation.some(stem => stem.audioPath) && generation.every(stem => !stem.audioPath || onDisk(stem));
+  const registryStems = localStems.some(stem => stem.audioPath) && !(localMoved && generationPlayable) ? localStems : generation;
+  const declaredStems = Array.isArray(declaredGraph?.stems?.items) ? declaredGraph.stems.items : [];
+  // A declared graph defines the stem set only when it carries real audio (a compiled graph).
+  // The local editor projection lists `stems_available` titles without paths (stale templates,
+  // MP3+WAV duplicates, archive names); those must never become pathless placeholders that
+  // fail preparation, so the song's one current stem set is used instead.
+  const declaredCarriesAudio = declaredStems.some(stem => text(stem.audioPath));
+  const stems = declaredCarriesAudio ? declaredStems.map(stem => {
     if (stem.audioPath) return stem;
     const source = registryStems.find(candidate => stemRole(candidate) === stemRole(stem));
     return source?.audioPath ? { ...stem, audioPath: source.audioPath, sourceRegistryStemId: source.id } : stem;
-  }) : registryStems;
+  }).filter(stem => text(stem.audioPath)) : registryStems;
   return { audioUri, graph: {
     schemaVersion: 'hapa.echo.audio-preparation-inputs.v1',
     source: { songId: project.song_id, cutId: variant?.id || 'legacy', cutFingerprint: variant ? echoDirectionVariantFingerprint(variant) : null, renderCertification: false },

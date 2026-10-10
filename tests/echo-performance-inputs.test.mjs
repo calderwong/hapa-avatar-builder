@@ -46,3 +46,31 @@ test('local ingest custody supplies exact stems before external Registry mirrori
     ['vocals', '/ingest/stems/vocals.wav', 'verified_local_ingest_path'],
   ]);
 });
+
+test('a pathless stem title list (local editor projection of stems_available) never defines the prepared stem set', () => {
+  const project = { song_id: 'dear-papa-song-fast-movers', registry_track_id: 'fm', duration: 3,
+    director_show_graph: { song: {}, stems: { items: ['Vocals', 'Keyboard', 'Strings', 'FX', 'Brass', 'Drums'].map((title, index) => ({ id: `stem:${index}`, stemType: title, title })) } } };
+  const songStore = { songs: [{ id: 'dear-papa-song-fast-movers', stems: [
+    { id: 'v', stemType: 'Lead Vocals', localPath: '/uploads/v.wav' },
+    { id: 'd', stemType: 'Drums', localPath: '/uploads/d.wav' },
+    { id: 'o', stemType: 'Other', localPath: '/uploads/o.wav' },
+  ] }] };
+  const items = echoPerformanceInputs({ project, registry: { stems: [] }, songStore }).graph.stems.items;
+  assert.deepEqual(items.map(stem => stem.audioPath), ['/uploads/v.wav', '/uploads/d.wav', '/uploads/o.wav']);
+  assert.ok(items.every(stem => stem.audioPath), 'no pathless placeholder may reach the analyzer');
+});
+
+test('a moved Builder stem set falls back to a Registry generation whose files exist', async () => {
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stem-fallback-'));
+  try {
+    const live = ['Vocals', 'Drums'].map(role => { const file = path.join(dir, `${role}.mp3`); fs.writeFileSync(file, 'x'); return { id: role, parentId: 'bread', stemType: role, localPath: file }; });
+    const project = { song_id: 'dear-papa-song-bread', registry_track_id: 'bread', duration: 3 };
+    const songStore = { songs: [{ id: 'dear-papa-song-bread', stems: [
+      { id: 'sv', stemType: 'Vocals', localPath: path.join(dir, 'renumbered-away', 'Vocals.mp3') },
+      { id: 'sd', stemType: 'Drums', localPath: path.join(dir, 'renumbered-away', 'Drums.mp3') },
+    ] }] };
+    const items = echoPerformanceInputs({ project, registry: { songs: [{ id: 'bread' }], stems: live }, songStore }).graph.stems.items;
+    assert.deepEqual(items.map(stem => stem.audioPath).sort(), live.map(stem => stem.localPath).sort());
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
