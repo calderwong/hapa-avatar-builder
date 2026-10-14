@@ -1,3 +1,4 @@
+import { validateEchoLivingLightCues, attachEchoLivingLightTrack } from "./echo-living-light-cues.js";
 import { applyEchoMediaEvidenceProjection } from "./unified-media-catalog.js";
 import { projectToEditorGraph, reframeEchoShowGraphOutputProfile } from "./multitrack-editor.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
@@ -56,6 +57,7 @@ export function restoreEchoSongCardPlanSnapshot(state = {}, songId = "", options
 }
 
 const VARIANT_PROJECT_PATCH_FIELDS = Object.freeze([
+  "living_light_cues",
   "mediaConstraints",
   "output_profile",
   "lyric_variant",
@@ -466,6 +468,7 @@ export function pickEchoDirectionVariantProjectPatch(project = {}) {
   const patch = Object.fromEntries(VARIANT_PROJECT_PATCH_FIELDS
     .filter((key) => project[key] !== undefined)
     .map((key) => [key, clone(project[key])]));
+  if (patch.living_light_cues !== undefined) validateEchoLivingLightCues(patch.living_light_cues);
   if (patch.output_profile !== undefined) patch.output_profile = resolveEchoOutputProfile(patch.output_profile);
   return patch;
 }
@@ -597,7 +600,7 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
     : !durationProjectionApplied && certifiedSelectedGraph
       ? clone(baseProject.director_show_graph)
       : projectToEditorGraph({ ...projected, director_show_graph: baseProject.director_show_graph });
-  const graph = reframeEchoShowGraphOutputProfile(sourceGraph, projected.output_profile);
+  const graph = attachEchoLivingLightTrack(reframeEchoShowGraphOutputProfile(sourceGraph, projected.output_profile), projected);
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
     variantId: id,

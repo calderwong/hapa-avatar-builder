@@ -1,0 +1,11 @@
+{
+  "contract": "hapa.protocol-index/v1",
+  "owner": "hapa-avatar-builder",
+  "documents": [
+    {
+      "slug": "hapa-living-light-director-cues-v1",
+      "title": "Living Light scenes and transitions in Echo Director cuts",
+      "path": "docs/living-light/DIRECTOR_CUES.md"
+    }
+  ]
+}

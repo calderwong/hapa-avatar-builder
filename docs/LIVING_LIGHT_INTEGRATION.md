@@ -141,3 +141,8 @@ Local commit `5bf3fef` connects exact native Thing/Journey Cards to the existing
 ## October 13 — painted Journey preview
 
 The first media placement slice connects active Echo-cut clips to two native depth surfaces per Journey. Per-use swaps, trim/loop/hold, brightness, locks, immutable save/reopen and resource cleanup reuse the existing owners. Native browser proof painted real local clips in tunnel panels and a Solar Reliquary portal. Focused85/85 passed, followed by24/24 affected checks after playback refinements; production build passed. This is a bounded preview, with Desktop process reload, actual album-clock acceptance, Director cues/export and spatial navigation still open. See [contract and evidence](living-light/PAINTED_JOURNEY.md) and [learning checkpoint](postmortems/2026-10-13-living-light-painted-journey.md). No requirement totals or board closure changed.
+
+
+### Director cue foundation — October 13
+
+The shared Scene/Transition use contract preserves exact saved Journey revisions through Director variants and compiled identity. Cue editing/native Director playback and encoded output remain pending; unsupported final export is refused. See [Director cues](living-light/DIRECTOR_CUES.md) and the LL-911 continuation.

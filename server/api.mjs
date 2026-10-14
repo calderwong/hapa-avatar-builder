@@ -13,6 +13,7 @@ import { appendFile, mkdir, readFile, writeFile, stat, readdir, access, rm, rena
 import {readLivingLightSongCatalog} from './living-light-catalog.mjs';
 import {selectEchoPlaybackSource} from './echo-playback-selection.mjs';
 import {createLivingLightService} from './living-light-service.mjs';
+import { validateEchoLivingLightSavedReferences } from '../src/domain/echo-living-light-cues.js';
 import {livingLightUiPolicy,bindBuilderListener,builderListenerBind,loopbackUiRedirect,startLivingLightLoopbackUi} from './living-light-loopback-ui.mjs';
 import {handleLivingLight,livingLightBrowserContext} from './living-light-routes.mjs';
 import {readLivingLightSourceEvidence} from './living-light-source-evidence.mjs';
@@ -1213,6 +1214,12 @@ async function stopOwnedOvercardHost() {
 }
 let audioAtlasService = null;
 let livingLightService = null;
+function getLivingLightService() {
+  return livingLightService ||= createLivingLightService({root:ROOT,storePath:process.env.HAPA_LIVING_LIGHT_AUTHORING_STORE,custodyOwner:avatarCardCustodyService,resolveSong:async songId=>(await readJson(HAPA_SONG_STORE_PATH)).songs.find(song=>song.id===songId)});
+}
+function validateEchoLivingLightProjectReferences(project) {
+  return validateEchoLivingLightSavedReferences(project, ref => getLivingLightService().journey(ref.journeyId, ref.revisionId));
+}
 let songAudioUploadService = null;
 let shutdownPromise = null;
 function shutdownBuilder(signal) {
@@ -2616,7 +2623,7 @@ async function route(req, res) {
     const suffix=pathname.slice('/api/echos/living-light'.length);
     if (suffix==='/session' && req.method==='POST') {await bootstrap(req,res);return;}
     const caller=authorize(req,res);if(!caller)return;
-    livingLightService ||= createLivingLightService({root:ROOT,storePath:process.env.HAPA_LIVING_LIGHT_AUTHORING_STORE,custodyOwner:avatarCardCustodyService,resolveSong:async songId=>(await readJson(HAPA_SONG_STORE_PATH)).songs.find(song=>song.id===songId)});
+    getLivingLightService();
     const performance = createLivingLightPerformancePort({readSongStore:()=>readJson(HAPA_SONG_STORE_PATH),resolveOptions:{root:ROOT,mediaDir:MEDIA_DIR,songRegistryPath:SONG_REGISTRY_DATA_PATH,songbookPath:DEAR_PAPA_SONGBOOK_PATH,songStorePath:HAPA_SONG_STORE_PATH},preparation:echoPerformancePreparation,preparedStore:echoPreparedPerformanceStore});
     if (await handleLivingLight({req,res,url,service:livingLightService,authorize:()=>caller,bootstrap,readBody,sendJson,performance,sourceEvidence:options=>readLivingLightSourceEvidence({root:ROOT,songStorePath:HAPA_SONG_STORE_PATH,...options})}))return;
   }
@@ -3872,13 +3879,16 @@ async function route(req, res) {
       }
       const projectsDir = path.join(DATA_DIR, "music-video-projects");
       const filePath = path.join(projectsDir, `${proj.song_id}-video-project.json`);
+      validateEchoLivingLightProjectReferences(proj);
       const persistedProject = prepareEchoProjectForPersistence(proj);
       await writeFile(filePath, JSON.stringify({ ...body, music_video_project: persistedProject }, null, 2), "utf-8");
       console.log(`[api] Updated music video project plan: ${proj.song_id}`);
       sendJson(res, 200, { success: true });
     } catch (e) {
       console.error("Failed to save director project:", e);
-      sendJson(res, 500, { error: "failed_to_save_project" });
+      if (e?.name === "LivingLightValidationError") {
+        sendJson(res, Number(e.statusCode || e.status || 422), { error: e.code, message: e.message, path: e.path });
+      } else sendJson(res, 500, { error: "failed_to_save_project" });
     }
     return;
   }
@@ -12063,6 +12073,12 @@ async function createEchoDirectionVariantFork(body = {}) {
   const projectPatch = pickEchoDirectionVariantProjectPatch(body.projectPatch || {});
   const basePayload = JSON.parse(await readFile(projectPath, "utf8"));
   const baseProject = basePayload.music_video_project || basePayload;
+  // Older clients omitting the field inherit the parent; [] is an explicit removal.
+  if (projectPatch.living_light_cues === undefined) {
+    const inherited = parentVariant.project_patch?.living_light_cues ?? baseProject.living_light_cues;
+    if (inherited !== undefined) projectPatch.living_light_cues = structuredClone(inherited);
+  }
+  validateEchoLivingLightProjectReferences({ ...baseProject, ...projectPatch });
   const mediaConstraints = mergeEchoMediaConstraints(
     mergeEchoMediaConstraints(baseProject.mediaConstraints, parentVariant.project_patch?.mediaConstraints),
     mergeEchoMediaConstraints(projectPatch.mediaConstraints, body.mediaConstraints),

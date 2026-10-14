@@ -2320,5 +2320,36 @@
     "desktopReload": "pending",
     "albumClockAcceptance": "pending",
     "requirementClosure": false
+  },
+  "livingLightDirectorCues20261013": {
+    "status": "in_progress",
+    "tasks": [
+      "LL-911",
+      "LL-912",
+      "LL-913",
+      "LL-903"
+    ],
+    "sourceChat": "01a137cc-de1d-7511-ab65-227c92d5bca0",
+    "checks": {
+      "affectedPassed": 106,
+      "build": "passed",
+      "processBaselineRestored": true
+    },
+    "implemented": [
+      "cue-contract",
+      "exact-owner-reference-validation",
+      "variant-roundtrip",
+      "compiler-hash-preservation",
+      "export-refusal"
+    ],
+    "pending": [
+      "cue-editor",
+      "native-director-preview",
+      "live-api-roundtrip",
+      "encoded-output"
+    ],
+    "humanAcceptance": "pending",
+    "implementationMinutes": null,
+    "verificationMinutes": null
   }
 }

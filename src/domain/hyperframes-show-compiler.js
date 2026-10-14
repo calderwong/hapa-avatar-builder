@@ -1,3 +1,4 @@
+import { assertEchoLivingLightExportSupported } from "./echo-living-light-cues.js";
 import { normalizeEchoIsfComposition } from "./echo-isf-frame-intent.js";
 import { echoVisualizerRecipeMix } from "./hyperframes-visualizer-runtime.js";
 import { hyperFramesMediaPresentationWindow, hyperFramesMediaOpacityState } from "./echo-media-presentation.js";
@@ -980,6 +981,7 @@ export function hyperFramesMediaElementTiming(instance = {}, presentationWindow 
 export function compileHyperFramesShow({ showGraph, telemetry, project, proxyRegistry = {}, fps = 30, visualizerMix = null, performance = null } = {}) {
   if (showGraph?.schemaVersion !== "hapa.music-viz.native-show-graph.v2") throw new Error("HyperFrames compiler requires Native Show Graph v2");
   const projectBody = project?.music_video_project || project?.project || project || {};
+  assertEchoLivingLightExportSupported(projectBody, showGraph);
   showGraph = upgradeEchoGeneratedVisualizerBindings(showGraph, { project: projectBody });
   const eligibility = inspectEchoTimelineMediaEligibility(projectBody.timeline, projectBody.mediaConstraints);
   const rejectedMedia = eligibility.filter(item => !item.eligible);

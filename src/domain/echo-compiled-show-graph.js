@@ -1,3 +1,4 @@
+import { compileEchoLivingLightTrack } from "./echo-living-light-cues.js";
 import { contentHash } from "./echo-director-v2.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 
@@ -86,6 +87,12 @@ export function validateEchoCompiledShowGraph({ project = {}, sourceProject = un
     ? contentHash(canonicalEchoCompiledVariantBody(graph))
     : null;
   const reasons = [];
+  try {
+    const expectedLivingLight = compileEchoLivingLightTrack(validationProject);
+    if (contentHash(graph.livingLight ?? null) !== contentHash(expectedLivingLight)) reasons.push("living_light_cues_mismatch");
+  } catch {
+    reasons.push("living_light_cues_invalid");
+  }
   if (hasExplicitSourceProject && text(lineageProject.song_id) !== text(validationProject.song_id)) {
     reasons.push("source_project_song_identity_mismatch");
   }
