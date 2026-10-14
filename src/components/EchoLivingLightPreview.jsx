@@ -7,7 +7,7 @@ import {livingLightPreparedBinding,livingLightFeatureBytes} from '../domain/livi
 import {createEchoLivingLightPreview} from '../living-light/director-preview.js';
 import {createLivingLightPreviewDriver} from '../living-light/preview-driver.js';
 const EMPTY=Object.freeze([]);
-export function EchoLivingLightPreviewSurface({project,audioRef,clockRef,currentTime,active=true,clean=false,audioReceipt,preparedPerformance,mediaSources=EMPTY,client:injectedClient,registryResolver,onFrame,onPreviewState}){
+export function EchoLivingLightPreviewSurface({project,audioRef,clockRef,currentTime,active=true,clean=false,audioReceipt,preparedPerformance,mediaSources=EMPTY,client:injectedClient,registryResolver,onFrame,onPreviewState,captureRef}){
  const observerRef=useRef();observerRef.current={onFrame,onPreviewState};
  const catalog=useLivingLightRegistry(),resolverRef=useRef();resolverRef.current=registryResolver||catalog?.ensure;
  const canvasRef=useRef(),driverRef=useRef(),stateRef=useRef(null),[state,setState]=useState({state:'inactive'}),[hold,setHold]=useState(()=>globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches||false);
@@ -32,13 +32,15 @@ export function EchoLivingLightPreviewSurface({project,audioRef,clockRef,current
      if(journey.sourceBindingRef&&(journey.sourceBindingRef.bindingId!==binding.bindingId||journey.sourceBindingRef.revisionId!==binding.revisionId))throw Error('The saved audio binding is not the selected prepared source.');
      return {sourceBinding:{sourceHash:audioReceipt.sourceHash},featureInput:{performance:preparedPerformance,playbackReceipt:audioReceipt,sourceBinding:binding,cache,requiredBytes:livingLightFeatureBytes(preparedPerformance)}};
     },onState:update,onFrame:value=>observerRef.current.onFrame?.(value),onInvalidate:()=>driver?.redraw()});
-   driver=createLivingLightPreviewDriver({canvas:canvasRef.current,runtime:host,getAudio:()=>audioRef?.current,getFrame:()=>{
+   const readFrame=()=>{
     const audio=audioRef?.current,rect=canvasRef.current.getBoundingClientRect(),scale=Math.min(1,1280/Math.max(1,rect.width),1280/Math.max(1,rect.height));
     return {timelineUs:Math.max(0,Math.round(Number(audio?.currentTime??clockRef?.current??0)*1e6)),playing:!!audio&&!audio.paused&&!audio.ended,reducedMotion:holdRef.current,quality:'balanced',viewport:{width:Math.max(1,Math.round(rect.width*scale)),height:Math.max(1,Math.round(rect.height*scale))}};
-   },onError:error=>update({state:'unavailable',cueId:stateRef.current?.cueId,message:error.message})});driverRef.current=driver;
+   };
+   driver=createLivingLightPreviewDriver({canvas:canvasRef.current,runtime:host,getAudio:()=>audioRef?.current,getFrame:readFrame,onError:error=>update({state:'unavailable',cueId:stateRef.current?.cueId,message:error.message})});driverRef.current=driver;
+   if(captureRef)captureRef.current={start:()=>driver.setExternalClock(true),stop:()=>driver.setExternalClock(false),draw:(context,time,width,height)=>host.capture({...readFrame(),timelineUs:Math.round(time*1e6),viewport:{width:Math.max(1,Math.round(width*Math.min(1,1280/Math.max(width,height)))),height:Math.max(1,Math.round(height*Math.min(1,1280/Math.max(width,height))))}},source=>context.drawImage(source,0,0,width,height))};
   }catch(error){update({state:'unavailable',message:error.message});host?.dispose();}
-  return()=>{driver?.dispose();host?.dispose();cache.dispose();if(driverRef.current===driver)driverRef.current=null;};
- },[active,cuesKey,songId,durationUs,client,mediaSources,audioReceipt,preparedPerformance,retry]);
+  return()=>{if(captureRef)captureRef.current=null;driver?.dispose();host?.dispose();cache.dispose();if(driverRef.current===driver)driverRef.current=null;};
+ },[active,cuesKey,songId,durationUs,client,mediaSources,audioReceipt,preparedPerformance,retry,captureRef]);
  useEffect(()=>{driverRef.current?.redraw();},[currentTime,hold]);
  const visible=active&&state.state!=='inactive';
  return <div data-testid="echo-living-light-preview" data-state={active?state.state:'inactive'} data-cue-id={state.cueId||''} style={{position:'absolute',inset:0,zIndex:3,display:visible?'block':'none',background:'#020617',pointerEvents:'none'}}>

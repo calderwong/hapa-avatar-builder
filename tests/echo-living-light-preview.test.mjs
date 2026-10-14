@@ -53,3 +53,22 @@ test('route observers receive only painted exact recipes and visual time, never 
  f.host.render(f.host.evaluate({timelineUs:5e6}));assert.equal(observed[1].journey.journeyId,'journey:two');f.host.dispose();assert.equal(f.host.render(packet),false);assert.equal(observed.length,2);
  const failed=fixture(undefined,{onFrame:()=>assert.fail('No failed frame may navigate'),runtimeFactory:()=>({prepare(){},evaluate:p=>p,render:()=>false,diagnostics:()=>({}),dispose(){}})});failed.host.evaluate({timelineUs:1e6});await flush();assert.equal(failed.host.render(failed.host.evaluate({timelineUs:1e6})),false);failed.host.dispose();
 });
+
+
+test('capture copies the native canvas synchronously and refuses missing or undecoded frames',async()=>{
+ const f=fixture();let copied=0;
+ assert.equal(f.host.capture({timelineUs:0},()=>copied++),null);await flush();
+ const receipt=f.host.capture({timelineUs:1500000},()=>{assert.equal(f.frames.at(-1).directorSongUs,1500000);copied++;});
+ assert.equal(copied,1);assert.equal(receipt.visualUs,500000);assert.equal(receipt.cueId,'cue:one');f.host.dispose();
+ assert.throws(()=>f.host.capture({timelineUs:1500000},()=>copied++),/unavailable/);assert.equal(copied,1);
+ const waiting=fixture(undefined,{runtimeFactory:()=>({prepare(){},evaluate:p=>p,render:()=>true,diagnostics:()=>({media:[{status:'ready',paintReady:false}]}),dispose(){}})});
+ assert.throws(()=>waiting.host.capture({timelineUs:1e6},()=>assert.fail()),/unavailable/);await flush();
+ assert.throws(()=>waiting.host.capture({timelineUs:1e6},()=>assert.fail()),/not ready/);waiting.host.dispose();
+});
+test('two uses of one exact recipe retain one renderer across a gap and still validate every window',async()=>{
+ const a=cue('one'),b={...cue('one',5e6),cueId:'cue:two'};const f=fixture([a,b]);
+ f.host.evaluate({timelineUs:1e6});await flush();f.host.capture({timelineUs:1e6},()=>{});
+ assert.equal(f.host.capture({timelineUs:4e6},()=>assert.fail()),null);assert.equal(f.live.size,1);
+ const next=f.host.capture({timelineUs:5e6},()=>{});assert.equal(next.cueId,'cue:two');assert.equal(next.visualUs,0);assert.equal(f.prepared.length,1);
+ f.host.evaluate({timelineUs:8e6});assert.equal(f.live.size,0);f.host.dispose();
+});

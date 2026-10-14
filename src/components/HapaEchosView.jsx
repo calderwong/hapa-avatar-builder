@@ -2799,7 +2799,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   // Stopping uploads the blob to /api/echo/preview-recordings (quick-capture
   // storage, no minting pipeline). If the upload fails, the blob is saved as
   // a local download so the capture is never silently dropped.
+  const livingLightRecordingRef = useRef(null);
+  const previewRecordingStagingCanvasRef = useRef(null);
+  const livingLightRecordingWaitRef = useRef(null);
+  const livingLightRecordingPausedMsRef = useRef(0);
   const releasePreviewRecordingResources = () => {
+    livingLightRecordingRef.current?.stop();
+    livingLightRecordingWaitRef.current=null;
+    livingLightRecordingPausedMsRef.current=0;
     if (previewRecordingRafRef.current) {
       globalThis.cancelAnimationFrame(previewRecordingRafRef.current);
       previewRecordingRafRef.current = 0;
@@ -2826,6 +2833,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     previewCaptureContextRef.current = null;
     previewRecordingSessionRef.current = null;
     previewRecordingCanvasRef.current = null;
+    if(previewRecordingStagingCanvasRef.current){previewRecordingStagingCanvasRef.current.width=0;previewRecordingStagingCanvasRef.current.height=0;}
+    previewRecordingStagingCanvasRef.current=null;
     previewRecordingActiveRef.current = false;
     previewRecordingStartingRef.current = false;
   };
@@ -2867,7 +2876,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   };
 
   const compositePreviewRecordingFrame = () => {
-    const canvas = previewRecordingCanvasRef.current;
+    const canvas = previewRecordingStagingCanvasRef.current;
+    const output = previewRecordingCanvasRef.current;
     const context = canvas?.getContext?.("2d");
     if (!canvas || !context) return;
     const width = canvas.width;
@@ -2931,15 +2941,54 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     if (shaderCanvas && Number(shaderCanvas.width || 0) > 0) {
       try { context.drawImage(shaderCanvas, 0, 0, width, height); } catch { /* shader layer unavailable */ }
     }
+    if(project?.living_light_cues?.length){
+      const source=livingLightRecordingRef.current;
+      if(!source)throw Error('The Living Light capture surface is unavailable.');
+      source.draw(context,t,width,height);
+    }
     echoLyricPresentationRef.current?.(t);
     paintEchoLyricSurfaceToCanvas(context, echoLyricCaptureSurfaceRef.current, { width, height });
+    // Commit only complete pictures; a waiting Journey must never expose its underlying shot.
+    output.getContext("2d").drawImage(canvas,0,0,width,height);
   };
 
   const startPreviewRecordingComposite = () => {
     if (previewRecordingRafRef.current) globalThis.cancelAnimationFrame(previewRecordingRafRef.current);
     const loop = () => {
       if (!previewRecordingActiveRef.current) return;
-      try { compositePreviewRecordingFrame(); } catch { /* keep the capture alive */ }
+      try {
+        compositePreviewRecordingFrame();
+        const waiting=livingLightRecordingWaitRef.current;
+        if(waiting){
+          livingLightRecordingPausedMsRef.current+=performance.now()-waiting.startedAt;
+          livingLightRecordingWaitRef.current=null;
+          const recorder=previewRecordingSessionRef.current?.recorder;
+          if(recorder?.state==='paused')recorder.resume();
+          if(waiting.resumeAudio)audioRef.current?.play().then(()=>setIsPlaying(true)).catch(error=>{
+            previewRecordingFailureMessageRef.current='Incomplete take: '+error.message;
+            void stopPreviewRecording();
+          });
+          setAudioDiagnostics('Living Light frame ready; capture resumed');
+        }
+      } catch (error) {
+        if(activeProjectRef.current?.living_light_cues?.length){
+          let waiting=livingLightRecordingWaitRef.current;
+          if(error.code==='living_light_capture_waiting'&&(!waiting||performance.now()-waiting.startedAt<15000)){
+            if(!waiting){
+              const audio=audioRef.current;
+              waiting={startedAt:performance.now(),resumeAudio:!!audio&&!audio.paused};
+              livingLightRecordingWaitRef.current=waiting;
+              const recorder=previewRecordingSessionRef.current?.recorder;
+              if(recorder?.state==='recording')recorder.pause();
+              if(audio){audio.pause();currentTimeRef.current=audio.currentTime;setCurrentTime(audio.currentTime);}
+              setIsPlaying(false);setAudioDiagnostics('Waiting for the exact Living Light picture; capture and song paused');
+            }
+          }else{
+            previewRecordingFailureMessageRef.current='Incomplete take: '+(error.message||'Living Light frame failed.');
+            audioRef.current?.pause();setIsPlaying(false);void stopPreviewRecording();return;
+          }
+        }
+      }
       previewRecordingRafRef.current = globalThis.requestAnimationFrame(loop);
     };
     previewRecordingRafRef.current = globalThis.requestAnimationFrame(loop);
@@ -2980,6 +3029,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const stopPreviewRecording = useCallback(async () => {
     if (!previewRecordingActiveRef.current) return;
     const failureMessage = String(previewRecordingFailureMessageRef.current || "").trim();
+    const capturePausedMs=livingLightRecordingPausedMsRef.current+(livingLightRecordingWaitRef.current?performance.now()-livingLightRecordingWaitRef.current.startedAt:0);
     previewRecordingFailureMessageRef.current = "";
     const session = previewRecordingSessionRef.current;
     const capturedContext = previewCaptureContextRef.current;
@@ -3016,6 +3066,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     } catch (error) {
       result = { state: "error", durationMs: 0, blob: null, error: String(error?.message || error) };
     }
+    result.durationMs=Math.max(0,Number(result.durationMs||0)-capturePausedMs);
     let blob = result.blob;
     // Auto-stop at the duration ceiling can finish before this call; the
     // blob may not have been assembled yet, so rebuild it from the chunks.
@@ -3043,6 +3094,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     metadataParams.set("width", String(capturedContext?.metadata.width || 0));
     metadataParams.set("height", String(capturedContext?.metadata.height || 0));
     if (capturedContext?.identity) metadataParams.set("captureIdentity", JSON.stringify(capturedContext.identity));
+    metadataParams.set("captureStatus", failureMessage ? "incomplete" : "complete");
+    metadataParams.set("captureFailure", failureMessage);
+    metadataParams.set("cutId", capturedContext?.metadata.cutId || "");
     metadataParams.set("fps", String(ECHO_PREVIEW_RECORD_FPS));
     metadataParams.set("durationMs", String(Math.round(result.durationMs || 0)));
     let uploaded = null;
@@ -3120,7 +3174,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         throw new Error("This browser cannot capture the preview canvas (captureStream unavailable).");
       }
       const project = activeProjectRef.current || activeProject;
-      if(project?.living_light_cues?.length)throw new Error('Living Light preview recording is not yet qualified. This recorder cannot omit saved Journey scenes.');
+      if(project?.living_light_cues?.length){
+        const source=livingLightRecordingRef.current;
+        if(!source)throw Error('Open Preview and wait for the saved Living Light scene before recording.');
+        source.start();
+        probeCanvas.width=16;probeCanvas.height=16;
+        source.draw(probeCanvas.getContext('2d'),Number(audioRef.current?.currentTime??currentTimeRef.current),16,16);
+      }
       const timeline = project?.timeline || [];
       const playhead = Number(currentTimeRef.current || 0);
       const currentItem = timeline.find((item) => playhead >= item.start_sec && playhead < item.end_sec) || timeline[0];
@@ -3130,15 +3190,17 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
 
       const audioElement = audioRef.current;
       const audioTrack = await acquirePreviewRecordingAudioTrack();
-      const identity = audioVisualMode === "live" && captureLiveSignals ? await buildPreviewCaptureIdentity() : null;
+      const identity = (project?.living_light_cues?.length || (audioVisualMode === "live" && captureLiveSignals)) ? await buildPreviewCaptureIdentity() : null;
       const output = activeOutputProfile;
       previewCaptureContextRef.current = { identity, sourceKey: recordingSourceKey, mode: audioVisualMode, metadata: {
-        songId: String(selectedProjectSongId || project.song_id || project.id || ""), songTitle: project.song_title || "", projectTitle: project.title || "", orientation: output.id, width: output.width, height: output.height,
+        cutId: activeDirectionVariantSelection, songId: String(selectedProjectSongId || project.song_id || project.id || ""), songTitle: project.song_title || "", projectTitle: project.title || "", orientation: output.id, width: output.width, height: output.height,
       } };
       const canvas = globalThis.document.createElement("canvas");
       canvas.width = Math.max(320, Number(output?.width || 1280));
       canvas.height = Math.max(320, Number(output?.height || 720));
       previewRecordingCanvasRef.current = canvas;
+      const staging=globalThis.document.createElement("canvas");staging.width=canvas.width;staging.height=canvas.height;previewRecordingStagingCanvasRef.current=staging;
+      compositePreviewRecordingFrame();
       const videoTracks = canvas.captureStream(ECHO_PREVIEW_RECORD_FPS).getVideoTracks();
       if (!videoTracks.length) throw new Error("The preview canvas did not produce a live video track.");
       const stream = new (globalThis.MediaStream)([...videoTracks, audioTrack]);
@@ -7675,7 +7737,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                   {activeProject.living_light_cues?.length>0&&<Suspense fallback={null}><EchoLivingLightPreview project={activeProject} clean={cleanPreviewMode} audioRef={audioRef} clockRef={currentTimeRef}
                                     currentTime={currentTime} active={activeWorkbenchTab==='preview'&&powerMode!=='hidden'}
                                     audioReceipt={audioPlaybackReceipt} preparedPerformance={activePreparedPerformance}
-                                    mediaSources={livingLightMediaSources}/></Suspense>}
+                                    mediaSources={livingLightMediaSources} captureRef={livingLightRecordingRef}/></Suspense>}
 
                                   {/* Neon HUD Overlay */}
                                   {/* Telemetry badges on the picture; hidden in Clean Preview mode. */}
@@ -8158,7 +8220,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                     />
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', justifyContent: 'space-between' }}>
                                       <span style={{ fontSize: '9.5px', fontWeight: 'bold', color: '#e2e8f0' }}>
-                                        {recording.songTitle || recording.songId || "Untitled song"}
+                                        {recording.captureStatus === "incomplete" ? "Incomplete take · " : ""}{recording.songTitle || recording.songId || "Untitled song"}
                                       </span>
                                       <span style={{ fontFamily: 'monospace', fontSize: '8.5px', color: '#94a3b8' }}>
                                         {recording.createdAt ? new Date(recording.createdAt).toLocaleString() : ""} · {formatEchoPreviewRecordingElapsed(recording.durationMs)} · {recording.width}×{recording.height} · {recording.fps ? `${recording.fps}fps` : ""} · {Math.max(1, Math.round(Number(recording.sizeBytes || 0) / 1024 / 1024))} MB
@@ -8173,6 +8235,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                       >
                                         ⬇ Download
                                       </a>
+                                      {recording.captureFailure && <span role="status">{recording.captureFailure}</span>}
                                       {recording.signals && <a href={`${API_BASE}/api/echo/preview-recordings/${encodeURIComponent(recording.id)}/signals`} download={`${recording.id}.signals.json`}>Download signals</a>}
                                       {recording.signals?.status === "complete" && <button type="button" data-testid="echo-preview-recording-replay-signals" disabled={previewRecordingActiveRef.current} onClick={() => loadPreviewRecordedSignals(recording)}>Replay signals in current cut</button>}
                                       <span data-testid="echo-preview-recording-signal-status">{recording.signals ? `${recording.signals.status === "complete" ? "Replayable signals" : "Incomplete signals"} · ${recording.signals.frameCount} frames ${recording.signals.reason || ""}` : "Video only · no saved signals"}</span>

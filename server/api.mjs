@@ -3785,6 +3785,9 @@ async function route(req, res) {
         mimeType: String(req.headers["content-type"] || "video/webm"),
         metadata: {
           captureIdentity,
+          captureStatus: url.searchParams.get("captureStatus") || undefined,
+          captureFailure: url.searchParams.get("captureFailure") || undefined,
+          cutId: url.searchParams.get("cutId") || undefined,
           id: url.searchParams.get("id") || undefined,
           songId: url.searchParams.get("songId") || undefined,
           songTitle: url.searchParams.get("songTitle") || undefined,

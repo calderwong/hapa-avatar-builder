@@ -148,6 +148,9 @@ export function createPreviewRecordingStore({
       sha256: String(record.sha256 || ""),
       createdAt: String(record.createdAt || ""),
       captureIdentity: record.captureIdentity || null,
+      captureStatus: record.captureStatus || "unknown",
+      captureFailure: record.captureFailure || "",
+      cutId: record.cutId || "",
       signals: record.signals || null,
     };
   }
@@ -247,6 +250,9 @@ export function createPreviewRecordingStore({
       const recordBase = {
         id: safeId,
         captureIdentity: metadata.captureIdentity || null,
+        captureStatus: ["complete", "incomplete"].includes(metadata.captureStatus) ? metadata.captureStatus : "unknown",
+        captureFailure: safeText(metadata.captureFailure, 500),
+        cutId: safeText(metadata.cutId, 256),
         schemaVersion: ECHO_PREVIEW_RECORDING_SCHEMA,
         songId: safeText(metadata.songId, 120),
         songTitle: safeText(metadata.songTitle, 240),

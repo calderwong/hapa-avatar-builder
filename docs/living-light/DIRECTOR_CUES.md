@@ -209,3 +209,53 @@ could be verified. No live album/Journey record was changed for that attempt.
 LL-914 remains in progress, and live desktop/real-song qualification stays open.
 Local evidence: source chat `execution/living-light/media-resolution/` and
 `execution/living-light/live-integration/reload-receipt.json`.
+
+
+## Mixed native preview recording — October 14
+
+**Record + Play** now includes Living Light in the existing Director preview
+recorder. The compositor paints the ordinary shot and shader, the current native
+Journey surface, then visible lyrics into a staging canvas. It commits only a
+complete picture to the recording stream. Native WebGL is copied synchronously
+after rendering; no later read of a cleared presentation buffer is assumed.
+The same existing master element, Web Audio tap, MediaRecorder, upload owner and
+recording shelf are used. No extra audible source or render service is created.
+
+Capture takes the native frame driver’s ownership while running, then restores
+normal preview scheduling. It uses Echo song time and the saved cue mapping.
+Two cue uses sharing one exact Journey keep one renderer and its two-decoder
+bound through the gap, pause media between uses, and reset held motion at each
+new cue. Every use still validates its exact source window. Leaving that recipe,
+changing source, hiding/unmounting or disposal preserves the existing cleanup.
+
+If a Journey or painted clip needs decoding, both MediaRecorder and the master
+pause. Only a fully rendered current picture resumes them; the wait is bounded
+to 15 seconds, and excluded from the reported media duration. A failed source,
+frame, texture, or timeout stops the take. The saved recording preserves
+`captureStatus: incomplete`, its reason and cut ID, and displays that state on
+the shelf after reopening. Older captures report unknown status. This is a
+capture outcome, not release certification or creative acceptance.
+
+Every new Living Light take requests the existing capture identity: selected
+song and cut, source audio URI, SHA-256 of the actual playback audio bytes and
+SHA-256 of the current source/cut graph declaration. Signal replay companions
+remain optional and distinct; a source receipt does not fabricate analysis.
+Original media and saved cut/recipe revisions remain untouched.
+
+Qualification is currently a short **Landscape 1920×1080, target 30 fps** mixed
+pilot, with the native layer capped at 1280 pixels on its longer side and scaled
+into the output. It is preview-quality capture, not a full-resolution native
+render guarantee. Portrait/Square geometry and long-form recording remain
+unqualified for this integration. Final HyperFrames/Song Card export still
+refuses native Living Light cues; no mint/publication readiness is inferred.
+
+Evidence: the real saved painted album Journey and its child cut, owner recording
+readback, ffprobe streams/timestamps, extracted encoded frames and audio levels
+in the source chat’s `execution/living-light/mixed-recording/`. The first encoded
+inspection showed portal → ordinary footage → painted tunnel → ordinary footage,
+H.264 1920×1080 and exactly one non-silent stereo AAC track. Focused native host,
+driver and recording checks (52) and production build passed with process cleanup.
+The source-bound follow-up is recording `014b164a-4b19-42ad-80d7-292c2a07e51e`: 35.570333 seconds, 1,062 strictly increasing video timestamps, a 122.1 ms maximum frame gap, and one 48 kHz stereo AAC track (mean −17.9 dB). The audio/video stream duration difference is 33.062 ms; this alone does not establish sample-accurate synchronization. Audio and graph hashes are retained in its capture identity. The four extracted pictures at 4, 11, 15 and 24 seconds show the expected Location/video/passage/video sequence. This is variable-frame-rate preview evidence, not a constant-30-fps claim.
+
+LL-903 remains in progress until remaining profile and timing acceptance is
+closed; the full integration goal and human creative review remain open.

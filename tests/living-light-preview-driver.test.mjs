@@ -48,3 +48,12 @@ test('context restore while hidden waits for visibility; render/restore failures
 test('play and pause at the same timestamp still reach render to stop painted decoders',()=>{
  const h=harness(),before=h.painted.length;h.audio.paused=false;h.event('play');assert.equal(h.painted.length,before+1);h.audio.paused=true;h.event('pause');assert.equal(h.painted.length,before+2);assert.equal(h.frames.size,0);h.driver.dispose();
 });
+
+
+test('recorder takes frame ownership and releases it without a second animation loop',()=>{
+ const h=harness();h.audio.paused=false;h.event('play');assert.equal(h.frames.size,1);
+ h.driver.setExternalClock(true);const before=h.painted.length;assert.equal(h.frames.size,0);
+ h.audio.currentTime=9;h.event('timeupdate');h.driver.redraw();assert.equal(h.frames.size,0);assert.equal(h.painted.length,before);
+ h.driver.setExternalClock(false);assert.equal(h.painted.at(-1),9000000);assert.equal(h.frames.size,1);
+ h.driver.dispose();h.driver.setExternalClock(false);assert.equal(h.frames.size,0);
+});

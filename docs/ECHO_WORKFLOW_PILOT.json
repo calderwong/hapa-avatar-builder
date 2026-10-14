@@ -2494,5 +2494,24 @@
       "integrated-acceptance"
     ],
     "humanAcceptance": "pending"
+  },
+  "livingLightMixedRecording20261014": {
+    "status": "in_progress",
+    "tasks": [
+      "LL-903",
+      "LL-913"
+    ],
+    "checks": {
+      "focusedPassed": 52,
+      "build": "passed",
+      "encodedMixedLandscape": "inspected",
+      "singleNonSilentAudioTrack": true
+    },
+    "limits": [
+      "preview-quality native layer",
+      "vertical-square-unqualified",
+      "final-song-card-export-unsupported"
+    ],
+    "humanAcceptance": "pending"
   }
 }

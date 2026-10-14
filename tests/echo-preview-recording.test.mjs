@@ -725,3 +725,14 @@ test("recordings CLI retrieves the requested signal companion through the existi
     assert.deepEqual(requests, [{ url: "/api/echo/preview-recordings/capture-123/signals", authorization: "Bearer test-capture-token" }]);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
+
+
+test('incomplete capture status, reason and source cut survive store reopening', async()=>{
+ const root=await fsp.mkdtemp(path.join(os.tmpdir(),'echo-incomplete-take-'));
+ try{
+  const store=createPreviewRecordingStore({mediaRoot:root});
+  const saved=await store.add({buffer:Buffer.from('partial recording'),mimeType:'video/webm',metadata:{songId:'song:one',cutId:'cut:exact',captureStatus:'incomplete',captureFailure:'A painted clip is unavailable.'}});
+  const reopened=createPreviewRecordingStore({mediaRoot:root});const record=await reopened.get(saved.id);
+  assert.equal(record.captureStatus,'incomplete');assert.equal(record.captureFailure,'A painted clip is unavailable.');assert.equal(record.cutId,'cut:exact');
+ }finally{await fsp.rm(root,{recursive:true,force:true});}
+});

@@ -690,3 +690,8 @@ Location record destinations now open their exact cut and retain one original ed
 ## October 14 — saved painted real-album pilot
 
 Saved a three-Location Journey with two real video surfaces and exact record/media/Card destinations. A new child Director cut references that exact revision as a Scene and full Transition; fresh-page reopen, real audio, portal/wall rendering, tunnel arrival and exact held Card inspection verified. All 38 prior song cuts are unchanged. Persistent Hand placement remains unqualified because the existing Hand is not enabled for the Builder surface. No source changes or new broad test run; prior affected checks/build retained. Mixed encoded output is next; goal and human acceptance remain open. See [pilot evidence](living-light/ALBUM_NAVIGATION.md#saved-painted-album-pilot--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-saved-painted-pilot.md).
+
+
+## October 14 — mixed native preview recording
+
+Living Light now participates in the existing Record + Play compositor, with one master audio tap, bounded synchronized decode waits and durable incomplete-take labels. A saved real-song MP4 was inspected for encoded portal, ordinary video, tunnel and subsequent video frames plus one non-silent stereo AAC track. Exact playback-byte and cut-graph capture receipts are now requested for Living Light takes. 52 focused checks and production build passed. Landscape preview capture is the bounded pilot; final Song Card export, other profile acceptance and human creative review remain open. See [Director protocol](living-light/DIRECTOR_CUES.md#mixed-native-preview-recording--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-mixed-recording.md).

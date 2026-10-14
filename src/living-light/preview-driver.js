@@ -3,7 +3,7 @@
  * audio elements without owning a decoder, audible clock or second player.
  * Explore can supply a silent travel clock through the same getFrame contract. */
 export function createLivingLightPreviewDriver({canvas,runtime,getAudio,getFrame,documentTarget=globalThis.document,requestFrame=globalThis.requestAnimationFrame,cancelFrame=globalThis.cancelAnimationFrame,resizeObserverFactory=globalThis.ResizeObserver?(callback=>new globalThis.ResizeObserver(callback)):null,onStatus=()=>{},onError=()=>{}}={}) {
- let disposed=false,failed=false,contextLost=false,suspended=false,handle=null,lastPicture=null,draws=0,lastSignalStatus=null;
+ let externalClock=false,disposed=false,failed=false,contextLost=false,suspended=false,handle=null,lastPicture=null,draws=0,lastSignalStatus=null;
  const events=['play','playing','pause','ended','timeupdate','seeking','seeked','loadedmetadata','emptied','durationchange','ratechange'];
  const cancel=()=>{if(handle!==null){cancelFrame(handle);handle=null;}};
  const stop=error=>{cancel();failed=true;onError(error);};
@@ -22,7 +22,7 @@ export function createLivingLightPreviewDriver({canvas,runtime,getAudio,getFrame
   }catch(error){stop(error);return null;}
  }
  function synchronize(force=false){
-  if(disposed)return;cancel();
+  if(disposed)return;cancel();if(externalClock)return;
   const input=draw(force);
   // Holding the picture has no frame work, even when the audible source plays.
   if(input?.playing&&!input.reducedMotion&&!failed&&visible())handle=requestFrame(tick);
@@ -50,5 +50,5 @@ export function createLivingLightPreviewDriver({canvas,runtime,getAudio,getFrame
   canvas.removeEventListener('webglcontextlost',lost);canvas.removeEventListener('webglcontextrestored',restored);
   runtime.dispose();
  }
- return {redraw:()=>synchronize(true),dispose,diagnostics:()=>({disposed,failed,contextLost,suspended,pendingFrames:handle===null?0:1,draws,audibleSourcesOwned:0})};
+ return {setExternalClock(value){externalClock=!!value;cancel();if(!externalClock)synchronize(true);},redraw:()=>synchronize(true),dispose,diagnostics:()=>({externalClock,disposed,failed,contextLost,suspended,pendingFrames:handle===null?0:1,draws,audibleSourcesOwned:0})};
 }
