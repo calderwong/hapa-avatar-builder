@@ -15,7 +15,7 @@ export function createLivingLightPreviewDriver({canvas,runtime,getAudio,getFrame
     const routing=packet.signalRouting,ports=Object.entries(routing.ports).map(([port,value])=>`${port}: ${value.state}`),message=(routing.blocked?'Visual response blocked; waiting for selected signals. ':'Audio choices · ')+ports.join(' · ');
     if(message!==lastSignalStatus){onStatus(message);lastSignalStatus=message;}
    }
-   const picture=packet?`${packet.generation}:${packet.visualUs}:${packet.quality}:${input.viewport?.width}:${input.viewport?.height}`:null;
+   const picture=packet?`${packet.generation}:${packet.visualUs}:${!!input.playing}:${!!input.reducedMotion}:${packet.quality}:${input.viewport?.width}:${input.viewport?.height}`:null;
    if(packet&&(force||picture!==lastPicture)&&runtime.render(packet)!==false){lastPicture=picture;draws++;}
    return input;
   }catch(error){stop(error);return null;}

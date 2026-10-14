@@ -52,3 +52,10 @@
 .living-light-card-still.journey span{color:#b9dcae}
 
 .living-light-card-still:has(img){height:auto;min-height:108px;overflow:hidden;gap:0}.living-light-card-still img{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover}.living-light-card-still small{padding:5px;text-align:center;overflow-wrap:anywhere}
+
+.living-light-media-controls { margin-block: 1rem; }
+.living-light-media-controls fieldset { display: flex; flex-wrap: wrap; gap: .65rem; align-items: end; min-width: 0; margin-block: .75rem; border: 1px solid #596580; border-radius: .5rem; padding: .75rem; }
+.living-light-media-controls label { display: grid; gap: .25rem; min-width: 0; }
+.living-light-media-controls select { max-width: min(100%, 28rem); }
+.living-light-media-controls input[type=number] { width: 7rem; }
+.living-light-media-controls p { flex-basis: 100%; }

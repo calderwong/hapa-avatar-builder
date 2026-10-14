@@ -44,3 +44,7 @@ test('context restore while hidden waits for visibility; render/restore failures
  const r=harness();r.runtime.restore=()=>{throw Error('Restore fixture failed');};r.canvas.dispatchEvent(new Event('webglcontextlost',{cancelable:true}));r.canvas.dispatchEvent(new Event('webglcontextrestored'));
  assert.equal(r.errors.length,1);assert.equal(r.frames.size,0);r.driver.dispose();
 });
+
+test('play and pause at the same timestamp still reach render to stop painted decoders',()=>{
+ const h=harness(),before=h.painted.length;h.audio.paused=false;h.event('play');assert.equal(h.painted.length,before+1);h.audio.paused=true;h.event('pause');assert.equal(h.painted.length,before+2);assert.equal(h.frames.size,0);h.driver.dispose();
+});

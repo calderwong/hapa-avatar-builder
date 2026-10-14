@@ -12,10 +12,12 @@ import {livingLightThingStudy,livingLightSavedStudyTarget,createLivingLightStill
 import {createLivingLightClient} from '../domain/living-light-client.js';
 import {editableJourney} from '../domain/living-light-journey.js';
 import './LivingLightWorkspace.css';
+const EMPTY_MEDIA=Object.freeze([]);
 /** Lazy Echo workbench entry. This view never creates an audible source. */
-function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerformance,powerMode,onPlayingChange,songClockRef,audition,sharedHandEnabled=false,openCardRequest}) {
+function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerformance,powerMode,onPlayingChange,songClockRef,audition,sharedHandEnabled=false,openCardRequest,mediaSources=EMPTY_MEDIA}) {
  const {registry,archivedThings}=useLivingLightRegistry(),canvasRef=useRef(null),runtimeRef=useRef(null),driverRef=useRef(null),generationRef=useRef(0);
  const [family,setFamily]=useState('fractal'),[quality,setQuality]=useState('balanced'),[signalMode,setSignalMode]=useState('neutral'),[reduced,setReduced]=useState(()=>globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches||false),[status,setStatus]=useState('Preparing neutral study…'),[diagnostic,setDiagnostic]=useState(null),[studyRecipe,setStudyRecipe]=useState(null),[addRequest,setAddRequest]=useState(null);
+ const [mediaStatus,setMediaStatus]=useState([]);
  const [exactPerformance,setExactPerformance]=useState(null),featureCacheRef=useRef(null);
  const [journeyRefreshToken,setJourneyRefreshToken]=useState(0),[openJourneyRequest,setOpenJourneyRequest]=useState(null);
  const [studyReference,setStudyReference]=useState(null),[captureStatus,setCaptureStatus]=useState(''),[capturing,setCapturing]=useState(false),[stillVersion,setStillVersion]=useState(0);
@@ -34,13 +36,15 @@ function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerforma
   const durationSeconds=Number(audioReceipt?.durationSeconds||duration);
   if(!songId||!selected||!Number.isFinite(durationSeconds)||durationSeconds<=0){setStatus('Choose a song with a known duration.');return;}
   const durationUs=Math.round(durationSeconds*1e6);
-  const runtime=createLivingLightRuntime({canvas,registry});runtimeRef.current=runtime;let driver=null;
+  setMediaStatus([]);
+  const runtime=createLivingLightRuntime({canvas,registry,mediaSources,onMediaChange:()=>{setMediaStatus(runtime.diagnostics().media);driverRef.current?.redraw();}});runtimeRef.current=runtime;let driver=null;
   const recipe=studyRecipe?.songId===songId?{...studyRecipe,journeyId:'ll109:study:'+songId,revisionId:'ll109:study-draft',parentRevisionId:null}:{schemaVersion:'hapa.living-light.journey.v1',journeyId:'ll109:study:'+songId,revisionId:'ll109:study-draft',parentRevisionId:null,title:title||songId,songId,sourceBindingRef:null,state:'draft-unresolved',mode:'continuous',seed:109,instances:[{instanceId:'ll109:study-instance',thingRef:{thingId:selected.thingId,revisionId:selected.revisionId},parameters:{},bindings:{}}],schedule:[{instanceId:'ll109:study-instance',startUs:0,endUs:durationUs}],actorTreatment:'none',mediaSlots:[]};
   setDiagnostic(null);
   try{
    if(!featureCacheRef.current)featureCacheRef.current=createLivingLightFeatureCache();
    const exactInput=signalMode==='basic'&&selectedPerformance?.sourcePolicy==='living-light-assets-v1'?{performance:selectedPerformance,playbackReceipt:audioReceipt,sourceBinding:livingLightPreparedBinding({songId,performance:selectedPerformance,playbackReceipt:audioReceipt}),cache:featureCacheRef.current,requiredBytes:livingLightFeatureBytes(selectedPerformance)}:undefined;
    runtime.prepare({journeyRevision:recipe,sourceBinding:{songId,durationUs,sourceHash:audioReceipt?.sourceHash||null,timelineEvidence:audioReceipt?'existing Echo playback receipt':'declared metadata only'},generation:++generationRef.current,neutralStudy:signalMode==='neutral',featureInput:exactInput,basicMasterInput:signalMode==='basic'&&!exactInput?{performance:selectedPerformance,playbackReceipt:audioReceipt}:undefined});
+   setMediaStatus(runtime.diagnostics().media);
    setStatus(signalMode==='basic'?'Prepared response · recipe audio choices use exact sources; stem timing remains unverified':'Neutral study · saved audio choices are inactive');
    driver=createLivingLightPreviewDriver({canvas,runtime,getAudio:()=>audioRef.current,getFrame:()=>{
     const audio=audioRef.current,sourceSeconds=audition?.assetId?songClockRef?.current||0:audio?.currentTime||0,rect=canvas.getBoundingClientRect();
@@ -49,7 +53,7 @@ function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerforma
    driverRef.current=driver;setDiagnostic({...runtime.diagnostics(),preview:driver.diagnostics()});
   }catch(e){runtime.dispose();setStatus('Native preview unavailable: '+e.message);}
   return ()=>{driver?.dispose();runtime.dispose();if(driverRef.current===driver)driverRef.current=null;if(runtimeRef.current===runtime)runtimeRef.current=null;};
- },[songId,title,duration,audioReceipt?.sourceHash,audioReceipt?.pcmSha256,audioReceipt?.durationSeconds,selectedPerformance?.fingerprint,signalMode,family,studyRecipe,powerMode,registry,audition?.assetId]);
+ },[songId,title,duration,audioReceipt?.sourceHash,audioReceipt?.pcmSha256,audioReceipt?.durationSeconds,selectedPerformance?.fingerprint,signalMode,family,studyRecipe,powerMode,registry,audition?.assetId,mediaSources]);
  // Motion preference changes keep the existing canvas; the source-time hold belongs to the runtime.
  // Avoid closing over a stale motion preference in the host's frame callback.
  useEffect(()=>{driverRef.current?.redraw();},[reduced,quality]);
@@ -91,9 +95,10 @@ function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerforma
   {studyRecipe?.songId===songId&&<p>Preview recipe: {studyRecipe.title} · {studyingTour?'Location tour':'Continuous Tunnel'}. Changes in the editor take effect when you choose Study this recipe.</p>}
   <canvas ref={canvasRef} aria-label="Native Living Light Journey study" data-testid="living-light-canvas"/>
   <p role="status" data-testid="living-light-status">{status}</p>
+  {!!mediaStatus.length&&<ul aria-label="Painted clip status">{mediaStatus.map(entry=><li key={entry.surface.instanceId+entry.surface.surfaceId}>{entry.surface.surfaceId}: {entry.message}</li>)}</ul>}
   <div className="living-light-card-actions"><button type="button" disabled={capturing} onClick={capture}>{capturing?'Capturing…':'Capture Card preview'}</button><button type="button" disabled={capturing} onClick={()=>{stillCache.clear();setStillVersion(value=>value+1);setCaptureStatus('Session previews cleared. Saved Cards and notes are unchanged.');}}>Clear session previews</button><p role="status">{captureStatus}</p></div>
   {diagnostic&&<details><summary>Preview evidence</summary><p>{diagnostic.environment?.backend||'Native WebGL2'} · {diagnostic.canvasCount} canvas · {diagnostic.ownedAudioContexts} view-owned audio contexts · features {diagnostic.features}</p><pre>{JSON.stringify(diagnostic,null,2)}</pre></details>}
-  <LivingLightJourneyEditor songId={songId} title={title} durationUs={Math.round(Number(audioReceipt?.durationSeconds||duration)*1e6)||0} registry={registry} showSavedCards={false} openRequest={openJourneyRequest} onSaved={journeySaved} addRequest={addRequest} performance={selectedPerformance?.sourcePolicy==='living-light-assets-v1'?selectedPerformance:null} onPreview={(recipe,reference)=>{setStudyReference(reference);setStudyRecipe(recipe);}}/>
+  <LivingLightJourneyEditor mediaSources={mediaSources} songId={songId} title={title} durationUs={Math.round(Number(audioReceipt?.durationSeconds||duration)*1e6)||0} registry={registry} showSavedCards={false} openRequest={openJourneyRequest} onSaved={journeySaved} addRequest={addRequest} performance={selectedPerformance?.sourcePolicy==='living-light-assets-v1'?selectedPerformance:null} onPreview={(recipe,reference)=>{setStudyReference(reference);setStudyRecipe(recipe);}}/>
   <LivingLightLibrary sharedHandEnabled={sharedHandEnabled} openCardRequest={openCardRequest} registry={registry} songId={songId} journeyRefreshToken={journeyRefreshToken} onOpenJourney={row=>setOpenJourneyRequest({row,nonce:crypto.randomUUID()})} onAdd={thing=>setAddRequest({thing,nonce:crypto.randomUUID()})} stillCache={stillCache} stillVersion={stillVersion} onUse={studyThing}/>
  </section>;
 }

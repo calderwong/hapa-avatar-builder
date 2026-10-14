@@ -1,3 +1,4 @@
+import {validateLivingLightMedia} from './living-light-media.js';
 /** Shared validators for native authoring, API and CLI. No I/O or executable records. */
 export const LL_SCHEMAS = Object.freeze({thing:'hapa.living-light.thing.v1',journey:'hapa.living-light.journey.v1',source:'hapa.living-light.source-binding.v1',features:'hapa.living-light.features.v1',signalBinding:'hapa.living-light.signal-binding.v1',note:'hapa.living-light.note.v1'});
 export class LivingLightValidationError extends Error {
@@ -103,7 +104,7 @@ export function validateJourney(journey,{resolveThing,durationUs}={}) {
     else if(!record.thing.capabilities.destination||i%2!==0)fail('route_chain','schedule','Tours alternate destination and bridge intervals');}
   });if(bridges>12)fail('bridge_limit','schedule','Maximum twelve legacy bridges');if(durationUs!==undefined&&end!==durationUs)fail('schedule_coverage','schedule','Schedule must cover the supplied source duration');
   if(journey.motion!==undefined){object(journey.motion,'motion');keys(journey.motion,['reduced','heldVisualUs'],'motion');if(typeof journey.motion.reduced!=='boolean')fail('invalid_boolean','motion.reduced','Expected boolean');number(journey.motion.heldVisualUs,0,limit,'heldVisualUs',true);}
-  array(journey.mediaSlots,'mediaSlots',8).forEach(slot=>{object(slot,'mediaSlot');keys(slot,['enabled','cutRef','mediaRef','sourceTimeMap','trim','loopPolicy','fit','crop','surfaceRef'],'mediaSlot');if(slot.enabled!==false)fail('media_unqualified','mediaSlot','Phase 1 media slots must remain disabled');canonicalJSON(slot);});return journey;
+  array(journey.mediaSlots,'mediaSlots',8).forEach(slot=>{object(slot,'mediaSlot');if(slot.schemaVersion===undefined){keys(slot,['enabled','cutRef','mediaRef','sourceTimeMap','trim','loopPolicy','fit','crop','surfaceRef'],'mediaSlot');if(slot.enabled!==false)fail('media_unqualified','mediaSlot','Enabled media needs a versioned placement');}canonicalJSON(slot);});validateLivingLightMedia(journey.mediaSlots,{instances:journey.instances,resolveThing,songId:journey.songId});return journey;
 }
 export function validateNote(note) {
   schema(note,'note');keys(note,['schemaVersion','noteId','revisionId','parentRevisionId','target','body','actor','createdAt','editedAt','eventType'],'note');id(note.noteId,'noteId');id(note.revisionId,'revisionId');if(note.parentRevisionId!==null)id(note.parentRevisionId,'parentRevisionId');validateActor(note.actor);choices(note.eventType,['created','edited','retracted'],'eventType');

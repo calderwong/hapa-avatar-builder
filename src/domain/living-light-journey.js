@@ -33,6 +33,7 @@ export function editJourneyDraft(input,action,registry){
  else if(action.type==='lock'){requireSelected();if(typeof action.value!=='boolean')throw Error('Choose an explicit lock state.');selected.locked=action.value;}
  else if(action.type==='parameter'){requireSelected();selected.parameters[action.key]=action.value;}
  else if(action.type==='binding'){requireSelected();if(action.binding===null)delete selected.bindings[action.portId];else selected.bindings[action.portId]=clone(action.binding);}
+ else if(action.type==='media'){requireSelected();value.mediaSlots=value.mediaSlots.filter(slot=>slot.surfaceRef?.instanceId!==selected.instanceId||slot.surfaceRef?.surfaceId!==action.surfaceId);if(action.placement!==null){if(action.placement?.surfaceRef?.instanceId!==selected.instanceId||action.placement?.surfaceRef?.surfaceId!==action.surfaceId)throw Error('Choose a placement for this exact surface.');value.mediaSlots.push(clone(action.placement));}}
  else if(action.type==='reset'){requireSelected();selected.parameters={};}
  else if(action.type==='replace'){requireSelected();const old=registry.resolveThing(selected.thingRef),thing=registry.resolveThing(action.thingRef);if(!thing||old.variantKind!==thing.variantKind)throw Error('Choose a Thing with the same route capability.');selected.thingRef=clone(action.thingRef);selected.parameters={};selected.bindings={};}
  else if(action.type==='duration'){
@@ -48,18 +49,19 @@ export function editJourneyDraft(input,action,registry){
   }else{
    if(!thing.capabilities.destination)throw Error('Add a Location to a tour; choose its connecting passage below.');const bridge=registry.resolveThing(action.bridgeRef);if(!bridge?.capabilities.bridge)throw Error('Select a connecting passage.');const travel=8000000,remaining=last.lengthUs-travel;if(remaining<2000000)throw Error('The final Location needs at least ten seconds to split into a new stop and eight-second passage.');const dwell=Math.floor(remaining/2),bridgeItem=instance(bridge);last.lengthUs=remaining-dwell;value.instances.push(bridgeItem,item);rows.push({instanceId:bridgeItem.instanceId,lengthUs:travel},{instanceId:item.instanceId,lengthUs:dwell});
   }rebuild(value,rows);
+  if(action.type==='duplicate')for(const slot of input.mediaSlots.filter(s=>s.surfaceRef?.instanceId===selected.instanceId))value.mediaSlots.push({...clone(slot),surfaceRef:{...clone(slot.surfaceRef),instanceId:item.instanceId}});
  }
  else if(action.type==='remove'){
   requireSelected();if(rows.length===1)throw Error('Keep at least one instance in this recipe.');
   if(value.mode==='continuous'){const duration=rows[index].lengthUs;rows.splice(index,1);rows[Math.min(index,rows.length-1)].lengthUs+=duration;}
-  else{if(index%2)throw Error('Remove a Location and its adjacent passage together.');let removed;if(index===0){removed=rows.splice(0,2);rows[0].lengthUs+=removed.reduce((sum,row)=>sum+row.lengthUs,0);}else if(index===rows.length-1){removed=rows.splice(index-1,2);rows.at(-1).lengthUs+=removed.reduce((sum,row)=>sum+row.lengthUs,0);}else{removed=rows.splice(index,2);rows[index].lengthUs+=removed.reduce((sum,row)=>sum+row.lengthUs,0);}}rebuild(value,rows);
+  else{if(index%2)throw Error('Remove a Location and its adjacent passage together.');let removed;if(index===0){removed=rows.splice(0,2);rows[0].lengthUs+=removed.reduce((sum,row)=>sum+row.lengthUs,0);}else if(index===rows.length-1){removed=rows.splice(index-1,2);rows.at(-1).lengthUs+=removed.reduce((sum,row)=>sum+row.lengthUs,0);}else{removed=rows.splice(index,2);rows[index].lengthUs+=removed.reduce((sum,row)=>sum+row.lengthUs,0);}}rebuild(value,rows);value.mediaSlots=value.mediaSlots.filter(slot=>!slot.schemaVersion||value.instances.some(i=>i.instanceId===slot.surfaceRef.instanceId));
  }
  else throw Error('Unknown Journey edit.');
  // Protect each locked use and the adjacent tour connections. Compare the
  // final candidate, so a duration/reorder/removal cannot move a locked endpoint
  // indirectly. Unlock is explicit; lock flags alone do not change the route.
  const guarded=new Set();input.schedule.forEach((row,i)=>{if(input.instances.find(item=>item.instanceId===row.instanceId)?.locked){guarded.add(row.instanceId);if(input.mode==='tour')for(const neighbour of [input.schedule[i-1],input.schedule[i+1]])if(neighbour&&registry.resolveThing(input.instances.find(item=>item.instanceId===neighbour.instanceId).thingRef).capabilities.bridge)guarded.add(neighbour.instanceId);}});
- const snapshot=(recipe,id)=>{const item=recipe.instances.find(item=>item.instanceId===id),row=recipe.schedule.find(row=>row.instanceId===id);if(!item||!row)return null;const {locked,...content}=item;return {item:content,row};};
+ const snapshot=(recipe,id)=>{const item=recipe.instances.find(item=>item.instanceId===id),row=recipe.schedule.find(row=>row.instanceId===id);if(!item||!row)return null;const {locked,...content}=item;return {item:content,row,media:recipe.mediaSlots.filter(slot=>slot.surfaceRef?.instanceId===id)};};
  for(const id of guarded)if(canonicalJSON(snapshot(input,id))!==canonicalJSON(snapshot(value,id)))throw Error('Unlock the protected use and its route endpoints before changing this connection. Your draft is kept.');
  validateDraft(value,registry,durationUs);return value;
 }
