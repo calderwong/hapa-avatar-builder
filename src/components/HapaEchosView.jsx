@@ -7415,6 +7415,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
 
                             {(activeWorkbenchTab === "living-light" || livingLightVisited) && <div hidden={activeWorkbenchTab!=="living-light"}><Suspense fallback={<p role="status">Loading Living Light…</p>}><LivingLightWorkspace
                               songId={activeProject.song_id} title={activeProject.song_title} duration={activeProject.duration} mediaSources={livingLightMediaSources}
+                              directorProject={activeProject} directorCutKey={activeDirectionVariantSelection} directorTime={currentTime} directorEditingDisabled={directorEditingLocked||!activeDirectionVariant} onDirectorCuesChange={cues=>handleUpdateProjectSettings({living_light_cues:cues})}
                               audioRef={audioRef} audioReceipt={requestedPlaybackAssetId ? masterPlaybackReceiptRef.current?.receipt : audioPlaybackReceipt} preparedPerformance={activePreparedPerformance} powerMode={activeWorkbenchTab==="living-light"?powerMode:"hidden"} sharedHandEnabled openCardRequest={livingLightOpenRequest} onPlayingChange={setIsPlaying}
                               songClockRef={currentTimeRef} audition={{assetId:requestedPlaybackAssetId,heldSongSeconds:livingLightAudition?.heldSongSeconds||0,busy:audioLoading,ready:audioPlaybackReady,error:audioPlaybackError,durationSeconds:requestedPlaybackAssetId?audioPlaybackReceipt?.durationSeconds:0,onSelect:selectLivingLightPlayback}}
                             /></Suspense></div>}

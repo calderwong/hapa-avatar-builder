@@ -655,3 +655,8 @@ The first media placement slice connects active Echo-cut clips to two native dep
 ## October 13 — Director cue foundation
 
 Saved Journey uses now have a shared exact-revision Scene/Transition contract, integer cut/Journey windows, single-speed mapping and explicit locks. Director save/fork validates references through the existing Journey owner; variants, compiler hashes and editor projections preserve the cues and explicit removal. HyperFrames rejects unsupported Living Light export instead of dropping scenes. Affected106/106, build and owned cleanup pass. LL-911 remains in progress: cue editing, native Director playback, live owner round trip and final encoding are pending. See [contract](living-light/DIRECTOR_CUES.md) and [learning checkpoint](postmortems/2026-10-13-living-light-director-cues.md). No requirement totals or human acceptance changed.
+
+
+## October 13 — Living Light cue editing
+
+The Living Light tab now exposes saved Journey insertion, Scene/Transition source windows, moves, independent timing/Journey locks, compatible swaps, removal and bounded undo/redo on the existing cut draft.36 affected checks and the production build pass. Browser proof confirms cue undo preserves unrelated media, complete passage insertion, truncation refusal, zero console errors and a fitting phone layout. Live owner save/reopen, native Director playback and final export remain open; LL-912 is in progress. See [operator flow and evidence](living-light/DIRECTOR_CUES.md) and [learning checkpoint](postmortems/2026-10-13-living-light-cue-editor.md).

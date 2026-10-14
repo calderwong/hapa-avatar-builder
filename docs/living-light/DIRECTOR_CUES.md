@@ -1,6 +1,6 @@
 # Living Light Director cues
 
-Status: **prototype; authoring contract and compiler preservation implemented**.
+Status: **prototype; authoring contract, cue editor and compiler preservation implemented**.
 Board: `hapa-living-light-avatar-builder`, LL-911; LL-912/913/903 remain open.
 Source chat: `01a137cc-de1d-7511-ab65-227c92d5bca0`.
 
@@ -65,8 +65,8 @@ state is `requires-native-host-and-exact-resolution`; final encoding is
 containing Living Light cues instead of silently omitting them, including a stale
 graph that forgot the project’s cues.
 
-This is not yet a user-visible Director feature. The cue editor, native Director
-canvas host, full live API save/reopen proof, media resolution across cuts and
+The cue editor is now visible in Echo’s Living Light tab (see below). The native
+Director canvas host, full live API save/reopen proof, media resolution across cuts and
 encoded execution remain open. No live album records were changed by this slice.
 Next: insert/select/swap controls and native host evaluation using the same cue
 contract; then explicit qualified export, with the master soundtrack owned by Echo.
@@ -84,3 +84,38 @@ Director playback, full API end-to-end acceptance or final-render parity.
 Evidence is retained in the source chat under
 `execution/living-light/director-cues/`. A local source checkpoint is a recovery
 point within the ongoing integration batch, not closure of the goal or LL-911.
+
+## Cue editor checkpoint — October 13
+
+In Echo, open an editable Director cut, then **Living Light → Living Light in
+this cut**. Refresh the saved Journeys, select an exact revision, choose Scene
+or Transition and choose its source window. **New cue at playhead** starts a
+new use at the current song position. Complete Location/passage buttons fill
+source windows without inferring beats or compressing a passage. Insert updates
+the existing cut draft; **Save as new cut** remains the durable append path.
+
+Select a cue to move, trim, swap or remove it. Timing and Journey locks are
+independent. A timing-locked cue can accept another Journey with the same source
+window and duration. A swap that requires new timing refuses until timing is
+explicitly unlocked. Undo/redo keeps up to 50 complete cue edits and changes only
+the cue list, preserving unrelated song settings, lyrics and media edits.
+External cue changes reset the local history rather than overwriting them.
+
+`echo-living-light-editor.js` is the pure human/agent command spine: insert, move,
+window, swap, remove and lock with optional expected-cue conflict checking. The
+UI consumes these commands; a caller building a cut patch should use the same
+spine. API save still independently validates exact references. A generic raw
+project patch is not an authenticated action history or proof of lock intent.
+
+36 affected domain/variant tests pass, including six new editing regressions.
+The production component’s isolated browser study verifies a 0–6s scene, an
+8-second complete passage, a timing-preserving swap and undo, retention of an
+unrelated media change, and refusal of a truncated passage. No console errors
+were observed. The phone breakpoint had matching client/scroll widths (375px);
+production build and owned process cleanup passed. Fixture:
+`tests/fixtures/echo-living-light-cue-ui.html`. Browser evidence is kept in the
+source chat under `execution/living-light/director-editor/`.
+
+This browser proof uses fixture Journeys and does not qualify a live album save,
+Director canvas playback or encoded export. LL-912 remains in progress until
+those integrated operations and agent proposal handling are verified.

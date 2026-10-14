@@ -2,6 +2,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import LivingLightRegistryProvider,{useLivingLightRegistry} from './LivingLightRegistryProvider.jsx';
 import {createLivingLightRuntime} from '../living-light/runtime.js';
 import {createLivingLightPreviewDriver} from '../living-light/preview-driver.js';
+import EchoLivingLightCueEditor from './EchoLivingLightCueEditor.jsx';
 import LivingLightLibrary from './LivingLightLibrary.jsx';
 import LivingLightJourneyEditor from './LivingLightJourneyEditor.jsx';
 import LivingLightStemAudition from './LivingLightStemAudition.jsx';
@@ -14,7 +15,7 @@ import {editableJourney} from '../domain/living-light-journey.js';
 import './LivingLightWorkspace.css';
 const EMPTY_MEDIA=Object.freeze([]);
 /** Lazy Echo workbench entry. This view never creates an audible source. */
-function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerformance,powerMode,onPlayingChange,songClockRef,audition,sharedHandEnabled=false,openCardRequest,mediaSources=EMPTY_MEDIA}) {
+function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerformance,powerMode,onPlayingChange,songClockRef,audition,sharedHandEnabled=false,openCardRequest,mediaSources=EMPTY_MEDIA,directorProject,directorCutKey,directorTime=0,onDirectorCuesChange,directorEditingDisabled=false}) {
  const {registry,archivedThings}=useLivingLightRegistry(),canvasRef=useRef(null),runtimeRef=useRef(null),driverRef=useRef(null),generationRef=useRef(0);
  const [family,setFamily]=useState('fractal'),[quality,setQuality]=useState('balanced'),[signalMode,setSignalMode]=useState('neutral'),[reduced,setReduced]=useState(()=>globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches||false),[status,setStatus]=useState('Preparing neutral study…'),[diagnostic,setDiagnostic]=useState(null),[studyRecipe,setStudyRecipe]=useState(null),[addRequest,setAddRequest]=useState(null);
  const [mediaStatus,setMediaStatus]=useState([]);
@@ -89,6 +90,7 @@ function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerforma
  return <section className="living-light-workspace" aria-label="Living Light workspace">
   <header><div><h3>Living Light</h3><p>{title||songId} · <code>{songId}</code></p></div><span>Foundation preview</span></header>
   <p className="living-light-truth">This is the original native renderer following Echo’s selected song clock. Travel and Location tours follow authored source-time intervals. Prepared signals can drive each use’s saved audio choices. Stem timing remains unavailable until an owner map is applied; broader visual qualification is still being connected.</p>
+  {directorProject&&onDirectorCuesChange&&<EchoLivingLightCueEditor project={directorProject} cutKey={directorCutKey} currentTime={directorTime} onChange={onDirectorCuesChange} disabled={directorEditingDisabled} active={powerMode!=='hidden'} refreshToken={journeyRefreshToken}/>}
   <LivingLightSignals songId={songId} onPerformance={acceptPerformance}/>
   {audition&&<LivingLightStemAudition songId={songId} audioRef={audioRef} audition={audition}/>}
   <div className="living-light-controls"><label>Audio response <select aria-label="Living Light audio response" value={signalMode} onChange={e=>setSignalMode(e.target.value)}><option value="neutral">Neutral study</option><option value="basic" disabled={!selectedPerformance||!audioReceipt}>Prepared audio choices / basic master</option></select></label><label>{studyingTour?'Start a Tunnel study':'Tunnel family'} <select value={selected?.thingId||family} onChange={e=>{setStudyReference(null);setStudyRecipe(null);setFamily(e.target.value);}}>{[...(!registry.entries.some(t=>t.thingId===selected?.thingId)&&selected?[selected]:[]),...registry.entries.filter(t=>t.variantKind==='continuous-profile')].map(t=><option key={t.thingId} value={t.thingId}>{t.title}</option>)}</select></label><label>Preview quality <select aria-label="Living Light preview quality" value={quality} onChange={e=>setQuality(e.target.value)}><option value="draft">Draft</option><option value="balanced">Balanced</option><option value="high">High</option></select></label><label><input type="checkbox" checked={reduced} onChange={e=>setReduced(e.target.checked)}/> Hold visual motion</label><button type="button" onClick={toggleAudio}>Play / pause selected {audition?.assetId?'stem':'song'}</button><button type="button" onClick={()=>setDiagnostic(runtimeRef.current?{...runtimeRef.current.diagnostics(),preview:driverRef.current?.diagnostics(),stillCache:stillCache.diagnostics()}:null)}>Inspect preview</button></div>
