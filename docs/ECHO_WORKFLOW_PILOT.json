@@ -2557,5 +2557,26 @@
       "encoded-real-cut-acceptance"
     ],
     "humanAcceptance": "pending"
+  },
+  "livingLightRenderPackage20261014": {
+    "status": "in_progress",
+    "tasks": [
+      "LL-903",
+      "LL-914"
+    ],
+    "checks": {
+      "focusedPassed": 27,
+      "build": "passed",
+      "realSavedPackageNativeRepeat": "verified",
+      "snapshotDigest": "f06d94f446aadbfea5dfca5befc9d6d6679fdcf737b2c770c60b32c76ad35d43",
+      "processBaselineRestored": true
+    },
+    "pending": [
+      "hyperframes-compositor-integration",
+      "final-encoding",
+      "real-owner-bound-source",
+      "integrated-acceptance"
+    ],
+    "humanAcceptance": "pending"
   }
 }

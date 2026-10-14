@@ -705,3 +705,8 @@ Director/Follow/recording now read the exact Living Light asset bank for bound J
 ## October 14 — offline native frame primitive
 
 Living Light now has a frame-addressed adapter over its existing Director renderer.34 affected checks and build pass. Native real-video proof reproduces scene and tunnel pixels after backward seeks and cue gaps in landscape, portrait and square; pending, canceled, failed or wrong-index frames cannot paint. Exact prepared choices cannot silently become neutral. Final export remains explicitly unavailable until snapshot/media packaging and encoder integration are qualified. See [Director protocol](living-light/DIRECTOR_CUES.md#frame-addressed-native-rendering--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-offline-frames.md). LL-903 and human creative acceptance remain open.
+
+
+## October 14 — exact Living Light render packages
+
+The local packaging CLI and protected media API share the saved-cut reader. Exact owner Journey/module metadata and copied video bytes now feed an immutable offline snapshot consumer.27 affected checks, syntax checks, build and browser bundle pass. The real saved pilot rendered from an isolated static package with matching repeated scene/tunnel hashes and clean resource/process teardown. Initial UTF-8 transport refusal and correction are preserved. Final composition/encoding and real-owner bound-source qualification remain open. See [protocol](living-light/DIRECTOR_CUES.md#exact-render-packages--october-14) and [checkpoint](postmortems/2026-10-14-living-light-render-package.md). Goal active; no human acceptance or requirement closure.

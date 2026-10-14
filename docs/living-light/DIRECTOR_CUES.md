@@ -340,3 +340,69 @@ Next integration: preserve the cut's exact Journey/Thing/source revisions in a
 bounded export snapshot, package verified local media and prepared assets, bundle
 the native adapter, and await preparation before each HyperFrames frame. The
 existing compositor still owns ordinary media, lyrics and final master audio.
+
+
+## Exact render packages — October 14
+
+`scripts/package-living-light-render.mjs` prepares an inert local render package
+from an exact saved song/cut. It uses the canonical Living Light authoring owner’s
+portable Journey export, including exact module revisions, preset parents and
+source attribution, with note inclusion disabled. The protected painted-media API
+and this CLI now share `server/echo-saved-cut-reader.mjs` for exact append-only,
+embedded and legacy cut resolution. Neither changes a Journey, cut, Card or source.
+
+Example from the Builder root:
+
+```sh
+node scripts/package-living-light-render.mjs --song-id=<song> --cut-id=<cut> --output=<new-directory>
+```
+
+The output directory must be new. The CLI honors the existing Journey-store and
+saved-variant-directory environment overrides. A bound Journey additionally needs
+`--prepared-source=<owner-input.json>` containing `performance` and the public
+`playbackReceipt`. This is the existing prepared bank/receipt contract, not a new
+analysis or approval mechanism. The packet validates master/PCM identity, saved
+binding revision, measured feature semantics and complete song duration. It does
+not independently certify supplied measurement provenance or refresh source bytes;
+the canonical prepared owner still owns that evidence. Automatic owner preparation
+and real-owner bound-export qualification remain open.
+
+The local media packager resolves only existing owner video declarations, copies
+through a bounded temporary file, detects source changes during copying and emits
+content-addressed package-local paths. Existing content addresses are verified
+before reuse. Originals are never overwritten; no remote fetch or transcode occurs.
+Temporary copies are cleaned on failure. Successfully copied files may remain as
+inert partial output if later preparation fails; no valid manifest is emitted.
+
+`hapa.echo.living-light-render.v1` pins cue windows, exact owner metadata packages,
+painted-media declaration references plus copied-byte SHA-256/length, and optional
+prepared input. Admission verifies both snapshot/package digests, original catalog
+definitions, inherited preset defaults, all referenced modules/media, song/binding
+agreement and cue/source windows. Raw workstation paths, credentials and custody
+authority are refused. Limits:128 cues/recipes,100 module revisions per recipe,
+64MiB metadata,2GiB per video; the underlying two-painted-source/Journey cap stays.
+
+`src/living-light/director-snapshot.js` consumes a private copy of this package
+through the frame adapter. It resolves recipes and media only from the snapshot;
+it owns a bounded feature cache and never falls back to a running authoring/API
+service. The metadata digest commits the declarations, while copied file hashes
+must also be verified by the render packager/runner. It is not a signed authority
+claim or protection against subsequent external modification of package files.
+
+27 affected checks, API/CLI syntax checks, production build and browser-library
+bundle passed. The real saved painted pilot packaged one Journey and two exact
+clips (3,554,774 and4,664,704 bytes), with snapshot digest
+`f06d94f446aadbfea5dfca5befc9d6d6679fdcf737b2c770c60b32c76ad35d43`.
+An isolated static server exposed only that directory, with `connect-src 'none'`.
+Native1920×1080 output reproduced identical scene/tunnel hashes for requests
+120→450→120→330→450 at30fps: song4s/Journey2s, song15s/Journey29s, and an inactive
+song11s gap. Both video decoders were paused/muted; native resources and feature
+cache were released. The static server exited0 and restored its process baseline.
+Evidence remains in source-chat `execution/living-light/render-package/`.
+
+The initial proof omitted UTF-8 declaration, corrupting Unicode metadata during
+script loading; digest validation correctly refused it. Explicit UTF-8 fixed the
+transport and the final proof passed without browser errors/warnings. This proof
+does not include ordinary cut media, lyrics, master audio or final encoded output.
+HyperFrames/Song Card still refuse Living Light until that composition path is
+connected and qualified. LL-903 remains in progress; human review remains separate.

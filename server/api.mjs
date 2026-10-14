@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {readEchoSavedCut} from './echo-saved-cut-reader.mjs';
 import { createSongAudioUpload } from './song-audio-upload.mjs';
 import { createAudioAtlas } from './audio-atlas.mjs';
 import { handleAudioAtlas } from './audio-atlas-routes.mjs';
@@ -1215,15 +1216,7 @@ async function stopOwnedOvercardHost() {
 let audioAtlasService = null;
 let livingLightService = null;
 function getLivingLightService() {
-  return livingLightService ||= createLivingLightService({root:ROOT,storePath:process.env.HAPA_LIVING_LIGHT_AUTHORING_STORE,custodyOwner:avatarCardCustodyService,resolveCut:async (requestedSongId,requestedCutId)=>{
-    const songId=safeEchoDirectionPathSegment(requestedSongId,"song"),cutId=requestedCutId==="legacy"?"legacy":safeEchoDirectionPathSegment(requestedCutId,"variant");
-    const file=path.join(DATA_DIR,"music-video-projects",`${songId}-video-project.json`);
-    if((await stat(file)).size>32*1024*1024)throw Error("media_source_project_too_large");
-    const payload=await readJson(file),project=payload.music_video_project||payload;
-    const variant=cutId==="legacy"?null:await readEchoDirectionScriptVariant(songId,cutId)||project.direction_script_variants?.find(row=>domainEchoDirectionVariantId(row)===cutId);
-    if(cutId!=="legacy"&&!variant)return null;
-    return {...(variant?deriveEchoDirectionVariantProject(project,variant):project),active_direction_script_variant:{id:cutId}};
-   },resolveSong:async songId=>(await readJson(HAPA_SONG_STORE_PATH)).songs.find(song=>song.id===songId)});
+  return livingLightService ||= createLivingLightService({root:ROOT,storePath:process.env.HAPA_LIVING_LIGHT_AUTHORING_STORE,custodyOwner:avatarCardCustodyService,resolveCut:(songId,cutId)=>readEchoSavedCut({root:ROOT,dataDir:DATA_DIR,variantsRoot:ECHO_DIRECTION_VARIANTS_DIR,songId,cutId}),resolveSong:async songId=>(await readJson(HAPA_SONG_STORE_PATH)).songs.find(song=>song.id===songId)});
 }
 function validateEchoLivingLightProjectReferences(project) {
   return validateEchoLivingLightSavedReferences(project, ref => getLivingLightService().journey(ref.journeyId, ref.revisionId));
