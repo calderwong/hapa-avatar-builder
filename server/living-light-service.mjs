@@ -1,3 +1,4 @@
+import {resolveLivingLightMediaReferences} from '../src/domain/living-light-media-resolution.js';
 import {exportLivingLightPackage,previewLivingLightImport,commitLivingLightImport,readLivingLightImport,PORTABLE_SCHEMA} from './living-light-portable.mjs';
 import path from 'node:path';
 import {livingLightCardTarget,livingLightEntityRef} from '../src/overcard/livingLight.js';
@@ -9,7 +10,7 @@ import {validateActor} from '../src/domain/living-light-contracts.js';
 
 /** Native authoring owner. Caller provenance is supplied by the protected route,
  * never inferred from an actor name in client JSON. No automatic publication. */
-export function createLivingLightService({root,storePath=path.join(root,'data/living-light/authoring.sqlite3'),registry=createLivingLightRegistry(),custodyOwner,resolveSong}={}){
+export function createLivingLightService({root,storePath=path.join(root,'data/living-light/authoring.sqlite3'),registry=createLivingLightRegistry(),custodyOwner,resolveSong,resolveCut}={}){
  const store=new LivingLightStore({file:storePath,registry}),pending=new Map();
  const actor=caller=>{
   if(!caller||!['trusted-local-ui','authenticated-api'].includes(caller.mode))throw Object.assign(Error('Protected caller provenance required'),{code:'unauthorized',statusCode:401});
@@ -51,8 +52,8 @@ export function createLivingLightService({root,storePath=path.join(root,'data/li
   if(target.kind==='thing')store.materializeThing(target.id,who);
   await custody(target.id,who);return sharedCard(target);
  }
- return {store,sharedCard,prepareSharedCard,
-  capabilities:()=>({schemaVersion:'hapa.living-light.capabilities.v1',schemas:{thing:'hapa.living-light.thing.v1',journey:'hapa.living-light.journey.v1',notes:'hapa.living-light.note.v1',signalBinding:'hapa.living-light.signal-binding.v1',mediaPlacement:'hapa.living-light.media-placement.v1',portable:PORTABLE_SCHEMA},authoring:['shared-card-exact-read','shared-card-explicit-custody','things','preset-revisions','archive','restore','journeys','journey-revisions','painted-media-placements','reviewed-forks','notes','note-history','import-preview','import-commit','metadata-export'],limits:{bodyBytes:1048576,pageRows:200,portableThingRevisions:100,portableNoteIdentities:200},actor:'server-derived; API clients are agents',publication:'local-pending; no automatic delivery',playback:'native continuous and authored tour study; up to two muted exact-cut video surfaces; visual qualification pending',preparation:'not implemented by this service; existing Atlas remains owner',finalEncoding:'unsupported'}),
+ return {store,sharedCard,prepareSharedCard,resolveMedia:refs=>resolveLivingLightMediaReferences(refs,{loadCut:resolveCut}),
+  capabilities:()=>({schemaVersion:'hapa.living-light.capabilities.v1',schemas:{thing:'hapa.living-light.thing.v1',journey:'hapa.living-light.journey.v1',notes:'hapa.living-light.note.v1',signalBinding:'hapa.living-light.signal-binding.v1',mediaPlacement:'hapa.living-light.media-placement.v1',portable:PORTABLE_SCHEMA},authoring:['shared-card-exact-read','shared-card-explicit-custody','things','preset-revisions','archive','restore','journeys','journey-revisions','painted-media-placements','exact-cut-media-read','reviewed-forks','notes','note-history','import-preview','import-commit','metadata-export'],limits:{bodyBytes:1048576,pageRows:200,portableThingRevisions:100,portableNoteIdentities:200},actor:'server-derived; API clients are agents',publication:'local-pending; no automatic delivery',playback:'native continuous and authored tour study; up to two muted exact-cut video surfaces; visual qualification pending',preparation:'not implemented by this service; existing Atlas remains owner',finalEncoding:'unsupported'}),
   exportPackage:options=>exportLivingLightPackage(store,options),importPreview,importCommit,importRecord:id=>readLivingLightImport(store,id),
   importRefs:(entityId,{offset=0,limit=50}={})=>{if(typeof entityId!=='string'||!/^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,255}$/.test(entityId)||!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(limit)||limit<1||limit>200)throw Object.assign(Error('Exact entity and bounded page required'),{code:'invalid_page',statusCode:422});const db=store.open();if(!db)return {imports:[],total:0,nextOffset:null};const total=Number(db.prepare("SELECT count(*) n FROM intents WHERE entity_id=? AND kind='portable-import'").get(entityId).n);const rows=db.prepare("SELECT id FROM intents WHERE entity_id=? AND kind='portable-import' ORDER BY rowid LIMIT ? OFFSET ?").all(entityId,limit,offset);return {imports:rows.map(r=>({importId:r.id.slice('portable-import:'.length)})),total,nextOffset:offset+limit<total?offset+limit:null};},
 registry,

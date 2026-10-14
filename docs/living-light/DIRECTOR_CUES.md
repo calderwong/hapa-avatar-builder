@@ -168,3 +168,44 @@ full album-clock/painted-media acceptance, running Desktop reload, short-transit
 policy and native/baked encoding are unfinished. The preview recorder now refuses
 cuts containing Living Light cues, matching the existing final-export refusal,
 until its composite capture path is qualified. No board requirement is closed.
+
+
+## Exact painted media lookup — October 14
+
+Saved Journey previews in both the Workspace and Director now resolve enabled
+painted sources through their original Song/cut/shot/media/declaration reference.
+An exact current-draft source can satisfy the reference immediately; otherwise
+`POST /api/echos/living-light/media/resolve` asks the existing cut owner. The API
+accepts only `{refs:[...]}`, at most two exact references and a 4 KiB body, under
+the existing protected UI/API authentication. It returns
+`hapa.living-light.media-resolution.v1`, `readOnly:true`, and per-reference
+`resolved` or `unavailable` results. It does not edit cuts, source media, Journeys,
+Card custody or publication. API/CLI parity is
+`cli/living-light.mjs resolve-media --file REFS.json` with the same request body.
+
+Each cut loads once per request. Stored variants use the existing exact-ID read
+and variant projection; no latest-head or title fallback occurs. The source
+reference is checked again after projection. A changed URI/content declaration,
+missing cut or wrong owner identity remains unresolved. Filesystem errors are
+reported without private paths. URLs are transient playback inputs and never
+enter saved placements. The digest identifies the source declaration and available
+content-hash claim; this lookup does not independently verify video bytes.
+
+The Director resolves current/next metadata before creating graphics and discards
+late results after a seek or disposal. The Workspace cancels obsolete selections.
+Both lookups have a 30-second deadline. No new decoder, audio clock, media store,
+Card type or background worker was introduced. General Media/Card library routing
+and immersive navigation remain LL-914/915/916 work.
+
+21 focused checks pass across media lookup, native media and Director handoff,
+including protected route admission, CLI transport, missing/changed references,
+cut grouping, current-plus-retained sources and cancellation before graphics.
+The production build passes, with bounded owned process cleanup verified. Source
+checks passed for API/service/routes. The existing canonical launchd API was
+reloaded once through its documented owner and reported fresh source; its UI
+entry redirects to the loopback companion. The old development API was not
+restarted. Browser control timed out on the full app before a live save/reopen
+could be verified. No live album/Journey record was changed for that attempt.
+LL-914 remains in progress, and live desktop/real-song qualification stays open.
+Local evidence: source chat `execution/living-light/media-resolution/` and
+`execution/living-light/live-integration/reload-receipt.json`.

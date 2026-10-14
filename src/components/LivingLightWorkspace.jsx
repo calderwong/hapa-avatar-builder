@@ -1,3 +1,4 @@
+import {resolveLivingLightJourneyMedia} from '../domain/living-light-media-resolution.js';
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import LivingLightRegistryProvider,{useLivingLightRegistry} from './LivingLightRegistryProvider.jsx';
 import {createLivingLightRuntime} from '../living-light/runtime.js';
@@ -18,13 +19,21 @@ const EMPTY_MEDIA=Object.freeze([]);
 function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerformance,powerMode,onPlayingChange,songClockRef,audition,sharedHandEnabled=false,openCardRequest,mediaSources=EMPTY_MEDIA,directorProject,directorCutKey,directorTime=0,onDirectorCuesChange,directorEditingDisabled=false}) {
  const {registry,archivedThings}=useLivingLightRegistry(),canvasRef=useRef(null),runtimeRef=useRef(null),driverRef=useRef(null),generationRef=useRef(0);
  const [family,setFamily]=useState('fractal'),[quality,setQuality]=useState('balanced'),[signalMode,setSignalMode]=useState('neutral'),[reduced,setReduced]=useState(()=>globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches||false),[status,setStatus]=useState('Preparing neutral study…'),[diagnostic,setDiagnostic]=useState(null),[studyRecipe,setStudyRecipe]=useState(null),[addRequest,setAddRequest]=useState(null);
- const [mediaStatus,setMediaStatus]=useState([]);
+ const [mediaStatus,setMediaStatus]=useState([]),[retainedMedia,setRetainedMedia]=useState(null);
  const [exactPerformance,setExactPerformance]=useState(null),featureCacheRef=useRef(null);
  const [journeyRefreshToken,setJourneyRefreshToken]=useState(0),[openJourneyRequest,setOpenJourneyRequest]=useState(null);
  const [studyReference,setStudyReference]=useState(null),[captureStatus,setCaptureStatus]=useState(''),[capturing,setCapturing]=useState(false),[stillVersion,setStillVersion]=useState(0);
  const stillCache=useMemo(()=>createLivingLightStillCache(),[]),client=useMemo(()=>createLivingLightClient(),[]),captureEpoch=useRef(0),captureBusy=useRef(false);
  useEffect(()=>()=>{captureEpoch.current++;stillCache.clear();},[stillCache]);
  useEffect(()=>{captureEpoch.current++;setCaptureStatus('');},[songId,studyRecipe,family,signalMode]);
+ const mediaSelectionKey=JSON.stringify([studyRecipe?.mediaSlots||[],mediaSources]);
+ useEffect(()=>{
+  if(!studyRecipe||powerMode==='hidden')return;
+  const controller=new AbortController(),key=mediaSelectionKey;
+  resolveLivingLightJourneyMedia(studyRecipe,{sources:mediaSources,request:client.request,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(30000)])}).then(sources=>{if(!controller.signal.aborted)setRetainedMedia({key,sources});}).catch(()=>{if(!controller.signal.aborted)setRetainedMedia({key,sources:mediaSources});});
+  return()=>controller.abort();
+ },[mediaSelectionKey,powerMode,client]);
+ const previewMedia=retainedMedia?.key===mediaSelectionKey?retainedMedia.sources:mediaSources;
  const journeySaved=useCallback(()=>setJourneyRefreshToken(value=>value+1),[]);
  const acceptPerformance=useCallback(value=>setExactPerformance(value),[]);
  const selectedPerformance=exactPerformance?.songId===songId?exactPerformance:preparedPerformance;
@@ -38,7 +47,7 @@ function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerforma
   if(!songId||!selected||!Number.isFinite(durationSeconds)||durationSeconds<=0){setStatus('Choose a song with a known duration.');return;}
   const durationUs=Math.round(durationSeconds*1e6);
   setMediaStatus([]);
-  const runtime=createLivingLightRuntime({canvas,registry,mediaSources,onMediaChange:()=>{setMediaStatus(runtime.diagnostics().media);driverRef.current?.redraw();}});runtimeRef.current=runtime;let driver=null;
+  const runtime=createLivingLightRuntime({canvas,registry,mediaSources:previewMedia,onMediaChange:()=>{setMediaStatus(runtime.diagnostics().media);driverRef.current?.redraw();}});runtimeRef.current=runtime;let driver=null;
   const recipe=studyRecipe?.songId===songId?{...studyRecipe,journeyId:'ll109:study:'+songId,revisionId:'ll109:study-draft',parentRevisionId:null}:{schemaVersion:'hapa.living-light.journey.v1',journeyId:'ll109:study:'+songId,revisionId:'ll109:study-draft',parentRevisionId:null,title:title||songId,songId,sourceBindingRef:null,state:'draft-unresolved',mode:'continuous',seed:109,instances:[{instanceId:'ll109:study-instance',thingRef:{thingId:selected.thingId,revisionId:selected.revisionId},parameters:{},bindings:{}}],schedule:[{instanceId:'ll109:study-instance',startUs:0,endUs:durationUs}],actorTreatment:'none',mediaSlots:[]};
   setDiagnostic(null);
   try{
@@ -54,7 +63,7 @@ function Workspace({songId,title,duration,audioRef,audioReceipt,preparedPerforma
    driverRef.current=driver;setDiagnostic({...runtime.diagnostics(),preview:driver.diagnostics()});
   }catch(e){runtime.dispose();setStatus('Native preview unavailable: '+e.message);}
   return ()=>{driver?.dispose();runtime.dispose();if(driverRef.current===driver)driverRef.current=null;if(runtimeRef.current===runtime)runtimeRef.current=null;};
- },[songId,title,duration,audioReceipt?.sourceHash,audioReceipt?.pcmSha256,audioReceipt?.durationSeconds,selectedPerformance?.fingerprint,signalMode,family,studyRecipe,powerMode,registry,audition?.assetId,mediaSources]);
+ },[songId,title,duration,audioReceipt?.sourceHash,audioReceipt?.pcmSha256,audioReceipt?.durationSeconds,selectedPerformance?.fingerprint,signalMode,family,studyRecipe,powerMode,registry,audition?.assetId,previewMedia]);
  // Motion preference changes keep the existing canvas; the source-time hold belongs to the runtime.
  // Avoid closing over a stale motion preference in the host's frame callback.
  useEffect(()=>{driverRef.current?.redraw();},[reduced,quality]);

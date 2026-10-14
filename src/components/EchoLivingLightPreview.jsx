@@ -1,5 +1,6 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import LivingLightRegistryProvider,{useLivingLightRegistry} from './LivingLightRegistryProvider.jsx';
+import {resolveLivingLightJourneyMedia} from '../domain/living-light-media-resolution.js';
 import {createLivingLightClient} from '../domain/living-light-client.js';
 import {createLivingLightFeatureCache} from '../domain/living-light-feature-cache.js';
 import {livingLightPreparedBinding,livingLightFeatureBytes} from '../domain/living-light-prepared-binding.js';
@@ -20,7 +21,8 @@ export function EchoLivingLightPreviewSurface({project,audioRef,clockRef,current
   update({state:'loading',message:'Preparing saved Journey cues…'});
   try{
    host=createEchoLivingLightPreview({canvas:canvasRef.current,cues:JSON.parse(cuesKey),songId,durationUs,mediaSources,
-    resolveJourney:(ref,options)=>client.request('/journeys/'+encodeURIComponent(ref.journeyId)+'/revisions/'+encodeURIComponent(ref.revisionId),options),
+    resolveMedia:(journey,{signal})=>resolveLivingLightJourneyMedia(journey,{sources:mediaSources,request:client.request,signal:AbortSignal.any([signal,AbortSignal.timeout(30000)])}),
+    resolveJourney:(ref,options)=>client.request('/journeys/'+encodeURIComponent(ref.journeyId)+'/revisions/'+encodeURIComponent(ref.revisionId),{signal:AbortSignal.any([options.signal,AbortSignal.timeout(30000)])}),
     resolveRegistry:journey=>resolverRef.current(journey.instances.map(instance=>instance.thingRef)),
     prepareInput:journey=>{
      const bound=journey.instances.some(instance=>Object.keys(instance.bindings).length)||journey.sourceBindingRef;

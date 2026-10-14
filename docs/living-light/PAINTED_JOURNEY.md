@@ -43,8 +43,10 @@ existing preview-media contract. URIs stay transient. The SHA-256 pins the sourc
 declaration, including the available content hash; it does not independently
 rehash media bytes. A changed cut/source declaration or missing video stays
 unresolved until the exact source returns or the operator chooses a replacement.
-Titles never supply identity. This is a bounded exact-cut adapter; general Media
-Card library resolution and persisted cross-cut lookup are future work.
+Titles never supply identity. Saved placements can now look up their original
+cut through the protected read-only media resolver, even with a different cut
+open. General Media Card library resolution remains future work. See the
+[exact lookup checkpoint](DIRECTOR_CUES.md#exact-painted-media-lookup--october-14).
 
 The existing Echo audio element, source clock and preview driver own time. This
 adapter owns at most two muted decoders and textures, with no new audio context

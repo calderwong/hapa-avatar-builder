@@ -2386,5 +2386,22 @@
       "encoded-output"
     ],
     "humanAcceptance": "pending"
+  },
+  "livingLightExactMedia20261014": {
+    "status": "in_progress",
+    "task": "LL-914",
+    "checks": {
+      "affectedPassed": 21,
+      "build": "passed",
+      "processBaselineRestored": true,
+      "canonicalApiReload": "fresh-source"
+    },
+    "pending": [
+      "live-owner-roundtrip",
+      "real-song-clock",
+      "general-card-media-resolution",
+      "desktop-shell-acceptance"
+    ],
+    "humanAcceptance": "pending"
   }
 }

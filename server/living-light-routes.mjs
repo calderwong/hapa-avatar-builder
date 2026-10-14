@@ -31,6 +31,10 @@ export async function handleLivingLight({req,res,url,service,authorize,bootstrap
    else throw Object.assign(Error('Method not allowed'),{code:'method_not_allowed',statusCode:405});
   }
   else if(suffix==='/capabilities'&&req.method==='GET')value={...service.capabilities(),preparedSignals:performance?.capabilities?.()||{state:'owner-unavailable'}};
+  else if(suffix==='/media/resolve'&&req.method==='POST'){
+   const body=await readBody(req,4096);if(Object.keys(params).length||!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||!Object.hasOwn(body,'refs'))throw Object.assign(Error('Supply only exact media refs'),{code:'invalid_media_resolution',statusCode:422});
+   value=await service.resolveMedia(body.refs);
+  }
   else if(suffix==='/shared-card'&&req.method==='GET')value=service.sharedCard(params);
   else if(suffix==='/shared-card/prepare'&&req.method==='POST'){
    if(Object.keys(params).length)throw Object.assign(Error('Card preparation takes no query fields'),{code:'unknown_field',statusCode:422});

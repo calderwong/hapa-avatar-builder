@@ -665,3 +665,8 @@ The Living Light tab now exposes saved Journey insertion, Scene/Transition sourc
 ## October 14 — native Living Light Director preview
 
 Saved Journey cues now drive the native Director picture from Echo's existing song clock, retaining separate visual and audio-signal coordinates.37 focused checks, the final build and native component browser proof pass; play/pause, scene/passage/arrival, handoff, missing revision, retry, leave/return and portrait layout are verified with a single fixture audio element. LL-913 remains in progress for live album/owner/Desktop qualification and short-transition policy. Export, cross-cut media and spatial navigation remain open. See [playback contract and evidence](living-light/DIRECTOR_CUES.md) and [learning checkpoint](postmortems/2026-10-14-living-light-director-preview.md).
+
+
+## October 14 — exact painted-media lookup
+
+Workspace and Director can resolve saved painted clips from their original cut through the protected read-only owner route.21 focused checks, production build and owned cleanup pass. The canonical API reloaded once and reports current source. Full-app browser control stalled before live save/reopen, so that gate remains pending. LL-914 is in progress; no requirement closes. See [lookup contract](living-light/DIRECTOR_CUES.md#exact-painted-media-lookup--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-exact-media-resolution.md).

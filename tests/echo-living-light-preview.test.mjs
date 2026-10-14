@@ -35,3 +35,11 @@ test('a native draw failure releases graphics and does not repeatedly recreate t
  let created=0,disposed=0;const f=fixture(undefined,{runtimeFactory:()=>{created++;return {prepare(){},evaluate:p=>({...p,directorCueId:'cue:one'}),render(){throw Error('GPU refused draw');},dispose(){disposed++;}};}});
  f.host.evaluate({timelineUs:1e6});await flush();const packet=f.host.evaluate({timelineUs:1e6});assert.equal(f.host.render(packet),false);for(let i=0;i<10;i++)assert.equal(f.host.evaluate({timelineUs:1e6}),null);assert.equal(created,1);assert.equal(disposed,1);assert.match(f.states.at(-1).message,/GPU refused/);f.host.dispose();
 });
+
+
+test('Director waits for exact media lookup, passes retained sources to its renderer and ignores canceled results',async()=>{
+ let release,signal,received;const source={ref:{mediaId:'retained'},uri:'/media/retained.mp4'};
+ const f=fixture(undefined,{resolveMedia:async(journey,options)=>{assert.equal(journey.journeyId,'journey:one');signal=options.signal;return new Promise(resolve=>release=resolve);},runtimeFactory:options=>{received=options.mediaSources;return {prepare(){},evaluate:p=>p,dispose(){}};}});
+ f.host.evaluate({timelineUs:1e6});await flush();assert.equal(f.host.evaluate({timelineUs:1e6}),null);assert.equal(received,undefined);release([source]);await flush();assert(f.host.evaluate({timelineUs:1e6}));assert.deepEqual(received,[source]);f.host.dispose();assert(signal.aborted);
+ let lateRelease,lateSignal;const late=fixture(undefined,{resolveMedia:async(_,options)=>{lateSignal=options.signal;return new Promise(resolve=>lateRelease=resolve);}});late.host.evaluate({timelineUs:1e6});await flush();late.host.dispose();lateRelease([source]);await flush();assert(lateSignal.aborted);assert.equal(late.live.size,0);assert.equal(late.invalidations,0);
+});
