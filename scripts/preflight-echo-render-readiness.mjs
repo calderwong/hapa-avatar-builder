@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import { prepareEchoReadinessLivingLight } from "../server/echo-readiness-living-light.mjs";
 import path from "node:path";
 import process from "node:process";
 import os from "node:os";
@@ -1772,7 +1773,13 @@ async function run(options = {}) {
         projectPath: resolutionProjectPath,
         isFile: readableFile,
       });
+      const livingLight = await prepareEchoReadinessLivingLight({
+        project: descriptor.project, root: avatarRoot, variantsRoot,
+        cacheRoot: path.join(avatarRoot, "artifacts/echo-render-readiness/living-light"),
+        signal: AbortSignal.timeout(120_000),
+      });
       const readiness = preflightSongCardRenderReadiness({
+        livingLightSnapshot: livingLight?.snapshot || null,
         project: descriptor.project,
         showGraph: graph,
         proxyRegistry,
@@ -1863,6 +1870,9 @@ async function run(options = {}) {
           ) {
             throw new Error("Verified visual or proxy inputs are missing immutable file-identity evidence.");
           }
+          // The loader and publication guard already verify stat-bound extra inputs.
+          // Retain the exact prepared metadata and painted bytes in that same gate.
+          visualInputs.push(...(livingLight?.evidence || []));
           const evidence = {
             cut: {
               id: descriptor.cutId,

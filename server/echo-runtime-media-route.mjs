@@ -1,3 +1,4 @@
+import { resolveEchoReferenceMediaUriSync } from "./echo-reference-media-library.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,6 +80,7 @@ export function resolveEchoRuntimeMediaUri(uri, {
   songbookPayload,
   songStorePayload,
   exactIdentityOnly = false,
+  referenceMediaOptions = {},
 } = {}) {
   const declaredUri = text(uri);
   if (!declaredUri) return { ok: false, reason: "runtime-uri-missing", uri: null, resolvedPath: null };
@@ -93,6 +95,12 @@ export function resolveEchoRuntimeMediaUri(uri, {
   }
   if (/^[a-z][a-z0-9+.-]*:/iu.test(declaredUri) && !/^file:/iu.test(declaredUri)) {
     return { ok: false, reason: "nonlocal-runtime-uri-scheme", uri: declaredUri, resolvedPath: null };
+  }
+  if (declaredUri.startsWith("/api/echos/reference-media/assets/")) {
+    const asset = resolveEchoReferenceMediaUriSync(declaredUri, referenceMediaOptions);
+    return asset
+      ? { ok: true, reason: null, uri: declaredUri, route: "echo-reference-media-api", resolvedPath: path.resolve(asset.filePath) }
+      : { ok: false, reason: "echo-reference-media-route-unresolved", uri: declaredUri, resolvedPath: null };
   }
   try {
     if (/^file:/iu.test(declaredUri)) {

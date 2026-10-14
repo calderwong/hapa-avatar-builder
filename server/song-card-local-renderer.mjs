@@ -86,6 +86,8 @@ const RENDERER_BUILD_FILES = [
   "server/lyric-render-parity.mjs",
   "server/render-audio-input-preflight.mjs",
   "server/render-visual-media-preflight.mjs",
+  "server/echo-readiness-living-light.mjs",
+  "server/echo-reference-media-library.mjs",
   "server/hyperframes-loop-coverage.mjs",
   "server/stem-telemetry-preflight.mjs",
   "server/stem-registry-lineage-preflight.mjs",

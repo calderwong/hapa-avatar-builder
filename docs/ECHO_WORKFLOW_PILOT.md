@@ -720,3 +720,8 @@ The local compiler and parent-owned prepared renderer now encode native Living L
 ## October 14 — managed Living Light export route
 
 Song Card jobs now freeze exact neutral Journey/media inputs, retain them in source/checkpoint identity, run native pixel checks and select the shared prepared capture owner with progress/cancel.66 distinct checks, final build,31 real mixed-cut pixel samples and actual success/cancel ownership proofs pass; all90 prefix frame hashes match prior evidence. Compiler identity, legacy shader-order expectation and false-success exit corrections are preserved in the [postmortem](postmortems/2026-10-14-living-light-managed-export.md).38 source cuts, pilot child/Journey and process baselines remain unchanged. Live UI-to-release, full-song/profile/bound-source and integrated/human acceptance stay open. No requirement/count changes. See [protocol](living-light/DIRECTOR_CUES.md#managed-song-card-route--october-14).
+
+
+## October 14 — saved-cut Living Light certification
+
+The canonical readiness step now reuses exact Living Light packages and resolves generated clip routes through their owner.48 checks and build pass; the real pilot passes all readiness gates with45 videos,10 exact shaders,13 audio inputs and169 semantic samples.38 prior cuts, pilot child and Journey remain unchanged. Activation awaits explicit user approval after automatic review refused the apply-stem-repairs flag; no workaround was used. Managed final output and broader integration acceptance remain open. See [protocol](living-light/DIRECTOR_CUES.md#saved-cut-certification-integration--october-14) and [checkpoint](postmortems/2026-10-14-living-light-saved-cut-certification.md).

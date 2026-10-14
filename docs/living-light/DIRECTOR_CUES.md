@@ -541,3 +541,37 @@ work. Audio-bound Journeys remain refused here until their exact prepared bank
 and playback clock are qualified; no neutral substitution is allowed. Shared
 Hand/proposal parity, integrated acceptance and human creative review remain
 open. LL-903/913/914 and the overall goal stay in progress.
+
+
+## Saved-cut certification integration — October 14
+
+The saved-cut readiness owner now prepares the same exact Living Light snapshot
+as the managed renderer. Copied metadata and painted media join the existing
+stat-bound execution-input evidence, so later modification invalidates the
+certificate. Hashing streams files with bounded memory. The service closes after
+success or failure. Ordinary cuts do not open the Living Light owner.
+
+Offline source preparation and runtime route checks now resolve generated Echo
+reference clips through the serving owner's exact run/job manifest lookup.
+Unknown runs/jobs, malformed routes and paths outside the existing owner root
+remain unresolved. No network fetch, generation or source-cut rewrite occurs.
+
+The real saved pilot passes readiness with 45 resolved video sources, 10 exact
+visualizers, 13 verified audio inputs, 10 proxy inputs and 169 semantic samples.
+Existing stem telemetry was reused.48 affected tests and the build pass; owned
+process baselines returned.38 prior cuts, the pilot child and exact Journey
+payload remain unchanged. This establishes readiness, not final encoded output.
+
+Activation of the derived execution graph remains pending explicit user approval.
+Automatic approval review rejected the owner's apply-stem-repairs flag because
+it changes shared execution state; the operation was not retried through the UI
+or an alternate route. Source inspection places those writes under the existing
+render-artifact owner, but that finding does not substitute for the requested
+approval. A separate edit-script rejection was resolved with an approved exact
+function-body replacement that preserved other exports.
+
+Source chat01a137cc-de1d-7511-ab65-227c92d5bca0; evidence:
+execution/living-light/managed-live/ in the task workspace. Next: activate this
+one cut after approval, deliver the fresh service, then qualify managed render
+to release. Full-song/profile/audio-bound, shared Hand/proposals, integrated album
+and human creative acceptance remain open. The overall goal is active.

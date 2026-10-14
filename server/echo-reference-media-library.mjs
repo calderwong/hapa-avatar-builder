@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -227,20 +228,40 @@ export async function buildEchoReferenceMediaLibrary(legacyLibrary = {}, options
   };
 }
 
-export async function resolveEchoReferenceMediaAsset(kind, runId, jobId, options = {}) {
+function referenceAssetRequest(kind, runId, jobId, options) {
   const root = kind === "image"
     ? path.resolve(options.imageRunsRoot || ECHO_REFERENCE_IMAGE_RUNS_ROOT)
-    : kind === "loop"
-      ? path.resolve(options.loopRunsRoot || ECHO_REFERENCE_LOOP_RUNS_ROOT)
-      : "";
-  if (!root || !runId || !jobId) return null;
+    : kind === "loop" ? path.resolve(options.loopRunsRoot || ECHO_REFERENCE_LOOP_RUNS_ROOT) : "";
+  if (!root || !runId || !jobId || path.basename(runId) !== runId || [".", ".."].includes(runId)) return null;
   const manifestPath = path.join(root, runId, "manifest.json");
-  if (!isInside(root, manifestPath)) return null;
-  const manifest = await readJson(manifestPath).catch(() => null);
+  return isInside(root, manifestPath) ? { root, manifestPath } : null;
+}
+function referenceAssetPath(request, manifest, runId, jobId) {
   if (!manifest || text(manifest.runId) !== text(runId)) return null;
-  const job = list(manifest.jobs).find((candidate) => text(candidate.id) === text(jobId));
-  if (!job?.outputPath || !isInside(root, job.outputPath)) return null;
-  const details = await stat(job.outputPath).catch(() => null);
-  if (!details?.isFile()) return null;
-  return { filePath: job.outputPath, mimeType: kind === "image" ? "image/png" : "video/mp4", size: details.size };
+  const job = list(manifest.jobs).find(candidate => text(candidate.id) === text(jobId));
+  return job?.outputPath && isInside(request.root, job.outputPath) ? job.outputPath : null;
+}
+function referenceAssetResult(kind, filePath, details) {
+  return details?.isFile() ? { filePath, mimeType: kind === "image" ? "image/png" : "video/mp4", size: details.size } : null;
+}
+export async function resolveEchoReferenceMediaAsset(kind, runId, jobId, options = {}) {
+  const request = referenceAssetRequest(kind, runId, jobId, options);
+  if (!request) return null;
+  const manifest = await readJson(request.manifestPath).catch(() => null);
+  const filePath = referenceAssetPath(request, manifest, runId, jobId);
+  return filePath ? referenceAssetResult(kind, filePath, await stat(filePath).catch(() => null)) : null;
+}
+/** Offline compilation shares the serving owner's exact run/job lookup. No scan or network. */
+export function resolveEchoReferenceMediaUriSync(uri, options = {}) {
+  const match = String(uri || "").match(/^\/api\/echos\/reference-media\/assets\/(image|loop)\/([^/?#]+)\/([^/?#]+)$/u);
+  if (!match) return null;
+  try {
+    const [, kind, encodedRun, encodedJob] = match;
+    const runId = decodeURIComponent(encodedRun), jobId = decodeURIComponent(encodedJob);
+    const request = referenceAssetRequest(kind, runId, jobId, options);
+    if (!request) return null;
+    const manifest = JSON.parse(readFileSync(request.manifestPath, "utf8"));
+    const filePath = referenceAssetPath(request, manifest, runId, jobId);
+    return filePath ? referenceAssetResult(kind, filePath, statSync(filePath)) : null;
+  } catch { return null; }
 }

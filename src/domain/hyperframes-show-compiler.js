@@ -1,3 +1,4 @@
+import { resolveEchoReferenceMediaUriSync } from "../../server/echo-reference-media-library.mjs";
 import { validateLivingLightRenderSnapshot } from './echo-living-light-render-snapshot.js';
 import { echoProjectLivingLightCues } from './echo-living-light-cues.js';
 import { assertEchoLivingLightExportSupported } from "./echo-living-light-cues.js";
@@ -472,12 +473,17 @@ function decodedCandidateReference(value) {
   return { kind: "reference", path: safeDecode(text(value)) };
 }
 
-export function hyperFramesMediaSourceCandidates(instance, { root, projectPath } = {}) {
+export function hyperFramesMediaSourceCandidates(instance, { root, projectPath, referenceMediaOptions } = {}) {
   const resolvedRoot = path.resolve(text(root) || ".");
   const resolvedProjectPath = path.resolve(text(projectPath) || path.join(resolvedRoot, "project.json"));
   const projectDataRoot = path.resolve(path.dirname(resolvedProjectPath), "..");
   const candidates = [];
   const append = (value, origin) => {
+    if (text(value).startsWith("/api/echos/reference-media/assets/")) {
+      const asset = resolveEchoReferenceMediaUriSync(text(value), referenceMediaOptions);
+      if (asset) candidates.push(path.resolve(asset.filePath));
+      return;
+    }
     const decoded = decodedCandidateReference(value);
     const reference = text(decoded.path);
     if (!reference) return;
@@ -543,12 +549,13 @@ export function preflightHyperFramesMedia(showOrGraph, {
   root,
   projectPath,
   isFile = () => false,
+  referenceMediaOptions,
 } = {}) {
   const rows = mediaPreflightRows(showOrGraph, project);
   const entries = rows.map((instance) => {
     const source = instance?.source || {};
     const generated = source.type === "generated-visualizer";
-    const attemptedPaths = generated ? [] : hyperFramesMediaSourceCandidates(instance, { root, projectPath });
+    const attemptedPaths = generated ? [] : hyperFramesMediaSourceCandidates(instance, { root, projectPath, referenceMediaOptions });
     let resolvedPath = null;
     if (!generated && source.contractResolution?.status !== "ambiguous") {
       resolvedPath = attemptedPaths.find((candidate) => {

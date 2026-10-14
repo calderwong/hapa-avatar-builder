@@ -161,3 +161,18 @@ test('shared capture owner refuses worker recursion, canceled starts and existin
  const previous=process.env.HAPA_PREPARED_CAPTURE_WORKER;
  try{process.env.HAPA_PREPARED_CAPTURE_WORKER='1';await assert.rejects(runPreparedRender({root,project:root,output}),/worker cannot enter/);}finally{if(previous===undefined)delete process.env.HAPA_PREPARED_CAPTURE_WORKER;else process.env.HAPA_PREPARED_CAPTURE_WORKER=previous;}
 });
+
+
+test('saved-cut readiness freezes the same package and invalidates a modified certification input',async t=>{
+ const {prepareEchoReadinessLivingLight}=await import('../server/echo-readiness-living-light.mjs');
+ const {verifyEchoExecutionVisualInputEvidence}=await import('../server/echo-director-show-graph-loader.mjs');
+ const f=await fixture(t);let closed=0;
+ const factory=()=>{const owner=createLivingLightService({root:f.root});return {...owner,close:()=>{closed++;owner.close();}};};
+ const prepared=await prepareEchoReadinessLivingLight({project:f.project,root:f.root,cacheRoot:path.join(f.root,'readiness'),ownerFactory:factory});
+ assert.equal(prepared.snapshot.snapshotDigest,f.snapshot.snapshotDigest);assert.equal(closed,1);assert.equal(prepared.evidence.length,1);
+ const evidence={visualInputs:prepared.evidence,proxyInputs:[]};assert.equal((await verifyEchoExecutionVisualInputEvidence(evidence)).ok,true);
+ await fs.appendFile(prepared.manifest,' ');assert.equal((await verifyEchoExecutionVisualInputEvidence(evidence)).ok,false);
+ assert.equal(await prepareEchoReadinessLivingLight({project:{},ownerFactory:()=>{throw Error('No owner expected');}}),null);
+ await assert.rejects(prepareEchoReadinessLivingLight({project:f.project,root:f.root,cacheRoot:path.join(f.root,'failed'),ownerFactory:()=>({exportPackage:()=>{throw Error('owner unavailable');},resolveMedia:()=>{},close:()=>closed++})}),/owner unavailable/);
+ assert.equal(closed,2);
+});

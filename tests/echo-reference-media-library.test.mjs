@@ -154,3 +154,26 @@ test("Codex built-in runs retain avatar and repaired-prompt lineage without expo
   assert.deepEqual(item.avatarReferences, [{ name: "Green", avatarId: "avatar-3", assetId: "asset-green", requirementId: "closeup_emotions" }]);
   assert.doesNotMatch(JSON.stringify(index), /\/private\/green\.png/);
 });
+
+
+test("offline compiler and runtime verification resolve exact reference runs through the serving owner", async t => {
+  const {resolveEchoReferenceMediaUriSync} = await import('../server/echo-reference-media-library.mjs');
+  const {resolveEchoRuntimeMediaUri} = await import('../server/echo-runtime-media-route.mjs');
+  const {preflightHyperFramesMedia} = await import('../src/domain/hyperframes-show-compiler.js');
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'echo-reference-route-'));
+  t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  const options={loopRunsRoot:root}, file=path.join(root,'run','clip.mp4'), uri='/api/echos/reference-media/assets/loop/run/job%3Aone';
+  await writeManifest(root,'run',{runId:'run',jobs:[{id:'job:one',outputPath:file}]});await fs.writeFile(file,'video');
+  assert.deepEqual(resolveEchoReferenceMediaUriSync(uri,options),await resolveEchoReferenceMediaAsset('loop','run','job:one',options));
+  assert.equal(resolveEchoRuntimeMediaUri(uri,{referenceMediaOptions:options}).resolvedPath,file);
+  const preflight=preflightHyperFramesMedia([{id:'clip',source:{type:'video',runtimeUri:uri}}],{root,referenceMediaOptions:options,isFile:p=>p===file});
+  assert.equal(preflight.ok,true);assert.equal(preflight.entries[0].resolvedPath,file);
+  for(const bad of [uri.replace('run','missing'),uri.replace('job%3Aone','wrong'),uri.replace('/run/','/..%2Frun/'),uri+'?guess=1']) {
+    assert.equal(resolveEchoReferenceMediaUriSync(bad,options),null);
+    assert.equal(resolveEchoRuntimeMediaUri(bad,{referenceMediaOptions:options}).ok,false);
+  }
+  await writeManifest(root,'run',{runId:'wrong',jobs:[{id:'job:one',outputPath:file}]});
+  assert.equal(resolveEchoReferenceMediaUriSync(uri,options),null);
+  await writeManifest(root,'run',{runId:'run',jobs:[{id:'job:one',outputPath:path.join(root,'..','outside.mp4')}]});
+  assert.equal(resolveEchoReferenceMediaUriSync(uri,options),null);
+});
