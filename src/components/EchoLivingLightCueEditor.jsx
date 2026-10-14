@@ -2,6 +2,7 @@ import {useEffect,useMemo,useRef,useState} from 'react';
 import {createLivingLightClient} from '../domain/living-light-client.js';
 import {canonicalJSON} from '../domain/living-light-contracts.js';
 import {createEchoLivingLightCue,editEchoLivingLightCues,createEchoLivingLightEditHistory} from '../domain/echo-living-light-editor.js';
+import EchoLivingLightProposalReview from './EchoLivingLightProposalReview.jsx';
 import './EchoLivingLightCueEditor.css';
 const EMPTY=Object.freeze([]),key=j=>`${j.journeyId}@${j.revisionId}`,us=value=>Math.round(Number(value)*1e6);
 
@@ -57,6 +58,7 @@ export default function EchoLivingLightCueEditor({project,cutKey,currentTime=0,o
    {!!windows.length&&<div className="echo-light-cue-toolbar"><span>Use complete {role==='transition'?'passage':'Location'}:</span>{windows.map(row=><button key={row.instanceId} type="button" onClick={()=>{setSourceStart(String(row.startUs/1e6));setSourceEnd(String(row.endUs/1e6));}}>{(row.startUs/1e6).toFixed(1)}–{(row.endUs/1e6).toFixed(1)}s</button>)}</div>}
    <div className="echo-light-cue-toolbar">{selectedCue?<><button type="button" disabled={selectedCue.locks.timing} onClick={()=>apply({type:'move',cueId:selected,startUs:us(start)})}>Move cue</button><button type="button" disabled={selectedCue.locks.timing} onClick={()=>apply({type:'window',cueId:selected,journeyWindow:{startUs:us(sourceStart),endUs:us(sourceEnd)}})}>Apply source window</button><button type="button" disabled={!journey||selectedCue.locks.journey} onClick={()=>apply({type:'swap',cueId:selected,journey,role,journeyWindow:{startUs:us(sourceStart),endUs:us(sourceEnd)}})}>Swap Journey / role</button><button type="button" disabled={selectedCue.locks.timing||selectedCue.locks.journey} onClick={()=>apply({type:'remove',cueId:selected})}>Remove cue</button><label><input type="checkbox" checked={selectedCue.locks.timing} onChange={e=>apply({type:'lock',cueId:selected,lock:'timing',value:e.target.checked})}/>Lock timing</label><label><input type="checkbox" checked={selectedCue.locks.journey} onChange={e=>apply({type:'lock',cueId:selected,lock:'journey',value:e.target.checked})}/>Lock Journey</label></>:<button type="button" disabled={!journey} onClick={insert}>Insert into cut</button>}</div>
   </fieldset>
+  <EchoLivingLightProposalReview project={project} cutId={cutKey} client={client} disabled={disabled||busy||!active} onApply={next=>{history.current.commit(cues,next);onChange(next);setHistoryState(history.current.state());setSelected('');}}/>
   {nextOffset!==null&&<button type="button" disabled={busy} onClick={()=>load(nextOffset)}>More saved Journeys</button>}
   <p role="status">{status}</p><p className="echo-light-cue-note">Native passage timing stays intact. Open Preview to play saved Journey scenes. Record + Play captures these scenes with the song. Final Song Card export is still being connected.</p>
  </section>;

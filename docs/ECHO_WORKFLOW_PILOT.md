@@ -725,3 +725,8 @@ Song Card jobs now freeze exact neutral Journey/media inputs, retain them in sou
 ## October 14 — saved-cut Living Light certification
 
 The canonical readiness step now reuses exact Living Light packages and resolves generated clip routes through their owner.48 checks and build pass; the real pilot passes all readiness gates with45 videos,10 exact shaders,13 audio inputs and169 semantic samples.38 prior cuts, pilot child and Journey remain unchanged. Activation awaits explicit user approval after automatic review refused the apply-stem-repairs flag; no workaround was used. Managed final output and broader integration acceptance remain open. See [protocol](living-light/DIRECTOR_CUES.md#saved-cut-certification-integration--october-14) and [checkpoint](postmortems/2026-10-14-living-light-saved-cut-certification.md).
+
+
+## October 14 — reviewed modular Director proposals
+
+The existing cue editor and read-only API/CLI share exact-target proposal validation. Human review shows before/after changes; apply uses one undoable draft edit, preserving locks and unrelated media.41 checks/build and isolated production UI proof pass; no live proposal edits made. Full-app save/reopen and Hand acceptance remain open. Separately, Calder explicitly approved the previously refused pilot certificate activation; the same owner command was accepted and published its derived graph.38 prior cuts, pilot child and Journey unchanged. See [protocol](living-light/DIRECTOR_CUES.md#reviewed-director-proposals--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-director-proposals.md). Goal remains active; no task closed.

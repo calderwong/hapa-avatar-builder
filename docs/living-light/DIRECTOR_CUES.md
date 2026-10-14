@@ -575,3 +575,62 @@ execution/living-light/managed-live/ in the task workspace. Next: activate this
 one cut after approval, deliver the fresh service, then qualify managed render
 to release. Full-song/profile/audio-bound, shared Hand/proposals, integrated album
 and human creative acceptance remain open. The overall goal is active.
+
+
+## Reviewed Director proposals — October 14
+
+The existing Living Light cue editor now accepts inert director proposals under
+**Director proposals**. Start from this cut supplies the exact song, cut and
+complete current cue list. A human or agent can add up to32 insert/remove/move/
+window/swap operations. Review shows each before/after cue and exact Journey
+revision. Apply proposed changes changes only the working cue draft, as one
+existing history entry. Undo/Redo preserves unrelated media and lyric edits.
+Use the existing Save as new cut flow for persistence; proposals do not save,
+render, mint, publish, modify source Journeys or authenticate an author's name.
+
+Contract: `hapa.echo.living-light-proposal.v1`, fields `schemaVersion`,
+`proposalId`, `title`, `target:{songId,cutId}`, `baseCues`, `operations`.
+Operations reuse the cue edit contract; swaps carry `journeyRef:{journeyId,
+revisionId}` instead of embedded recipes. Inserts carry a complete validated
+cue. No lock/unlock or arbitrary project patch operation exists. Locks, exact
+source/song bindings, song duration, complete passage windows and no-overlap
+rules use the existing editor. A late failure refuses the entire proposal.
+Operations validate in order; a temporarily overlapping reorder must be planned
+as legal intermediate edits. Changed base cues or a different target refuse;
+there is no latest-head substitution. The user retains the proposal text and
+working cut on refusal. In-flight reads are canceled/invalidate on cue/cut change.
+
+Protected read-only API: `POST /api/echos/living-light/director-proposals/preview`
+with `{proposal}`. It reads the exact saved cut and saved Journey revisions.
+CLI: `node cli/living-light.mjs preview-director-proposal --file PROPOSAL.json`.
+UI previews the current working draft through the same domain spine; API/CLI
+previews the saved cut. An unsaved draft may therefore correctly refuse against
+the saved owner. Maximum request size1MiB; operations32; source reads deduplicate
+exact revisions. There is no proposal commit endpoint or second proposal store.
+
+41 affected tests, canonical build and isolated production-component browser
+proof pass. Browser proof covers two-operation apply, single undo/redo, retained
+unrelated media, stale-base refusal, locked-swap atomic refusal, compatible move
+with Journey lock, visible final apply feedback and390px width without horizontal
+overflow. These are fixture observations; full-app proposal save/reopen and
+shared Hand integration remain open. All owned proof processes returned cleanly.
+Initial fixture setup incorrectly assumed esbuild was installed, then omitted
+Vite library mode's production definition; both failures are retained and were
+corrected without installing dependencies or touching album data.
+
+Source: Codex /root chat01a137cc-de1d-7511-ab65-227c92d5bca0;
+evidence `execution/living-light/director-proposals/` in the task workspace.
+LL-912/917 remain in progress under their complete original acceptance criteria.
+
+### Pilot certificate approval and activation
+
+Calder explicitly answered “Approve this pilot certificate activation” to the
+pending question for the saved11:23 Meant to Meet, Thu? pilot. The exact previously
+refused owner command with `--apply-stem-repairs=true --skip-mint-plans=true` was
+then approved by the tool and completed. The one-cut report is ready with no
+known blockers and its derived execution graph publication reports `published`.
+38 prior cuts, the pilot child and exact Journey payload remain unchanged. This
+resolves the prior activation refusal; it does not establish a completed render,
+release, mint or human creative acceptance. The current service/UI delivery and
+managed render-to-release check remain the next integration step. Evidence:
+`execution/living-light/managed-live/activation-approved.json`.

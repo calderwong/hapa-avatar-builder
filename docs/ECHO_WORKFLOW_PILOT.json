@@ -2654,5 +2654,21 @@
     },
     "activation": "awaiting-explicit-user-approval",
     "humanAcceptance": "pending"
+  },
+  "livingLightDirectorProposals20261014": {
+    "status": "in_progress",
+    "tasks": [
+      "LL-912",
+      "LL-917"
+    ],
+    "checks": {
+      "tests": 41,
+      "build": "passed",
+      "browser": "isolated-production-component",
+      "processBaselineRestored": true,
+      "originalCutsUnchanged": 38
+    },
+    "pilotCertificateActivation": "published-after-explicit-user-approval",
+    "humanAcceptance": "pending"
   }
 }

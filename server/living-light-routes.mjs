@@ -31,6 +31,11 @@ export async function handleLivingLight({req,res,url,service,authorize,bootstrap
    else throw Object.assign(Error('Method not allowed'),{code:'method_not_allowed',statusCode:405});
   }
   else if(suffix==='/capabilities'&&req.method==='GET')value={...service.capabilities(),preparedSignals:performance?.capabilities?.()||{state:'owner-unavailable'}};
+  else if(suffix==='/director-proposals/preview'&&req.method==='POST'){
+   let body;try{body=await readBody(req,1024*1024);}catch(error){if(error instanceof SyntaxError)throw Object.assign(Error('Director proposal is not valid JSON'),{code:'invalid_json',statusCode:400});throw error;}
+   if(Object.keys(params).length||!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||!Object.hasOwn(body,'proposal'))throw Object.assign(Error('Supply only a director proposal'),{code:'invalid_director_proposal',statusCode:422});
+   value=await service.previewDirectorProposal(body.proposal);
+  }
   else if(suffix==='/media/resolve'&&req.method==='POST'){
    const body=await readBody(req,4096);if(Object.keys(params).length||!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||!Object.hasOwn(body,'refs'))throw Object.assign(Error('Supply only exact media refs'),{code:'invalid_media_resolution',statusCode:422});
    value=await service.resolveMedia(body.refs);
