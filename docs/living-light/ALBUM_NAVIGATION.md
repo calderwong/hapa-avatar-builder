@@ -182,3 +182,58 @@ in `execution/living-light/record-handoff/tests.log`; no cuts were synthesized t
 make it pass. This checkpoint does not claim a clean full-album regression,
 source-fresh API reload, saved painted pilot, Hand roundtrip, mixed export or
 human acceptance. LL-915/916 and the full integration goal remain in progress.
+
+
+## Saved painted album pilot — October 14
+
+The live canonical Builder now contains **Living Light · painted album journey**
+for **11:23 Meant to Meet, Thu?**. Its exact owner identity is
+`ll-journey:9292b4c0-1eff-4455-b824-659f4b0d051e`, revision
+`ll-journey-r:540c52f02539e25791528bb961a6e7e8`. This is a saved unresolved
+neutral study; no prepared audio binding or creative acceptance is implied.
+
+The route uses Solar Reliquary (0–26s), Media Weave (26–34s), Tidal Observatory
+(34–120.759985s), Silken Current (120.759985–128.759985s) and Resonance Vault
+(to 163.679979s). Two existing clips paint the Solar portal and Media Weave's
+left wall. Each retains the original song, cut, shot, media ID and declaration
+revision. Destination pins resolve respectively to the exact 2 a.m. Lights
+performance cut, Deevid Video 1675562, and the Media Weave Card.
+
+The new child cut
+`atlas-pipeline-08e33316-8793-49a4-915d-abf29846769c-43fe360f5cf8-perform-edit-6efbafa69fcc2fec`
+saves a Scene at song 2–10s / Journey 0–8s and a Transition at song 12–20s /
+Journey 26–34s. Both reference the exact saved Journey revision. Fresh-page
+reopening retained both cues. The 38 existing song cuts remained byte-identical
+to their before-save backup. The owner created the Journey and its module
+custody locally; no publication, mint, analysis or source-media write was requested.
+
+Live verification rendered the actual portal clip and video tunnel wall.
+Following Director at song 14s projected travel to Tidal Observatory. After a
+fresh page load, the one master audio element played normally (observed 7.817591s,
+readyState 4); paused seeking and Explore return retained 14s. Explore traversed
+the entire eight-second Media Weave passage and resolved the pinned destination
+clip (muted, readyState 4, 1440px source width). Pickup at the Card destination
+opened the exact Media Weave revision in the existing shared inspector. No
+browser error log entries were reported in the final pass.
+
+**Remaining Hand qualification:** Add to Hand refused before mutation because
+no Hand was active for this surface. Manage displayed the existing personal Hand
+but selecting it reported that it is not enabled for `hapa-avatar-builder`.
+Its six members remain intact. This is an owner configuration gap, not proof of a
+successful persistent Hand roundtrip; pickup/inspect alone is qualified here.
+
+One documented source-stale launchd reload was performed after checking no child
+processes, render jobs, staging mint transactions or minting plans. Health then
+reported a new canonical PID and fresh source. An already-open page retained an
+old playback-audio job and initially reported playback failure; the required
+fresh-page reopen acquired current audio and played successfully. Do not infer
+an ongoing audio defect or restart again from that stale-page observation.
+
+Evidence remains in the originating chat's `execution/living-light/saved-painted-pilot/`
+folder, including owner readback, source hashes, reload receipt and two screenshots.
+This checkpoint changes runtime pilot data and documentation only; the prior
+20 affected checks and production build remain the source verification. Full
+mixed encoded output (LL-903) is next. General final export and preview recording
+still explicitly refuse Living Light cues. Prepared-signal recovery, persistent
+Hand placement, proposal parity, broad visual/comfort acceptance and human
+creative review remain open; the full integration goal stays active.

@@ -2465,5 +2465,34 @@
       "integrated-acceptance"
     ],
     "humanAcceptance": "pending"
+  },
+  "livingLightSavedPaintedPilot20261014": {
+    "status": "in_progress",
+    "tasks": [
+      "LL-901",
+      "LL-902",
+      "LL-913",
+      "LL-915",
+      "LL-916",
+      "LL-917"
+    ],
+    "savedJourneyRevision": "ll-journey-r:540c52f02539e25791528bb961a6e7e8",
+    "checks": {
+      "existingCutsUnchanged": 38,
+      "paintedSurfaces": 2,
+      "locations": 3,
+      "directorCues": 2,
+      "freshPageReopen": "passed",
+      "realMasterPlayback": "passed",
+      "exactHeldCardInspection": "passed"
+    },
+    "pending": [
+      "mixed-encoded-output",
+      "hand-surface-enablement-and-placement",
+      "prepared-binding-recovery",
+      "proposal-parity",
+      "integrated-acceptance"
+    ],
+    "humanAcceptance": "pending"
   }
 }

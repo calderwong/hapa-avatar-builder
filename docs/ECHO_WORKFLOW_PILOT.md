@@ -685,3 +685,8 @@ The native Director host now reports successfully painted Journey frames to a re
 ## October 14 — real album record visits and return
 
 Location record destinations now open their exact cut and retain one original editing session for explicit return. Live canonical UI verified 11:23 Meant to Meet, Thu? → 2 a.m. Lights → original cut, paused11.205453s, retained unsaved working edit and Journey Undo/Redo. The temporary cut edit was canceled; the new pilot Journey remains a local draft.20 affected checks and build pass. A wider inventory check remains red because Hey Sister lacks an existing protected cut; no source cuts were generated. See [navigation protocol](living-light/ALBUM_NAVIGATION.md) and [learning checkpoint](postmortems/2026-10-14-living-light-record-handoff.md). LL-915/916 remain in progress for full integrated acceptance.
+
+
+## October 14 — saved painted real-album pilot
+
+Saved a three-Location Journey with two real video surfaces and exact record/media/Card destinations. A new child Director cut references that exact revision as a Scene and full Transition; fresh-page reopen, real audio, portal/wall rendering, tunnel arrival and exact held Card inspection verified. All 38 prior song cuts are unchanged. Persistent Hand placement remains unqualified because the existing Hand is not enabled for the Builder surface. No source changes or new broad test run; prior affected checks/build retained. Mixed encoded output is next; goal and human acceptance remain open. See [pilot evidence](living-light/ALBUM_NAVIGATION.md#saved-painted-album-pilot--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-saved-painted-pilot.md).
