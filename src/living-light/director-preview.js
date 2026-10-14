@@ -3,7 +3,7 @@ import {createLivingLightRuntime} from './runtime.js';
 
 /** One native renderer on Echo's clock. Only current/next exact recipes are
  * retained; prefetch never creates graphics, decoders or another audio clock. */
-export function createEchoLivingLightPreview({canvas,cues,songId,durationUs,resolveJourney,resolveRegistry,resolveMedia=async()=>mediaSources,prepareInput=()=>({neutralStudy:true}),mediaSources=[],runtimeFactory=createLivingLightRuntime,onState=()=>{},onInvalidate=()=>{}}){
+export function createEchoLivingLightPreview({canvas,cues,songId,durationUs,resolveJourney,resolveRegistry,resolveMedia=async()=>mediaSources,prepareInput=()=>({neutralStudy:true}),mediaSources=[],runtimeFactory=createLivingLightRuntime,onState=()=>{},onInvalidate=()=>{},onFrame=()=>{}}){
  const ordered=structuredClone(validateEchoLivingLightCues(cues,{songId,durationUs})).sort((a,b)=>a.window.startUs-b.window.startUs);
  let disposed=false,suspended=false,runtime=null,activeKey=null,generation=0,lastState='',activeCue=null;
  const failures=new Map(),entries=new Map(),key=cue=>JSON.stringify(cue.journeyRef);
@@ -53,6 +53,7 @@ export function createEchoLivingLightPreview({canvas,cues,songId,durationUs,reso
    const painted=runtime.render(packet),diagnostic=runtime.diagnostics(),media=diagnostic.media||[];
    const waiting=media.filter(row=>row.status!=='ready'||!row.paintReady);
    publish({state:painted?'ready':'unavailable',cueId:activeCue.cueId,role:activeCue.role,message:!painted?'Selected audio choices are unavailable.':waiting.length?'Journey active · painted clips: '+waiting.map(row=>row.message).join(' · '):diagnostic.features==='unavailable'?'Journey active · authored motion':'Journey active · prepared song response',mediaReady:waiting.length===0});
+   if(painted){const entry=entries.get(key(activeCue));onFrame({cue:activeCue,journey:entry.journey,registry:entry.registry,visualUs:packet.visualUs,songUs:packet.directorSongUs});}
    return painted;
   }catch(error){failures.set(activeKey,error);drop();publish({state:'unavailable',cueId:activeCue?.cueId,message:error.message});return false;}
  }

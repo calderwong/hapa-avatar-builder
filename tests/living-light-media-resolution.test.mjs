@@ -43,3 +43,11 @@ test('CLI exact media read uses the protected owner route once and returns unres
  });
  assert.equal(calls.length,1);assert.equal(calls[0].url,'http://127.0.0.1:8797/api/echos/living-light/media/resolve');assert.equal(calls[0].options.method,'POST');assert.deepEqual(JSON.parse(calls[0].options.body),{refs});assert.deepEqual(result.results.map(row=>row.state),['unavailable','unavailable']);
 });
+
+test('destination lookup reads only its current exact pin from a closed cut and propagates cancellation',async()=>{
+ const {resolveLivingLightMediaSources}=await import('../src/domain/living-light-media-resolution.js');
+ const controller=new AbortController(),calls=[];
+ const resolved=await resolveLivingLightMediaSources([refs[1]],{sources:[sources[0]],signal:controller.signal,request:async(path,options)=>{calls.push(JSON.parse(options.body).refs);assert.equal(options.signal,controller.signal);return resolveLivingLightMediaReferences(JSON.parse(options.body).refs,{loadCut:async()=>cut});}});
+ assert.deepEqual(calls,[[refs[1]]]);assert.deepEqual(resolved,[sources[1]]);
+ controller.abort();await assert.rejects(resolveLivingLightMediaSources([refs[1]],{signal:controller.signal,request:async(_,options)=>{options.signal.throwIfAborted();}}),{name:'AbortError'});
+});

@@ -2423,5 +2423,26 @@
       "desktop-delivery"
     ],
     "humanAcceptance": "pending"
+  },
+  "livingLightFollowDirector20261014": {
+    "status": "in_progress",
+    "tasks": [
+      "LL-913",
+      "LL-914",
+      "LL-916"
+    ],
+    "checks": {
+      "affectedPassed": 36,
+      "build": "passed",
+      "processBaselineRestored": true,
+      "browser": "isolated native and Workspace fixtures"
+    },
+    "pending": [
+      "live-album-handoff",
+      "shared-hand-roundtrip",
+      "mixed-export",
+      "integrated-acceptance"
+    ],
+    "humanAcceptance": "pending"
   }
 }

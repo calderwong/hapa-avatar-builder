@@ -675,3 +675,8 @@ Workspace and Director can resolve saved painted clips from their original cut t
 ## October 14 — album destination pins and native Explore
 
 Location uses now carry versioned record, clip or Card destinations through the existing Journey owner/editor. Native Explore pauses the song, traverses original passages, provides Back/Home/direct/stop and retains the song bookmark and draft.47 focused checks and final build pass with owned cleanup. LL-915/916 are in progress; real album targets, cross-song handoff, Follow Director, shared Hand roundtrip and desktop delivery remain open. See [navigation contract](living-light/ALBUM_NAVIGATION.md) and [learning checkpoint](postmortems/2026-10-14-living-light-album-navigation.md).
+
+
+## October 14 — Follow Director and closed-cut destination clips
+
+The native Director host now reports successfully painted Journey frames to a read-only route projection. Workspace Follow Director replaces the study renderer and retains its draft; returning from Explore preserves the paused song bookmark. The current visible destination reuses the protected exact media resolver for closed cuts. 36 affected checks, build and isolated native/Workspace browser proofs pass. LL-913/914/916 remain in progress; live album handoff, mixed export, Hand and creative qualification are still open. See [navigation contract](living-light/ALBUM_NAVIGATION.md) and [learning checkpoint](postmortems/2026-10-14-living-light-follow-director.md).

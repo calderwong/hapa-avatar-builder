@@ -68,3 +68,13 @@ export function createLivingLightExplorer(map,{now=()=>performance.now(),bookmar
   hold(value){if(held===value)return sample();if(travel){if(value)travel.elapsedUs+=Math.max(0,now()-travel.startedMs)*1000;travel.startedMs=now();}held=value;return sample();},
   stop(){travel=null;return sample();},end(){disposed=true;travel=null;return structuredClone(bookmark);},diagnostics:()=>({historyCount:past.length,disposed})};
 }
+
+/** Follow the actual painted Journey time, including held motion. Boundaries
+ * match the native half-open schedule; no location is invented outside it. */
+export function livingLightNavigationAt(map,timelineUs){
+ if(!map||!Number.isFinite(timelineUs))return null;
+ const edge=map.edges.find(row=>timelineUs>=row.startUs&&timelineUs<row.endUs);
+ if(edge)return {locationId:edge.from,to:edge.to,traveling:true,timelineUs};
+ const place=map.locations.find(row=>timelineUs>=row.startUs&&timelineUs<row.endUs);
+ return place?{locationId:place.id,traveling:false,timelineUs}:null;
+}

@@ -43,3 +43,13 @@ test('Director waits for exact media lookup, passes retained sources to its rend
  f.host.evaluate({timelineUs:1e6});await flush();assert.equal(f.host.evaluate({timelineUs:1e6}),null);assert.equal(received,undefined);release([source]);await flush();assert(f.host.evaluate({timelineUs:1e6}));assert.deepEqual(received,[source]);f.host.dispose();assert(signal.aborted);
  let lateRelease,lateSignal;const late=fixture(undefined,{resolveMedia:async(_,options)=>{lateSignal=options.signal;return new Promise(resolve=>lateRelease=resolve);}});late.host.evaluate({timelineUs:1e6});await flush();late.host.dispose();lateRelease([source]);await flush();assert(lateSignal.aborted);assert.equal(late.live.size,0);assert.equal(late.invalidations,0);
 });
+
+test('route observers receive only painted exact recipes and visual time, never prefetched or stale cues',async()=>{
+ const observed=[];const f=fixture([cue('one'),cue('two',5e6)],{onFrame:value=>observed.push(value)});
+ f.host.evaluate({timelineUs:0});await flush();assert.equal(observed.length,0);
+ const packet=f.host.evaluate({timelineUs:1500000});assert.equal(observed.length,0);f.host.render(packet);
+ assert.equal(observed[0].journey.journeyId,'journey:one');assert.equal(observed[0].cue.cueId,'cue:one');assert.equal(observed[0].visualUs,500000);assert.equal(observed[0].songUs,1500000);
+ await flush();f.host.evaluate({timelineUs:5e6});assert.equal(f.host.render(packet),false);assert.equal(observed.length,1);
+ f.host.render(f.host.evaluate({timelineUs:5e6}));assert.equal(observed[1].journey.journeyId,'journey:two');f.host.dispose();assert.equal(f.host.render(packet),false);assert.equal(observed.length,2);
+ const failed=fixture(undefined,{onFrame:()=>assert.fail('No failed frame may navigate'),runtimeFactory:()=>({prepare(){},evaluate:p=>p,render:()=>false,diagnostics:()=>({}),dispose(){}})});failed.host.evaluate({timelineUs:1e6});await flush();assert.equal(failed.host.render(failed.host.evaluate({timelineUs:1e6})),false);failed.host.dispose();
+});

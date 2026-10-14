@@ -44,3 +44,12 @@ test('native owner saves destination pins, reopens old revisions and keeps CAS; 
   service.close();service=createLivingLightService({root,registry,resolveSong:async id=>({id})});assert.deepEqual(service.journey(saved.journey.journeyId,saved.currentHead).journey.instances[0].destination,target);assert.equal(service.journey(saved.journey.journeyId).journey.instances[0].destination,undefined);
  }finally{service.close();await fs.rm(root,{recursive:true,force:true});}
 });
+
+test('Follow Director maps half-open visual time to Locations and complete tunnels without extrapolation',async()=>{
+ const {livingLightNavigationAt}=await import('../src/domain/living-light-navigation.js');
+ const map={locations:[{id:'a',startUs:0,endUs:6e6},{id:'b',startUs:14e6,endUs:20e6}],edges:[{from:'a',to:'b',startUs:6e6,endUs:14e6}]};
+ assert.equal(livingLightNavigationAt(map,-1),null);assert.equal(livingLightNavigationAt(map,NaN),null);
+ assert.deepEqual(livingLightNavigationAt(map,5999999),{locationId:'a',timelineUs:5999999,traveling:false});
+ assert.deepEqual(livingLightNavigationAt(map,6e6),{locationId:'a',to:'b',timelineUs:6e6,traveling:true});
+ assert.equal(livingLightNavigationAt(map,14e6).locationId,'b');assert.equal(livingLightNavigationAt(map,14e6).traveling,false);assert.equal(livingLightNavigationAt(map,20e6),null);
+});

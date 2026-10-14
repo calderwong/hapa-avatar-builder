@@ -7,7 +7,8 @@ import {livingLightPreparedBinding,livingLightFeatureBytes} from '../domain/livi
 import {createEchoLivingLightPreview} from '../living-light/director-preview.js';
 import {createLivingLightPreviewDriver} from '../living-light/preview-driver.js';
 const EMPTY=Object.freeze([]);
-export function EchoLivingLightPreviewSurface({project,audioRef,clockRef,currentTime,active=true,clean=false,audioReceipt,preparedPerformance,mediaSources=EMPTY,client:injectedClient,registryResolver}){
+export function EchoLivingLightPreviewSurface({project,audioRef,clockRef,currentTime,active=true,clean=false,audioReceipt,preparedPerformance,mediaSources=EMPTY,client:injectedClient,registryResolver,onFrame,onPreviewState}){
+ const observerRef=useRef();observerRef.current={onFrame,onPreviewState};
  const catalog=useLivingLightRegistry(),resolverRef=useRef();resolverRef.current=registryResolver||catalog?.ensure;
  const canvasRef=useRef(),driverRef=useRef(),stateRef=useRef(null),[state,setState]=useState({state:'inactive'}),[hold,setHold]=useState(()=>globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches||false);
  const [retry,setRetry]=useState(0);
@@ -17,7 +18,7 @@ export function EchoLivingLightPreviewSurface({project,audioRef,clockRef,current
  useEffect(()=>{
   if(!active||!canvasRef.current)return;
   const cache=createLivingLightFeatureCache();let driver,host;
-  const update=value=>{stateRef.current=value;setState(value);};
+  const update=value=>{stateRef.current=value;setState(value);observerRef.current.onPreviewState?.(value);};
   update({state:'loading',message:'Preparing saved Journey cues…'});
   try{
    host=createEchoLivingLightPreview({canvas:canvasRef.current,cues:JSON.parse(cuesKey),songId,durationUs,mediaSources,
@@ -30,7 +31,7 @@ export function EchoLivingLightPreviewSurface({project,audioRef,clockRef,current
      const binding=livingLightPreparedBinding({songId,performance:preparedPerformance,playbackReceipt:audioReceipt});
      if(journey.sourceBindingRef&&(journey.sourceBindingRef.bindingId!==binding.bindingId||journey.sourceBindingRef.revisionId!==binding.revisionId))throw Error('The saved audio binding is not the selected prepared source.');
      return {sourceBinding:{sourceHash:audioReceipt.sourceHash},featureInput:{performance:preparedPerformance,playbackReceipt:audioReceipt,sourceBinding:binding,cache,requiredBytes:livingLightFeatureBytes(preparedPerformance)}};
-    },onState:update,onInvalidate:()=>driver?.redraw()});
+    },onState:update,onFrame:value=>observerRef.current.onFrame?.(value),onInvalidate:()=>driver?.redraw()});
    driver=createLivingLightPreviewDriver({canvas:canvasRef.current,runtime:host,getAudio:()=>audioRef?.current,getFrame:()=>{
     const audio=audioRef?.current,rect=canvasRef.current.getBoundingClientRect(),scale=Math.min(1,1280/Math.max(1,rect.width),1280/Math.max(1,rect.height));
     return {timelineUs:Math.max(0,Math.round(Number(audio?.currentTime??clockRef?.current??0)*1e6)),playing:!!audio&&!audio.paused&&!audio.ended,reducedMotion:holdRef.current,quality:'balanced',viewport:{width:Math.max(1,Math.round(rect.width*scale)),height:Math.max(1,Math.round(rect.height*scale))}};

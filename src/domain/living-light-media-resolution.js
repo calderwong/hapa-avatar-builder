@@ -29,6 +29,10 @@ export async function resolveLivingLightMediaReferences(refs,{loadCut}={}){
  * exact pins immediately; missing sources are looked up in their owning cuts. */
 export async function resolveLivingLightJourneyMedia(journey,{sources=[],request,signal,resolveUri=value=>value}={}){
  const refs=[...new Map((journey.mediaSlots||[]).filter(slot=>slot.enabled&&slot.mediaRef).map(slot=>[livingLightMediaKey(slot.mediaRef),slot.mediaRef])).values()];
+ return resolveLivingLightMediaSources(refs,{sources,request,signal,resolveUri});
+}
+/** Shared transient lookup for painted surfaces and the one visible destination. */
+export async function resolveLivingLightMediaSources(refs,{sources=[],request,signal,resolveUri=value=>value}={}){
  validateLivingLightMediaReferences(refs);const known=new Map(sources.map(source=>[livingLightMediaKey(source.ref),source]));
  const missing=refs.filter(ref=>!known.has(livingLightMediaKey(ref)));
  if(missing.length){

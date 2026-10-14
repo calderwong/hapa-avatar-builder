@@ -38,8 +38,9 @@ Optional `instance.destination` is `hapa.living-light.destination.v1` with
   not hash media bytes or make mutable cuts immutable. Records without any source
   revision evidence cannot be selected as pinned destinations.
 - `media`: the existing exact Song/cut/shot/media/declaration reference. URLs stay
-  transient. General Media library browsing and cross-cut destination resolution
-  beyond the active/painted sources remain unfinished.
+  transient. At a visible stop, an unknown exact clip is resolved through the
+  existing protected media owner, including closed cuts. General Media library
+  browsing remains unfinished.
 - `card`: the existing Living Light `{kind,id,revision}` target. There is no new
   Card store, custody owner, publication or inferred source ownership.
 
@@ -72,7 +73,7 @@ this chat under `execution/living-light/album-navigation/`. The isolated product
 Workspace fixture is `tests/fixtures/living-light-navigation-ui.html`.
 
 LL-915/916 remain in progress. Still required: representative real album/media/
-Card targets, explicit cross-song/cut handoff and return, Follow Director mode,
+Card targets, explicit cross-song/cut handoff and return, real-song Follow Director qualification,
 full source/destination recovery, shared Hand roundtrip, desktop delivery and
 integrated responsive/comfort qualification. The wider goal also retains painted
 real-song acceptance, short encoded mixed output, agent proposal parity and
@@ -87,3 +88,45 @@ phone breakpoint, the browser reported 375px client/scroll width and a 321×181
 canvas, with no horizontal overflow. Screenshots and `browser-proof.json` retain
 the distinction from live album/Hand acceptance. Temporary viewport override was
 reset, and the isolated fixture tab was closed after the check.
+
+
+## Follow Director and closed-cut clips — October 14 checkpoint
+
+**Follow Director** in the existing Living Light workspace replaces the study
+canvas with the same native cue host used by the album preview. It resolves the
+exact saved Journey, follows the song's cue-to-Journey offset, and projects the
+painted visual time onto the original route. No extra renderer, animation loop,
+audio clock or Journey store runs alongside the study. Entering from Explore
+ends travel and restores the captured paused song bookmark. **Study / Explore**
+returns to the retained editable study and local draft. Stem audition disables
+Follow Director. Capture Card preview remains a study action.
+
+The route is read-only in Follow Director: it identifies the current Location
+or traveling destination and offers its existing Card inspection/Hand actions.
+Manual travel remains in Explore. Half-open cue and schedule boundaries align
+with native painting. Held motion keeps the route at the painted visual time;
+loading, unavailable revisions and time outside a cue clear the route instead
+of showing a previous Location as current. The workspace only previews Living
+Light cues; the album preview owns the complete mixed cut between them.
+
+At the current visible Location, a media destination resolves one exact pin
+using the same protected read-only `/media/resolve` route as painted sources.
+Current matching sources need no owner lookup. Unknown refs read their original
+song/cut, including closed cuts; the five-field declaration must match. One
+transient destination video is mounted only at a visible stop, muted by default,
+with manual controls and metadata preload. Traveling, hiding or changing the
+Location removes it, aborts pending lookup and discards late results. Lookup has
+a 30-second bound and visible loading/unavailable/retry states. URLs never enter
+the saved Journey. No bulk destination prefetch or source analysis is started.
+
+36 affected checks and the production build pass with owned process cleanup.
+Browser fixtures verified scene → tunnel → landing, outside-cue and unavailable
+revision clearing, closed-cut clip resolution (704px video, ready state 4,
+muted), and Workspace Explore → Follow Director → Study restoration at the same
+paused 7-second song bookmark with one canvas and the draft retained. The media
+fixture uses an existing local proxy with synthetic owner responses; this is
+not a live catalog mutation or final album acceptance. Source fixtures live in
+`tests/fixtures/echo-living-light-preview-ui.html` and
+`tests/fixtures/living-light-navigation-ui.html`; evidence is under the chat's
+`execution/living-light/follow-director/` directory. LL-913/914/916 remain in
+progress for real owner workflows and the remaining integrated goal gates.
