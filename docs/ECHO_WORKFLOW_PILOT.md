@@ -680,3 +680,8 @@ Location uses now carry versioned record, clip or Card destinations through the 
 ## October 14 — Follow Director and closed-cut destination clips
 
 The native Director host now reports successfully painted Journey frames to a read-only route projection. Workspace Follow Director replaces the study renderer and retains its draft; returning from Explore preserves the paused song bookmark. The current visible destination reuses the protected exact media resolver for closed cuts. 36 affected checks, build and isolated native/Workspace browser proofs pass. LL-913/914/916 remain in progress; live album handoff, mixed export, Hand and creative qualification are still open. See [navigation contract](living-light/ALBUM_NAVIGATION.md) and [learning checkpoint](postmortems/2026-10-14-living-light-follow-director.md).
+
+
+## October 14 — real album record visits and return
+
+Location record destinations now open their exact cut and retain one original editing session for explicit return. Live canonical UI verified 11:23 Meant to Meet, Thu? → 2 a.m. Lights → original cut, paused11.205453s, retained unsaved working edit and Journey Undo/Redo. The temporary cut edit was canceled; the new pilot Journey remains a local draft.20 affected checks and build pass. A wider inventory check remains red because Hey Sister lacks an existing protected cut; no source cuts were generated. See [navigation protocol](living-light/ALBUM_NAVIGATION.md) and [learning checkpoint](postmortems/2026-10-14-living-light-record-handoff.md). LL-915/916 remain in progress for full integrated acceptance.

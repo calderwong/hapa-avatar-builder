@@ -10,7 +10,7 @@ export function LivingLightDestinationEditor({value,onChange,disabled,records=[]
   <option value="">No destination yet</option>{value&&!options.some(row=>livingLightDestinationKey(row.target)===selected)&&<option value={selected}>Retained destination · currently unavailable</option>}{options.map(row=><option key={livingLightDestinationKey(row.target)} value={livingLightDestinationKey(row.target)}>{row.label}</option>)}
  </select></label>;
 }
-export default function LivingLightNavigation({map,session,frame,onEnter,onExit,onAction,onInspect,records,media,registry,sharedHandEnabled,disabled,following=false,active=true,client:injectedClient}){
+export default function LivingLightNavigation({map,session,frame,onEnter,onExit,onAction,onInspect,records,media,registry,sharedHandEnabled,disabled,following=false,active=true,client:injectedClient,onOpenRecord,recordVisitBusy=false}){
  const current=map?.locations.find(row=>row.id===frame?.locationId)||map?.locations[0],target=current?.target;
  const client=useMemo(()=>injectedClient||createLivingLightClient(),[injectedClient]),[lookup,setLookup]=useState(null),[retry,setRetry]=useState(0);
  const lookupKey=JSON.stringify([!!session,!!frame?.traveling,active,target,media||[]]);
@@ -35,7 +35,7 @@ export default function LivingLightNavigation({map,session,frame,onEnter,onExit,
     <article className="living-light-card"><small>Location destination</small><h5>{resolved?.title||current.title}</h5>
      {!target?<p>Assign a record, clip or Card to this Location in Journey recipes, then Study it again.</p>:<>
       <p>{resolved.message||'Exact source declaration available'}</p>
-      {target.kind==='record'&&resolved.record&&<><p>{resolved.record.title} · {Math.round(resolved.record.durationSeconds)} seconds · {resolved.record.director.timelineCount} media uses</p><p>Cut {target.ref.cutId}</p><p>{resolved.record.rights?.notice||'Media remains with its original owner.'}</p></>}
+      {target.kind==='record'&&resolved.record&&<><p>{resolved.record.title} · {Math.round(resolved.record.durationSeconds)} seconds · {resolved.record.director.timelineCount} media uses</p><p>Cut {target.ref.cutId}</p>{onOpenRecord&&<button type="button" disabled={recordVisitBusy||!active} onClick={()=>onOpenRecord(target)}>Open this record</button>}<p>{resolved.record.rights?.notice||'Media remains with its original owner.'}</p></>}
       {target.kind==='media'&&currentLookup?.state==='loading'&&<p role="status">Loading the exact destination clip…</p>}
       {target.kind==='media'&&currentLookup?.state==='unavailable'&&<button type="button" onClick={()=>setRetry(value=>value+1)}>Retry destination clip</button>}
       {active&&target.kind==='media'&&resolved.source&&<video key={livingLightDestinationKey(target)} src={resolved.source.uri} controls muted playsInline preload="metadata" aria-label={'Destination clip · '+resolved.title} style={{width:'100%',maxHeight:240}}/>}

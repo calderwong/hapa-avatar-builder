@@ -15,7 +15,7 @@ normal Journey owner; **Study this recipe** updates the preview route.
 in place. Use the named tunnel button to travel its complete authored interval.
 The existing native canvas renders travel and arrival. Back, Home, Direct jump,
 Stop travel and Return to song are ordinary keyboard-accessible controls.
-Returning restores the captured song time and stays paused. There is no automatic
+Returning restores the captured song time and stays paused. Opening a record is an explicit action; there is no automatic
 cross-song handoff or playback. Hold visual motion pauses an in-progress passage;
 starting travel with that preference on jumps directly to the arrival. Hiding
 the workspace/document pauses travel and releases the existing renderer resources.
@@ -73,7 +73,7 @@ this chat under `execution/living-light/album-navigation/`. The isolated product
 Workspace fixture is `tests/fixtures/living-light-navigation-ui.html`.
 
 LL-915/916 remain in progress. Still required: representative real album/media/
-Card targets, explicit cross-song/cut handoff and return, real-song Follow Director qualification,
+Card targets, broader cross-song/cut handoff qualification, real-song Follow Director qualification,
 full source/destination recovery, shared Hand roundtrip, desktop delivery and
 integrated responsive/comfort qualification. The wider goal also retains painted
 real-song acceptance, short encoded mixed output, agent proposal parity and
@@ -130,3 +130,55 @@ not a live catalog mutation or final album acceptance. Source fixtures live in
 `tests/fixtures/living-light-navigation-ui.html`; evidence is under the chat's
 `execution/living-light/follow-director/` directory. LL-913/914/916 remain in
 progress for real owner workflows and the remaining integrated goal gates.
+
+
+## Reversible record visits — October 14 live checkpoint
+
+A resolved record destination now offers **Open this record** in Explore and
+Follow Director. The album re-reads its existing summary catalog, checks the
+saved declaration and loads the exact requested cut. Cut source fingerprints
+use the existing Director identity helper, including owner-declared runtime
+projections. Changed metadata, a missing cut or mismatched identity refuses;
+no latest-cut substitution or graph compilation is requested by the visit.
+
+Opening pauses the song and retains one original editing session in memory:
+its detailed project, exact cut, optional unsaved working copy, unsaved flag,
+Song Card plan and song time. The destination opens at zero, paused, through
+Echo's existing selection and audio preparation path. **Return to [record]**
+restores that session and bookmark, including an unsaved original cut. The
+existing exact-render certificate gate remains independent. No album script,
+cut, source media, custody or publication record is written by navigation.
+
+There is at most one active excursion and one pending 30-second owner lookup.
+Nested visits refuse until return. Cancel, unmount and a changed current edit
+invalidate late reads. Original snapshots are bounded to 32 MiB. Active saves,
+unknown save outcomes, recording, stem audition and pending recipe operations
+refuse before handoff. Dirty destination cut changes must be saved or canceled
+through the existing album controls before return; both sessions stay retained.
+This is an in-tab bookmark, not persisted recovery across browser reloads.
+
+Journey drafts still use their existing per-song browser storage. The editor
+now retains Undo/Redo and selection for three recently visited song sessions in
+memory, while preserving the existing 50-edit history bound. The original study
+is restored on return; a different song cannot accidentally explore its route.
+Pending recipe operations also block record return. No new draft database or
+Card owner is introduced.
+
+Live canonical album verification used the real records **11:23 Meant to Meet,
+Thu?** and **2 a.m. Lights**, their pinned performance cuts, existing master audio
+and a new browser-local draft named **Living Light · album visit pilot**. The
+round trip restored the original cut and paused time **11.205453 seconds**.
+A temporary lyric size edit (100 → 105) survived in the original unsaved working
+copy and was canceled afterward, returning to 100 without saving a cut. Journey
+title Undo/Redo remained functional across visits. No console errors were
+reported during that pass. The source cut and saved Journey stores were not
+edited; the pilot draft is retained locally for subsequent saved-route work.
+
+20 affected checks and the production build pass with process cleanup restored.
+An earlier wider navigation check reported 28 passes and one existing catalog
+failure: Hey Sister lacks `scroll-fal-authored-v1`. That test reads variant file
+names directly, and its test/domain files were unchanged. The failure is retained
+in `execution/living-light/record-handoff/tests.log`; no cuts were synthesized to
+make it pass. This checkpoint does not claim a clean full-album regression,
+source-fresh API reload, saved painted pilot, Hand roundtrip, mixed export or
+human acceptance. LL-915/916 and the full integration goal remain in progress.

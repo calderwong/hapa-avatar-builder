@@ -1,3 +1,4 @@
+import {createLivingLightRecordVisit,loadLivingLightRecordDestination} from '../domain/living-light-record-visit.js';
 import {livingLightCutMedia} from "../domain/living-light-media.js";
 import SongAudioUpload from './SongAudioUpload.jsx';
 import { matchesFileFilter } from '../domain/audio-atlas-ui.js';
@@ -1825,6 +1826,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const [directorProjects, setDirectorProjects] = useState([]);
   const projectSummaryBySongRef = useRef(new Map());
   const recentProjectDetailsRef = useRef([]);
+  const [livingLightRecipeBusy,setLivingLightRecipeBusy]=useState(false);
+  const [livingLightRecordVisitState,setLivingLightRecordVisitState]=useState({state:'idle',canReturn:false,message:''});
+  const livingLightVisitContextRef=useRef(null),livingLightSelectionRef=useRef(null),livingLightSeekRef=useRef(null);
+  const livingLightRecordVisitRef=useRef(null);
+  const livingLightRecordVisit=useMemo(()=>({open:target=>livingLightRecordVisitRef.current.open(target),return:()=>livingLightRecordVisitRef.current.return(),cancel:()=>livingLightRecordVisitRef.current.cancel()}),[]);
+  useEffect(()=>{
+    const visit=createLivingLightRecordVisit({readCurrent:()=>livingLightVisitContextRef.current.readCurrent(),load:(target,options)=>loadLivingLightRecordDestination(target,{...options,request:livingLightVisitContextRef.current.request}),activate:selection=>livingLightVisitContextRef.current.activate(selection),pause:()=>{audioRef.current?.pause();setIsPlaying(false);},onState:setLivingLightRecordVisitState});
+    livingLightRecordVisitRef.current=visit;return()=>{visit.dispose();if(livingLightRecordVisitRef.current===visit)livingLightRecordVisitRef.current=null;};
+  },[]);
   const [selectedProjectSongId, setSelectedProjectSongId] = useState(null);
   const selectedProjectSongIdRef = useRef("");
   const [selectedDirectionVariantId, setSelectedDirectionVariantId] = useState("legacy");
@@ -2648,7 +2658,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     
     let active = true;
     audioRef.current?.pause(); setIsPlaying(false);
-    const sourcePosition = !requestedPlaybackAssetId && preparedPlaybackSongIdRef.current === activeProject.song_id ? currentTimeRef.current : 0;
+    const visitSeek=livingLightSeekRef.current?.songId===activeProject.song_id&&!requestedPlaybackAssetId?livingLightSeekRef.current:null;
+    const sourcePosition = visitSeek?visitSeek.timeSeconds:!requestedPlaybackAssetId && preparedPlaybackSongIdRef.current === activeProject.song_id ? currentTimeRef.current : 0;
+    if(visitSeek)livingLightSeekRef.current=null;
     preparedPlaybackSongIdRef.current = activeProject.song_id;
     pendingPlaybackRestoreRef.current = {songId:activeProject.song_id,assetId:requestedPlaybackAssetId,seconds:sourcePosition};
     setAudioLoading(true);
@@ -3306,12 +3318,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     : (activeDirectionVariantSelection === "legacy"
       ? songCardPlanRevisionBySong[activeProject?.song_id] || ""
       : "");
-  const directorEditingLocked = savingProject
+  const directorOperationBusy = savingProject
     || directionForkTransitionPending
     || directionCutSelectionPending
     || Boolean(pendingSavedDirectionCut)
     || Boolean(pendingLegacyProjectSave)
     || loadingProjectDetail;
+  const directorEditingLocked = directorOperationBusy || livingLightRecordVisitState.state==='loading';
 
   useEffect(() => {
     if (!savingProject || !saveStartedAt) return undefined;
@@ -3350,13 +3363,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
 
   // Sync playback states when selected song changes
   useEffect(() => {
+    const visit= livingLightSelectionRef.current?.songId===selectedProjectSongId?livingLightSelectionRef.current:null;
+    const position=visit?.timeSeconds||0;
     if (audioRef.current) {
       audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+      if(!visit)audioRef.current.currentTime = 0;
       audioRef.current.volume = directorMuted ? 0 : directorVolume;
     }
     setIsPlaying(false);
-    setCurrentTime(0);
+    currentTimeRef.current=position;setCurrentTime(position);
     setSelectedShotIndex(0);
     setSelectedVisualizerIndex(0);
     setActiveTrackTab("video");
@@ -4710,6 +4725,28 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     return detailResult;
   };
 
+  livingLightVisitContextRef.current={
+    readCurrent:()=>({busy:livingLightRecipeBusy||directorOperationBusy||previewRecordingActiveRef.current||previewRecordingStartingRef.current||!!requestedPlaybackAssetId,
+      token:JSON.stringify([selectedProjectSongId,activeDirectionVariantSelection,activeStoredProject,workingDirectionFork,directorHasUnsavedChanges]),
+      snapshot:{songId:selectedProjectSongId,cutId:activeDirectionVariantSelection,title:activeProject?.song_title||selectedProjectSongId,detail:activeDirectorProject,workingFork:workingDirectionFork,dirty:directorHasUnsavedChanges,timeSeconds:audioRef.current?.currentTime??currentTimeRef.current,cardPlan:songCardPlanSnapshotBySong[selectedProjectSongId]||null}}),
+    request:async(route,{signal})=>{const response=await fetch(API_BASE+'/api/echos'+route,{signal,cache:'no-store'});if(!response.ok)throw Error('The destination owner is unavailable ('+response.status+').');return response.json();},
+    activate:selection=>{
+      const sameSong=selectedProjectSongIdRef.current===selection.songId;
+      audioRef.current?.pause();setIsPlaying(false);powerResumePlayingRef.current=false;
+      livingLightSelectionRef.current=sameSong?null:selection;
+      livingLightSeekRef.current=sameSong&&audioRef.current?null:{songId:selection.songId,timeSeconds:selection.timeSeconds};
+      directionSelectionPreferenceRef.current='manual';latestDirectionHydrationKeyRef.current='';
+      if(!commitDirectorProjectDetail(selection.detail))throw Error('The destination project could not be selected.');
+      commitSelectedProjectSongId(selection.songId);setSelectedDirectionVariantId(selection.cutId);setWorkingDirectionFork(selection.workingFork);setDirectorHasUnsavedChanges(selection.dirty);
+      currentTimeRef.current=selection.timeSeconds;setCurrentTime(selection.timeSeconds);if(sameSong&&audioRef.current)audioRef.current.currentTime=selection.timeSeconds;
+      if(selection.cardPlan)setSongCardPlanSnapshotBySong(state=>({...state,[selection.songId]:selection.cardPlan}));
+      else holdSongCardPlanForExactCutCertificate(selection.songId,selection.cutId);
+      setActiveWorkbenchTab('living-light');setEchoOperationNotice('Opened the selected record and exact cut, paused.');
+    }
+  };
+  const openLivingLightRecord=target=>livingLightRecordVisit.open(target);
+  const returnLivingLightRecord=()=>{try{livingLightRecordVisit.return();}catch(error){setLivingLightRecordVisitState(state=>({...state,message:error.message}));}};
+
   const handleSelectDirectorProjectSong = async (songId) => {
     if (!songId || directorEditingLocked || directorHasUnsavedChanges) return;
     if (songId === selectedProjectSongId && activeProjectHasDetail) return;
@@ -5513,6 +5550,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   }, []);
 
   useEffect(() => {
+    const visit=livingLightSelectionRef.current?.songId===selectedProjectSongId?livingLightSelectionRef.current:null;
+    if(visit){directionSelectionPreferenceRef.current='manual';latestDirectionHydrationKeyRef.current='';setSelectedDirectionVariantId(visit.cutId);setWorkingDirectionFork(visit.workingFork);setDirectorHasUnsavedChanges(visit.dirty);livingLightSelectionRef.current=null;return;}
     directionSelectionPreferenceRef.current = "auto-latest";
     latestDirectionHydrationKeyRef.current = "";
     setSelectedDirectionVariantId("legacy");
@@ -7381,6 +7420,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                   const target = pendingPlaybackRestoreRef.current;
                                   if (target && target.songId === activeProject.song_id && target.assetId === requestedPlaybackAssetId && audioRef.current) {
                                     audioRef.current.currentTime = Math.min(target.seconds, Number(audioRef.current.duration) || target.seconds);
+                                    currentTimeRef.current=audioRef.current.currentTime;setCurrentTime(audioRef.current.currentTime);
                                     pendingPlaybackRestoreRef.current = null;
                                   }
                                 }}
@@ -7415,8 +7455,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                               />
                             )}
 
+                            {(livingLightRecordVisitState.canReturn||livingLightRecordVisitState.message)&&<section aria-label="Album record visit" className="living-light-navigation"><p role="status">{livingLightRecordVisitState.message}</p>{livingLightRecordVisitState.state==='loading'&&<button type="button" onClick={()=>livingLightRecordVisit.cancel()}>Cancel destination lookup</button>}{livingLightRecordVisitState.canReturn&&<button type="button" disabled={directorEditingLocked||livingLightRecipeBusy} onClick={returnLivingLightRecord}>Return to {livingLightRecordVisitState.originTitle}</button>}</section>}
                             {(activeWorkbenchTab === "living-light" || livingLightVisited) && <div hidden={activeWorkbenchTab!=="living-light"}><Suspense fallback={<p role="status">Loading Living Light…</p>}><LivingLightWorkspace
-                              apiBase={API_BASE} songId={activeProject.song_id} title={activeProject.song_title} duration={activeProject.duration} mediaSources={livingLightMediaSources}
+                              onRecipeBusyChange={setLivingLightRecipeBusy} onOpenRecord={openLivingLightRecord} recordVisit={livingLightRecordVisitState} apiBase={API_BASE} songId={activeProject.song_id} title={activeProject.song_title} duration={activeProject.duration} mediaSources={livingLightMediaSources}
                               directorProject={activeProject} directorCutKey={activeDirectionVariantSelection} directorTime={currentTime} directorEditingDisabled={directorEditingLocked||!activeDirectionVariant} onDirectorCuesChange={cues=>handleUpdateProjectSettings({living_light_cues:cues})}
                               audioRef={audioRef} audioReceipt={requestedPlaybackAssetId ? masterPlaybackReceiptRef.current?.receipt : audioPlaybackReceipt} preparedPerformance={activePreparedPerformance} powerMode={activeWorkbenchTab==="living-light"?powerMode:"hidden"} sharedHandEnabled openCardRequest={livingLightOpenRequest} onPlayingChange={setIsPlaying}
                               songClockRef={currentTimeRef} audition={{assetId:requestedPlaybackAssetId,heldSongSeconds:livingLightAudition?.heldSongSeconds||0,busy:audioLoading,ready:audioPlaybackReady,error:audioPlaybackError,durationSeconds:requestedPlaybackAssetId?audioPlaybackReceipt?.durationSeconds:0,onSelect:selectLivingLightPlayback}}

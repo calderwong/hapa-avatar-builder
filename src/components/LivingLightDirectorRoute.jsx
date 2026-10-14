@@ -3,7 +3,7 @@ import {EchoLivingLightPreviewSurface} from './EchoLivingLightPreview.jsx';
 import LivingLightNavigation from './LivingLightNavigation.jsx';
 import {livingLightNavigationMap,livingLightNavigationAt} from '../domain/living-light-navigation.js';
 /** Reuses the Director host and its exact retained recipe; owns no second clock. */
-export default function LivingLightDirectorRoute({records=[],onInspect,sharedHandEnabled=false,...preview}){
+export default function LivingLightDirectorRoute({records=[],onInspect,sharedHandEnabled=false,onOpenRecord,recordVisitBusy,...preview}){
  const [route,setRoute]=useState(null),signature=useRef(''),projection=useRef(null);
  const clear=useCallback(()=>{projection.current=null;if(signature.current){signature.current='';setRoute(null);}},[]);
  const onFrame=useCallback(value=>{
@@ -17,5 +17,5 @@ export default function LivingLightDirectorRoute({records=[],onInspect,sharedHan
  },[clear]);
  const onPreviewState=useCallback(value=>{if(value.state!=='ready')clear();},[clear]);
  return <><div style={{position:'relative',aspectRatio:'16/9',background:'#020617'}}><p style={{padding:12}}>Follow Director shows Living Light cues here. Use the album preview to see the full cut between them.</p><EchoLivingLightPreviewSurface {...preview} onFrame={onFrame} onPreviewState={onPreviewState}/></div>
- <LivingLightNavigation following active={preview.active!==false} map={preview.active===false?null:route?.map} frame={route?.frame} session={route} records={records} media={preview.mediaSources} registry={route?.registry} onInspect={onInspect} sharedHandEnabled={sharedHandEnabled} client={preview.client}/></>;
+ <LivingLightNavigation onOpenRecord={onOpenRecord} recordVisitBusy={recordVisitBusy} following active={preview.active!==false} map={preview.active===false?null:route?.map} frame={route?.frame} session={route} records={records} media={preview.mediaSources} registry={route?.registry} onInspect={onInspect} sharedHandEnabled={sharedHandEnabled} client={preview.client}/></>;
 }

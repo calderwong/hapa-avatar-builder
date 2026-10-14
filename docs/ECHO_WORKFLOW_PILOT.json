@@ -2444,5 +2444,26 @@
       "integrated-acceptance"
     ],
     "humanAcceptance": "pending"
+  },
+  "livingLightRecordVisit20261014": {
+    "status": "in_progress",
+    "tasks": [
+      "LL-915",
+      "LL-916"
+    ],
+    "checks": {
+      "affectedPassed": 20,
+      "build": "passed",
+      "processBaselineRestored": true,
+      "browser": "real canonical album roundtrip"
+    },
+    "existingFailure": "Hey Sister missing scroll-fal-authored-v1 in protected cut inventory",
+    "pending": [
+      "saved-painted-pilot",
+      "shared-hand-roundtrip",
+      "mixed-export",
+      "integrated-acceptance"
+    ],
+    "humanAcceptance": "pending"
   }
 }

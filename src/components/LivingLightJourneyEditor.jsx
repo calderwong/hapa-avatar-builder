@@ -14,11 +14,14 @@ const keyFor=songId=>'hapa.living-light.journey-draft.v1:'+songId;
 function readDraft(songId){try{const raw=localStorage.getItem(keyFor(songId));if(!raw||raw.length>1024*1024)return null;const value=JSON.parse(raw);return value.draft?.songId===songId?value:null;}catch{return null;}}
 const errorText=error=>error.code==='revision_conflict'?'Someone changed this recipe. Your draft is kept. Open the latest saved revision to compare before saving.':error.message;
 /** Draft recovery is browser-local; saved truth belongs exclusively to Builder. */
-export default function LivingLightJourneyEditor({songId,title,durationUs,registry:sourceRegistry,onPreview,addRequest,performance,openRequest,onSaved,showSavedCards=true,mediaSources=[],albumRecords=[]}){
+export default function LivingLightJourneyEditor({songId,title,durationUs,registry:sourceRegistry,onPreview,addRequest,performance,openRequest,onSaved,showSavedCards=true,onBusyChange,mediaSources=[],albumRecords=[]}){
  const catalog=useLivingLightRegistry(),registry=catalog?.registry||sourceRegistry;
  const client=useMemo(()=>createLivingLightClient(),[]),generation=useRef(0),pendingKey=useRef(null),draftRef=useRef(null);
  const [draft,setDraft]=useState(null),[identity,setIdentity]=useState(null),[saved,setSaved]=useState([]),[nextOffset,setNextOffset]=useState(null),[selectedId,setSelectedId]=useState(null),[past,setPast]=useState([]),[future,setFuture]=useState([]),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[dirty,setDirty]=useState(false),[history,setHistory]=useState(null),[historyNext,setHistoryNext]=useState(null),[pendingLoad,setPendingLoad]=useState(null);
  const [passageChoice,setPassageChoice]=useState(null);
+ const songSessions=useRef(new Map()),currentSession=useRef(null);
+ currentSession.current={draft,identity,dirty,pendingKey:pendingKey.current,past,future,selectedId};
+ useEffect(()=>{onBusyChange?.(busy);return()=>onBusyChange?.(false);},[busy,onBusyChange]);
  const [bridgeId,setBridgeId]=useState(()=>registry.entries.find(t=>t.variantKind==='passage-style').thingId),[addId,setAddId]=useState('');
  draftRef.current=draft;
  const thingById=id=>registry.entries.find(t=>t.thingId===id),selected=draft?.instances.find(item=>item.instanceId===selectedId),selectedThing=selected?registry.resolveThing(selected.thingRef):null;
@@ -27,8 +30,10 @@ export default function LivingLightJourneyEditor({songId,title,durationUs,regist
  function recover(value,nextIdentity,nextDirty,key=null){setDraft(value);setIdentity(nextIdentity);setDirty(nextDirty);pendingKey.current=key;setPast([]);setFuture([]);setHistory(null);setHistoryNext(null);setPendingLoad(null);setSelectedId(value?.instances[0]?.instanceId||null);}
  async function refresh(offset=0,epoch=generation.current){const result=await client.request('/journeys?songId='+encodeURIComponent(songId)+'&limit=50&offset='+offset);if(generation.current!==epoch)return;setSaved(previous=>offset?[...previous,...result.journeys]:result.journeys);setNextOffset(result.nextOffset);}
  useEffect(()=>{
-  const epoch=++generation.current,local=readDraft(songId);setPassageChoice(null);setSaved([]);setMessage('Loading saved Journeys…');setBusy(true);
+  const previous=currentSession.current;if(previous.draft?.songId&&previous.draft.songId!==songId){songSessions.current.delete(previous.draft.songId);songSessions.current.set(previous.draft.songId,previous);while(songSessions.current.size>3)songSessions.current.delete(songSessions.current.keys().next().value);}
+  const retained=songSessions.current.get(songId),epoch=++generation.current,local=retained||readDraft(songId);setPassageChoice(null);setSaved([]);setMessage('Loading saved Journeys…');setBusy(true);
   if(local){catalog?.ensure(local.draft.instances.map(i=>i.thingRef)).catch(error=>{if(generation.current===epoch)setMessage('Recovered draft; a pinned preset could not load: '+error.message);});}if(local)recover(local.draft,local.identity||null,local.dirty!==false,local.pendingKey||null);else recover(null,null,false);
+  if(retained){setPast(retained.past);setFuture(retained.future);setSelectedId(retained.selectedId);}
   refresh(0,epoch).then(()=>{if(generation.current===epoch)setMessage(local?(local.dirty===false?'Recovered the last local saved revision.':'Recovered an unsaved local draft.'):'');}).catch(error=>{if(generation.current===epoch)setMessage(error.message);}).finally(()=>{if(generation.current===epoch)setBusy(false);});
  },[songId]);
  useEffect(()=>{if(!draft||draft.songId!==songId)return;try{const value=JSON.stringify({draft,identity,dirty,pendingKey:pendingKey.current});if(value.length<=1024*1024)localStorage.setItem(keyFor(songId),value);}catch{}},[draft,identity,dirty,songId]);
