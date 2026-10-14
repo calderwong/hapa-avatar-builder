@@ -160,3 +160,12 @@ test("pixel expectations honor declared quiet/verse admission and reject incorre
   row.renderState.layers.pop();
   assert.equal(evaluate().ok, false);
 });
+
+
+test('unbudgeted compiled shows retain explicit layer order in pixel expectations',()=>{
+ const show={instances:{visualizers:[
+  {cueId:'persistent',visualizerId:'isf:p',start:0,end:30,layerOrder:2},
+  {cueId:'section',visualizerId:'isf:s',start:15,end:30,layerOrder:0},
+ ]}};
+ assert.deepEqual(deriveHyperFramesPixelExpectations(show,[20])[0].layers.map(x=>x.cueId),['section','persistent']);
+});

@@ -43,13 +43,15 @@ import {
 } from "./stem-registry-lineage-preflight.mjs";
 import { ensureHyperFramesLoopCoverage } from "./hyperframes-loop-coverage.mjs";
 
+import {prepareSongCardLivingLight,preparedSongCardCompilerReady,preparedSongCardPixelProof} from './song-card-living-light.mjs';
+import {runPreparedRender} from './prepared-render-owner.mjs';
 const execFile = promisify(execFileCallback);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXECUTOR_ID = "hapa-avatar-builder:local-hyperframes";
 const RELEASE_TRUTH_SCHEMA = "hapa.show.release-renderer-truth.v1";
 const LOCAL_JOB_SCHEMA = "hapa.song-card.local-render-job.v1";
 const LOCAL_CHECKPOINT_SCHEMA = "hapa.song-card.local-render-checkpoint.v5";
-const LOCAL_RENDER_GATE_VERSION = "hapa.song-card.render-gate.canonical-source-snapshot.v6";
+const LOCAL_RENDER_GATE_VERSION = "hapa.song-card.render-gate.canonical-source-snapshot.v7-prepared-living-light";
 const SOURCE_SNAPSHOT_MANIFEST_SCHEMA = "hapa.song-card.source-snapshot-manifest.v2";
 const RENDERER_BUILD_IDENTITY_SCHEMA = "hapa.song-card.renderer-build-identity.v1";
 const DEFAULT_PROXY_REGISTRY = path.join(os.homedir(), "Desktop", "hapa-music-viz", "web", "isf", "proxies", "native-exact-proxies.json");
@@ -67,11 +69,19 @@ const REQUIRED_SCRIPTS = [
   "scripts/hyperframes-pixel-capture.cjs",
   "scripts/preflight-hyperframes-loop-coverage.mjs",
   "scripts/run-local-hyperframes.mjs",
+  "scripts/render-hyperframes-prepared.cjs",
+  "scripts/run-prepared-render.mjs",
   "scripts/preflight-echo-render-readiness.mjs",
 ];
 const RENDERER_BUILD_FILES = [
   ...REQUIRED_SCRIPTS,
   "server/song-card-local-renderer.mjs",
+  "server/song-card-living-light.mjs",
+  "server/prepared-render-owner.mjs",
+  "server/living-light-render-package.mjs",
+  "scripts/lib/hyperframes-living-light-package.mjs",
+  "scripts/lib/prepared-frame-encoding.cjs",
+  ...fs.readdirSync(path.join(ROOT, 'src/domain')).filter(name => /^(echo-)?living-light.*\.js$/.test(name)).map(name => 'src/domain/' + name),
   "server/encoded-frame-spatial-parity.mjs",
   "server/lyric-render-parity.mjs",
   "server/render-audio-input-preflight.mjs",
@@ -456,6 +466,7 @@ async function computeSongCardRendererBuildIdentity(resolvedRoot) {
     hyperframes?.packagePath,
   ].filter(Boolean);
   const dependencyDirectories = [
+    path.join(resolvedRoot, "src/living-light"),
     hyperframes?.cliPath ? path.dirname(hyperframes.cliPath) : null,
     numpyModulePath ? path.dirname(numpyModulePath) : null,
   ].filter(Boolean);
@@ -512,6 +523,7 @@ async function computeSongCardRendererBuildIdentity(resolvedRoot) {
     schemaVersion: RENDERER_BUILD_IDENTITY_SCHEMA,
     renderGateVersion: LOCAL_RENDER_GATE_VERSION,
     codeFiles,
+    livingLightRuntime: await directoryContentIdentity(path.join(resolvedRoot, "src/living-light")),
     tools,
   };
   const value = {
@@ -1354,7 +1366,7 @@ function successfulInputEvidenceIdentity({ audio, visualMedia, proxyAtlases, rea
   };
 }
 
-async function preflightSongCardLocalSourceInputs({ project, showGraph, masterPath, signal } = {}) {
+async function preflightSongCardLocalSourceInputs({ project, showGraph, masterPath, signal, livingLight = null } = {}) {
   loadLocalRenderProbeCaches();
   throwIfAborted(signal);
   const declaredStemInputs = (Array.isArray(showGraph?.stems?.items) ? showGraph.stems.items : []).filter((stem) => text(stem?.audioPath));
@@ -1473,6 +1485,7 @@ async function preflightSongCardLocalSourceInputs({ project, showGraph, masterPa
   const readiness = preflightSongCardRenderReadiness({
     project,
     showGraph: executionShowGraph,
+    livingLightSnapshot: livingLight?.snapshot || null,
     proxyRegistry: proxyRegistry.registry,
     proxyRegistryPath: proxyRegistry.filePath,
     root: ROOT,
@@ -1490,6 +1503,7 @@ async function preflightSongCardLocalSourceInputs({ project, showGraph, masterPa
     proxyAtlases,
     proxyRegistry,
     songRegistry,
+    additionalSources: livingLight?.additionalSources || [],
     signal,
   });
   return {
@@ -3027,6 +3041,7 @@ async function defaultPipeline({
   sourceResolutionProject = project,
   proxyRegistrySource = null,
   sourceSnapshotManifest = null,
+  livingLight = null,
   outputDirectory,
   masterPath,
   expectedProxyRegistrySha256 = "",
@@ -3106,6 +3121,7 @@ async function defaultPipeline({
     showGraph,
     proxyRegistry,
     proxyRegistryPath: canonicalProxyRegistryPath,
+    livingLightSnapshot: livingLight?.snapshot || null,
     root: ROOT,
     projectPath,
     signalGraphPreflight,
@@ -3172,6 +3188,7 @@ async function defaultPipeline({
       `--proxy-registry=${canonicalProxyRegistryPath}`,
       `--output=${packageDirectory}`,
       `--audio=${masterPath}`,
+      ...(livingLight ? [`--living-light-package=${livingLight.manifest}`] : []),
       "--presentation=clean",
     ], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024, signal });
   } catch (error) {
@@ -3195,7 +3212,8 @@ async function defaultPipeline({
       },
     );
   }
-  if (compilerReport?.ok !== true || compilerReport?.validation?.showcaseReady !== true) {
+  const executableShow = await readJson(path.join(packageDirectory, "executable-show.json"));
+  if (!preparedSongCardCompilerReady(compilerReport, executableShow, livingLight?.snapshot)) {
     throw createSongCardCompilerError(compilerReport, { reportPath: compilerReportPath });
   }
   if (expectedProxyRegistrySha256) {
@@ -3217,8 +3235,10 @@ async function defaultPipeline({
   }
 
   throwIfAborted(signal);
-  report("loop-coverage", 32, "Filling packaged loop handles so every selected video covers its complete render window.");
-  const loopCoverage = await ensureHyperFramesLoopCoverage({
+  report("loop-coverage", 32, livingLight ? "Preparing exact source-frame seeking for the saved Journey and media." : "Filling packaged loop handles so every selected video covers its complete render window.");
+  // Prepared capture seeks/loops each source itself and verifies original bytes.
+  // Upstream-only loop expansion rewrites those bytes and is ineligible here.
+  const loopCoverage = livingLight ? {ok:true, route:'prepared-source-frame-seeking'} : await ensureHyperFramesLoopCoverage({
     projectDirectory: packageDirectory,
     fps: outputProfile.fps,
     signal,
@@ -3242,7 +3262,7 @@ async function defaultPipeline({
   const pixelReportPath = path.join(qaDirectory, "pixel-capture-report.json");
   await fsp.rm(pixelReportPath, { force: true });
   let pixelReport;
-  if (requestedVisualizerCueCount === 0 && !lyricPixelVerificationRequired) {
+  if (requestedVisualizerCueCount === 0 && !lyricPixelVerificationRequired && !livingLight) {
     report("pixel-qa", 34, "No shader cues were requested; pixel verification is not applicable.");
     pixelReport = {
       schemaVersion: "hapa.hyperframes.pixel-capture.v2",
@@ -3304,11 +3324,28 @@ async function defaultPipeline({
     }
   }
   const rendererTruth = inspectSongCardExecutedRendererTruth(showGraph, compilerReport, pixelReport);
+  if (livingLight) rendererTruth.livingLight = preparedSongCardPixelProof(executableShow, pixelReport);
 
   const renderedMasterPath = path.join(renderDirectory, "master.mp4");
   report("render", 40, "Rendering the final MP4 locally. This is the long step.");
   try {
-    await runHyperFramesRender([
+    if (livingLight) {
+      const takeDirectory = path.join(renderDirectory, 'prepared-' + crypto.randomUUID());
+      let log = '', pending = '';
+      try {
+        const capture = await runPreparedRender({root:ROOT,project:packageDirectory,output:takeDirectory,signal,registerProcess,onOutput:chunk=>{
+          log=(log+chunk).slice(-512*1024);pending=(pending+chunk).slice(-512*1024);
+          const lines=pending.split(/\r?\n/);pending=lines.pop()||'';
+          for(const line of lines){let progress;try{progress=JSON.parse(line);}catch{continue;}
+            if(progress.status==='rendering'&&Number.isSafeInteger(progress.frames)&&Number.isSafeInteger(progress.total)&&progress.total>0&&progress.frames>=0&&progress.frames<=progress.total)
+              report('render',45+Math.floor(progress.frames/progress.total*40),`Rendering frame ${progress.frames} of ${progress.total}.`,{completed:progress.frames,total:progress.total});
+          }
+        }});
+        if(capture.result.showHash!==executableShow.showHash||capture.result.snapshotDigest!==livingLight.snapshot.snapshotDigest)throw Error('Prepared capture belongs to another cut');
+        rendererTruth.livingLight.capture={...capture, resultPath:path.join(takeDirectory,'render-result.json')};
+        await fsp.copyFile(path.join(takeDirectory,'cut.mp4'),renderedMasterPath);
+      } finally { await fsp.writeFile(path.join(qaDirectory,'prepared-render.log'),log,{mode:0o600}); }
+    } else await runHyperFramesRender([
       path.join(ROOT, "scripts/run-local-hyperframes.mjs"),
       "render",
       `--output=${renderedMasterPath}`,
@@ -3386,6 +3423,7 @@ export function createSongCardLocalRenderBridge({
   controller,
   remintStore,
   resolveRegistryMaster = null,
+  livingLightOwner = null,
   certifyStart = null,
   pipeline = defaultPipeline,
   clock = () => new Date(),
@@ -3532,6 +3570,9 @@ export function createSongCardLocalRenderBridge({
           },
         );
       }
+      const livingLight = await prepareSongCardLivingLight({project,
+        owner: livingLightOwner,
+        root: ROOT, cacheRoot: path.join(renderRoot, 'living-light-inputs'), signal});
       let sourceInputPreflight = null;
       if (pipeline === defaultPipeline) {
         publish(candidateId, {
@@ -3540,7 +3581,7 @@ export function createSongCardLocalRenderBridge({
           percent: 3,
           message: "Revalidating every master, stem, visual, shader atlas, and coverage window before checkpoint reuse.",
         });
-        sourceInputPreflight = await preflightSongCardLocalSourceInputs({ project, showGraph, masterPath, signal });
+        sourceInputPreflight = await preflightSongCardLocalSourceInputs({ project, showGraph, masterPath, signal, livingLight });
         showGraph = structuredClone(sourceInputPreflight.executionShowGraph || showGraph);
       } else {
         const sourceResolutionProjectPath = path.join(ROOT, "data", "music-video-projects", "selected-project.json");
@@ -3550,7 +3591,7 @@ export function createSongCardLocalRenderBridge({
         ], { root: ROOT, projectPath: sourceResolutionProjectPath });
         const sourceSnapshotManifest = await buildSongCardSourceSnapshotManifest({
           audio: { entries: [{ ok: true, kind: "master", role: "master", path: masterPath, contentSha256: sourceMasterSha256 }] },
-          additionalSources,
+          additionalSources: [...additionalSources, ...(livingLight?.additionalSources || [])],
           signal,
         });
         sourceInputPreflight = {
@@ -3708,6 +3749,7 @@ export function createSongCardLocalRenderBridge({
           sourceResolutionProject: executionSourceResolutionProject,
           proxyRegistrySource: executionProxyRegistry,
           sourceSnapshotManifest,
+          livingLight,
           masterPath: executionMasterPath,
           expectedProxyRegistrySha256: sourceInputPreflight?.identity?.proxyRegistrySha256 || "",
           outputDirectory,

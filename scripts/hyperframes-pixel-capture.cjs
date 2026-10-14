@@ -6,6 +6,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const {preparedPixelTimestamps,checkFrameReceipt} = require("./lib/prepared-frame-encoding.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const value = (name, fallback = "") => {
@@ -70,7 +71,7 @@ function expectedLayer(instance) {
 }
 
 function derivedSamples(manifest, timestamps, deriveAdmitted) {
-  if (manifest.automation?.visualBudgetPolicy?.schemaVersion === "hapa.echo.section-visual-budget.v1") {
+  if (Array.isArray(manifest.instances?.visualizers)) {
     return deriveAdmitted(manifest, timestamps);
   }
   const visualizers = manifestVisualizerInstances(manifest);
@@ -257,12 +258,13 @@ app.whenReady().then(async () => {
       || (suppliedExpectations?.samples || []).map((row) => row.timestamp).join(",")
       || defaultTimestamps(manifest).join(",");
     const duration = finite(manifest.duration, 60);
-    const timestamps = timestampSource
+    let timestamps = timestampSource
       .split(",")
       .map(Number)
       .filter((row) => Number.isFinite(row) && row >= 0)
       .map((row) => Math.min(duration, row));
-    const lyricSamples = new Set(lyricSampleTimestamps(manifest).map((timestamp) => Math.min(duration, timestamp).toFixed(6)));
+    timestamps = preparedPixelTimestamps(manifest, timestamps);
+    const lyricSamples = new Set(preparedPixelTimestamps(manifest,lyricSampleTimestamps(manifest).map(timestamp=>Math.min(duration,timestamp))).map(timestamp=>timestamp.toFixed(6)));
     if (timestamps.length === 0) {
       throw new Error("No visualizer cue timestamps were found; pass --at=<seconds> to select capture times");
     }
@@ -325,8 +327,12 @@ app.whenReady().then(async () => {
       const captureState = await win.webContents.executeJavaScript(`(async () => {
         const timeline = window.__timelines.main;
         if (typeof timeline.pause === "function") timeline.pause();
-        if (typeof window.HAPA_PREPARE_MEDIA_AT === "function") await window.HAPA_PREPARE_MEDIA_AT(${JSON.stringify(timestamp)});
-        timeline.seek(${JSON.stringify(timestamp)}, false);
+        const preparedFrame = window.HAPA_EXECUTABLE_SHOW.livingLight
+          ? await window.HAPA_RENDER_FRAME_AT(${JSON.stringify(Math.round(timestamp * manifest.fps))}) : null;
+        if (!preparedFrame) {
+          if (typeof window.HAPA_PREPARE_MEDIA_AT === "function") await window.HAPA_PREPARE_MEDIA_AT(${JSON.stringify(timestamp)});
+          timeline.seek(${JSON.stringify(timestamp)}, false);
+        }
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const canvas = document.getElementById("viz");
         const context = canvas && canvas.getContext("2d", { willReadFrequently: true });
@@ -365,6 +371,7 @@ app.whenReady().then(async () => {
           };
         }
         return {
+          preparedFrame,
           renderState: JSON.parse(JSON.stringify(window.HAPA_LAST_RENDER_STATE || null)),
           canvasCapture,
           lyricCapture: (() => {
@@ -392,6 +399,7 @@ app.whenReady().then(async () => {
           })(),
         };
       })()`, true);
+      if(manifest.livingLight) checkFrameReceipt(captureState?.preparedFrame,Math.round(timestamp*manifest.fps),manifest);
       const renderState = captureState?.renderState || null;
       const image = await win.capturePage();
       const png = image.toPNG();
@@ -407,6 +415,7 @@ app.whenReady().then(async () => {
       frames.push({
         index,
         timestamp,
+        preparedFrame: captureState?.preparedFrame || null,
         pngPath,
         pngSha256: sha256(png),
         metrics: metrics(image),
@@ -571,6 +580,6 @@ app.whenReady().then(async () => {
       localServer.server.closeAllConnections();
       await new Promise((resolve) => localServer.server.close(resolve));
     }
-    setImmediate(() => app.quit());
+    setImmediate(() => app.exit(process.exitCode || 0));
   }
 });

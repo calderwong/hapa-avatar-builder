@@ -98,3 +98,66 @@ test('cancel arms force termination even when the child never emits close',()=>{
  cancel.cancel('duplicate');assert.equal(timers.length,1);assert.equal(cancel.reason,'operator canceled');
  timers[0].fn();assert.deepEqual(signals,['SIGTERM','SIGKILL']);cancel.dispose();assert.equal(cleared,7);
 });
+
+
+test('managed source packaging reuses exact immutable inputs and refuses corruption',async t=>{
+ const {prepareSongCardLivingLight}=await import('../server/song-card-living-light.mjs');
+ const f=await fixture(t),cacheRoot=path.join(f.root,'managed-inputs');
+ let touched=false;
+ assert.equal(await prepareSongCardLivingLight({project:{},owner:()=>{touched=true;},root:f.root,cacheRoot}),null);assert.equal(touched,false);
+ await assert.rejects(prepareSongCardLivingLight({project:f.project,root:f.root,cacheRoot}),/source owner/);
+ const owner={exportPackage:async()=>({storeMutation:false,analysisExecuted:false,package:f.snapshot.recipes[0].package}),resolveMedia:async()=>{throw Error('No painted media in fixture');}};
+ const args={project:f.project,owner,root:f.root,cacheRoot},before=JSON.stringify(f.project);
+ const first=await prepareSongCardLivingLight(args),again=await prepareSongCardLivingLight(args);
+ assert.deepEqual(first,again);assert.equal(JSON.stringify(f.project),before);
+ assert.equal(first.snapshot.snapshotDigest,f.snapshot.snapshotDigest);assert.equal(first.additionalSources.length,1);
+ assert.deepEqual((await fs.readdir(cacheRoot)).filter(x=>x.startsWith('.preparing-')),[]);
+ await fs.writeFile(first.manifest,'{}');await assert.rejects(prepareSongCardLivingLight(args),/digest|schema|fields/);
+ assert.equal(await fs.readFile(first.manifest,'utf8'),'{}');
+});
+
+test('managed compiler admission requires every existing gate and exact prepared identity',async t=>{
+ const {preparedSongCardCompilerReady}=await import('../server/song-card-living-light.mjs');
+ const f=await fixture(t),show=compileHyperFramesShow({project:f.project,showGraph:f.graph,telemetry:{fps:10,stems:[]},livingLightSnapshot:f.snapshot});
+ const validation=Object.fromEntries(['lint','inspect','cueCoverage','mediaPreflight','mediaOffline','visualizerPreflight','visualizerOffline','shaderFidelity'].map(k=>[k,'pass']));
+ const report={ok:true,showHash:show.showHash,validation:{...validation,preparedCapture:'requires-hapa-prepared-electron-v1',showcaseReady:false}};
+ assert.equal(preparedSongCardCompilerReady(report,show,f.snapshot),true);
+ for(const key of Object.keys(validation)){const bad=structuredClone(report);bad.validation[key]='fail';assert.equal(preparedSongCardCompilerReady(bad,show,f.snapshot),false);}
+ assert.equal(preparedSongCardCompilerReady({...report,showHash:'different'},show,f.snapshot),false);
+ assert.equal(preparedSongCardCompilerReady(report,{...show,livingLight:{...show.livingLight,snapshotDigest:'different'}},f.snapshot),false);
+ assert.equal(preparedSongCardCompilerReady(report,show,null),false);
+ assert.equal(preparedSongCardCompilerReady({ok:true,validation:{showcaseReady:true}},null,null),true);
+});
+
+test('readiness accepts an exact snapshot without relaxing ordinary coverage',async t=>{
+ const {preflightSongCardRenderReadiness}=await import('../src/domain/song-card-render-readiness.js');
+ const f=await fixture(t),args={project:f.project,showGraph:f.graph,signalGraphPreflight:{ok:true},root:f.root};
+ const old=preflightSongCardRenderReadiness(args);assert(old.blockers.some(b=>b.code==='show-compile-failed'));
+ const prepared=preflightSongCardRenderReadiness({...args,livingLightSnapshot:f.snapshot});
+ assert(!prepared.blockers.some(b=>b.code==='show-compile-failed'));
+ assert.equal(prepared.ok,false); // An empty ordinary media track is not export coverage.
+});
+
+test('prepared pixel proof covers every cue at numbered frames and refuses blank/stale output',()=>{
+ const show={showHash:'show',fps:30,duration:4,livingLight:{captureRoute:'hapa-prepared-electron-v1',snapshotDigest:'exact',cues:[{cueId:'one',window:{startUs:1e6,endUs:2e6}},{cueId:'two',window:{startUs:3e6,endUs:4e6}}]}};
+ const times=encoding.preparedPixelTimestamps(show,[0,4]);assert(times.includes(1));assert(times.includes(3));assert(times.every(t=>t>=0&&t<4&&Math.abs(t*30-Math.round(t*30))<1e-8));
+ const frames=times.map(timestamp=>{const index=Math.round(timestamp*30),songUs=Math.round(index*1e6/30),cue=show.livingLight.cues.find(c=>songUs>=c.window.startUs&&songUs<c.window.endUs);return {timestamp,metrics:{nonBlank:true,nonFlat:true},preparedFrame:{frameIndex:index,showHash:'show',snapshotDigest:'exact',livingLight:{frameIndex:index,songUs,active:!!cue,cue:cue||null}}};});
+ return import('../server/song-card-living-light.mjs').then(({preparedSongCardPixelProof})=>{
+ const report={showHash:'show',frames};assert.deepEqual(preparedSongCardPixelProof(show,report).cueIds,['one','two']);
+ assert.throws(()=>preparedSongCardPixelProof(show,{...report,frames:frames.filter(f=>f.timestamp<3)}),/omitted/);
+ for(const mutate of [r=>r.frames[1].preparedFrame.snapshotDigest='wrong',r=>r.frames.find(f=>f.preparedFrame.livingLight.active).metrics.nonBlank=false,r=>r.showHash='wrong']){const bad=structuredClone(report);mutate(bad);assert.throws(()=>preparedSongCardPixelProof(show,bad));}
+ });
+});
+
+
+test('shared capture owner refuses worker recursion, canceled starts and existing takes before spawning',async t=>{
+ const {runPreparedRender}=await import('../server/prepared-render-owner.mjs');
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'ll-owner-gates-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ const output=path.join(root,'existing');await fs.mkdir(output);await fs.writeFile(path.join(output,'keep.txt'),'prior take');
+ await assert.rejects(runPreparedRender({root,project:root,output}),/already exists/);
+ assert.deepEqual(await fs.readdir(output),['keep.txt']);
+ await assert.rejects(runPreparedRender({root,project:root,output,timeoutMs:1800001}),/budget/);
+ const controller=new AbortController();controller.abort();await assert.rejects(runPreparedRender({root,project:root,output,signal:controller.signal}),{name:'AbortError'});
+ const previous=process.env.HAPA_PREPARED_CAPTURE_WORKER;
+ try{process.env.HAPA_PREPARED_CAPTURE_WORKER='1';await assert.rejects(runPreparedRender({root,project:root,output}),/worker cannot enter/);}finally{if(previous===undefined)delete process.env.HAPA_PREPARED_CAPTURE_WORKER;else process.env.HAPA_PREPARED_CAPTURE_WORKER=previous;}
+});

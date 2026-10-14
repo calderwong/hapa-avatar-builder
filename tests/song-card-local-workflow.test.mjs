@@ -2040,7 +2040,7 @@ test("a restarted local bridge rehydrates the hash-verified render checkpoint be
   assert.equal(checkpointFingerprints.length, 1);
   const checkpoint = JSON.parse(await fsp.readFile(path.join(checkpointSongRoot, checkpointFingerprints[0], "local-render-checkpoint.json"), "utf8"));
   assert.equal(checkpoint.schemaVersion, "hapa.song-card.local-render-checkpoint.v5");
-  assert.equal(checkpoint.identity.renderGateVersion, "hapa.song-card.render-gate.canonical-source-snapshot.v6");
+  assert.equal(checkpoint.identity.renderGateVersion, "hapa.song-card.render-gate.canonical-source-snapshot.v7-prepared-living-light");
   assert.equal(checkpoint.identity.rendererBuildSchema, "hapa.song-card.renderer-build-identity.v1");
   assert.match(checkpoint.identity.rendererBuildSha256, /^sha256:[a-f0-9]{64}$/u);
   assert.match(checkpoint.identity.pipelineSha256, /^sha256:[a-f0-9]{64}$/u);
@@ -2119,4 +2119,38 @@ test("Song Card renders every output aspect through the matching HyperFrames res
     const outputProfile = resolveSongCardRenderOutputProfile({ project: { output_profile: profile } });
     assert.equal(hyperFramesResolutionForOutputProfile(outputProfile), resolution);
   }
+});
+
+
+test("Living Light bridge freezes exact input before pipeline and refuses changed snapshot persistence", {timeout:20000}, async t=>{
+ const {createLivingLightRegistry}=await import('../src/living-light/registry.js');
+ const {newJourneyDraft}=await import('../src/domain/living-light-journey.js');
+ const {createLivingLightService}=await import('../server/living-light-service.mjs');
+ const {createEchoLivingLightCue}=await import('../src/domain/echo-living-light-editor.js');
+ const {compileEchoLivingLightTrack}=await import('../src/domain/echo-living-light-cues.js');
+ const root=await fsp.mkdtemp(path.join(os.tmpdir(),'hapa-song-card-living-light-'));t.after(()=>removeFixture(root));
+ const sourceRoot=path.join(root,'source'),mintRoot=path.join(root,'mint');await fsp.mkdir(sourceRoot);
+ const master=path.join(sourceRoot,'master.dat');await fsp.writeFile(master,'exact master');
+ const editor=exactEditorFixture({videoPath:path.join(sourceRoot,'video.mp4')}),registry=createLivingLightRegistry();
+ const owner=createLivingLightService({root,registry,resolveSong:async id=>({id})});t.after(()=>owner.close());
+ const journey=newJourneyDraft({songId:editor.project.song_id,durationUs:2e6,thing:registry.entries.find(row=>row.capabilities.continuous)},registry);
+ const saved=await owner.saveJourney({journey,expectedRevision:null,idempotencyKey:'test:managed-save'},{mode:'authenticated-api',actor:{actorId:'agent:test',kind:'agent',displayName:'Test'}});
+ editor.project.living_light_cues=[createEchoLivingLightCue({journey:saved.journey,cueId:'managed:cue',startUs:0,journeyWindow:{startUs:0,endUs:750000}})];
+ editor.showGraph.livingLight=compileEchoLivingLightTrack(editor.project);
+ editor.showGraph.directorV2.source.sourceProjectHash=contentHash(editor.project);editor.showGraph.directorV2.provenance.sourceProjectHash=contentHash(editor.project);
+ editor.showGraph=reidentifyEchoCompiledShowGraph(editor.showGraph);
+ const controller=new SongCardMintController({root:mintRoot,ledger:new SongCardMintLedger({root:mintRoot,allowedSourceRoots:[sourceRoot,mintRoot]})});
+ const store=createSongCardRemintStore({root:mintRoot,controller}),plan=await controller.plan(editor.project.song_id,editor);
+ const proposed=await store.proposeFromPlan(editor.project.song_id,await controller.getPlan(plan.planId));await store.approve(proposed.id,{approvedBy:'operator:living-light-fixture'});await store.enqueue();
+ let observed=false;
+ const bridge=createSongCardLocalRenderBridge({root:mintRoot,controller,remintStore:store,resolveRegistryMaster:async()=>master,livingLightOwner:()=>owner,
+ pipeline:async({livingLight,sourceSnapshotManifest,project,outputDirectory})=>{
+  assert.deepEqual(livingLight.snapshot.cues,project.living_light_cues);
+  assert(sourceSnapshotManifest.entries.some(e=>e.inputRoles.includes('living-light-snapshot')));
+  observed=true;await fsp.appendFile(livingLight.manifest,' ');
+  return {masterPath:path.join(outputDirectory,'must-not-save.mp4'),posterPath:path.join(outputDirectory,'must-not-save.png')};
+ }});
+ await bridge.start(proposed.id);const failed=await waitForCandidate(store,proposed.id,['failed']);await waitForLocalJob(bridge,proposed.id,['failed']);
+ assert(observed);assert.equal(failed.renderFailure.code,'local_source_input_changed_during_render');assert.equal(failed.renderFailure.details.inputRole,'living-light-snapshot');
+ assert.deepEqual((await controller.getPlan(plan.planId)).input.project.living_light_cues,editor.project.living_light_cues);
 });

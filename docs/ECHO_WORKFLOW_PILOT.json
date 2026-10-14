@@ -2605,5 +2605,33 @@
       "integrated-acceptance"
     ],
     "humanAcceptance": "pending"
+  },
+  "livingLightManagedExport20261014": {
+    "status": "in_progress",
+    "tasks": [
+      "LL-903",
+      "LL-913",
+      "LL-914"
+    ],
+    "checks": {
+      "distinctTests": 66,
+      "build": "passed",
+      "realPixelSamples": 31,
+      "sharedCaptureSuccess": "passed",
+      "registeredCancellation": "passed",
+      "negativePixelExit": 1,
+      "identicalPriorPrefixFrames": 90,
+      "processBaselineRestored": true,
+      "originalCutsUnchanged": 38
+    },
+    "pending": [
+      "live-managed-start-to-release",
+      "ordinary-pilot-shader-readiness",
+      "full-song-and-other-profiles",
+      "real-owner-bound-source",
+      "shared-hand-and-proposals",
+      "integrated-acceptance"
+    ],
+    "humanAcceptance": "pending"
   }
 }

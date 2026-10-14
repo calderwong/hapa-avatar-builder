@@ -293,6 +293,7 @@ if (!mediaPreflight.ok || !visualizerPreflight.ok || !shaderFidelityAudit.ok) {
   }
   const report = {
     schemaVersion: "hapa.hyperframes.compiler-report.v4",
+    showHash: show.showHash,
     ok: false,
     input: { graphPath, telemetryPath, projectPath, sourceProjectPath, audioPath, proxyRegistryPath, requestedDuration },
     output,
@@ -675,6 +676,7 @@ const networkReferences = sourceAudit.match(/https?:\/\//g) || [];
 const compiledLyricTrack = show.instances.lyrics[0] || null;
 const report = {
   schemaVersion: "hapa.hyperframes.compiler-report.v4",
+  showHash: show.showHash,
   ok: lintOk && inspect.ok && offlineMissing.length === 0 && visualizerOfflineMissing.length === 0 && networkReferences.length === 0 && !/Math\.random|Date\.now|AudioContext|getUserMedia|fetch\(/.test(sourceAudit),
   input: { graphPath, telemetryPath, projectPath, sourceProjectPath, audioPath, proxyRegistryPath, isfManifestPath, isfRuntimePath, requestedDuration },
   output,

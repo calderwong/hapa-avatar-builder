@@ -784,6 +784,7 @@ songCardLocalRenderBridge = createSongCardLocalRenderBridge({
   remintStore: songCardRemintStore,
   resolveRegistryMaster: async (songId) => String((await findRegistrySong(songId))?.localPath || "").trim(),
   certifyStart: certifySongCardLocalRenderStart,
+  livingLightOwner: () => getLivingLightService(),
 });
 const CARD_INPUT_STANDARD_BASE_URL = (process.env.HAPA_CARD_INPUT_STANDARD_URL || "http://127.0.0.1:8896").replace(/\/+$/, "");
 const CARD_INPUT_STANDARD_ENABLED = process.env.HAPA_CARD_INPUT_STANDARD_ENABLED !== "0";

@@ -57,3 +57,15 @@ function createCaptureCancellation({killGroup,setTimer=setTimeout,clearTimer=cle
  },dispose(){if(forceTimer!==null)clearTimer(forceTimer);forceTimer=null;}};
 }
 module.exports.createCaptureCancellation=createCaptureCancellation;
+
+function preparedPixelTimestamps(show,timestamps){
+ if(!show.livingLight)return timestamps;
+ const count=Math.ceil(show.duration*show.fps),indices=new Set(timestamps.map(t=>Math.min(count-1,Math.max(0,Math.floor(t*show.fps+1e-8)))));
+ for(const cue of show.livingLight.cues){
+  const first=Math.ceil(cue.window.startUs*show.fps/1e6),last=Math.min(count-1,Math.ceil(cue.window.endUs*show.fps/1e6)-1);
+  if(first>last)continue;
+  for(const i of [first-1,first,Math.floor((first+last)/2),last,last+1])if(i>=0&&i<count)indices.add(i);
+ }
+ return [...indices].sort((a,b)=>a-b).map(i=>i/show.fps);
+}
+module.exports.preparedPixelTimestamps=preparedPixelTimestamps;

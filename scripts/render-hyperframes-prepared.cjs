@@ -7,6 +7,7 @@ const fs=require('node:fs'),fsp=require('node:fs/promises'),path=require('node:p
 const {spawn}=require('node:child_process');
 const {encodingPlan,encoderEnvironment,checkFrameReceipt,checkPreparedSoundtrack}=require('./lib/prepared-frame-encoding.cjs');
 if(process.env.HAPA_PREPARED_CAPTURE_WORKER!=='1')throw Error('Use scripts/run-prepared-render.mjs so cancellation owns the complete process group');
+if(!/^[a-f0-9-]{36}$/.test(process.env.HAPA_PREPARED_CAPTURE_ID||''))throw Error('Prepared capture ownership is missing');
 if(process.env.HAPA_PREPARED_ENCODER_WORKER==='1')throw Error('Encoder child cannot enter the capture owner');
 const arg=name=>process.argv.find(v=>v.startsWith('--'+name+'='))?.slice(name.length+3);
 if(!arg('project')||!arg('output'))throw Error('Use --project=<compiled-package> --output=<new-directory>');
@@ -36,7 +37,7 @@ for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>void finish(1,E
 process.once('uncaughtException',error=>void finish(1,error));process.once('unhandledRejection',error=>void finish(1,error));
 
 app.whenReady().then(async()=>{
-  await fsp.mkdir(output);ownsOutput=true; // Refuse overwriting an earlier take or failed evidence.
+  await fsp.mkdir(output);ownsOutput=true;await fsp.writeFile(path.join(output,'capture-started.json'),JSON.stringify({captureId:process.env.HAPA_PREPARED_CAPTURE_ID,pid:process.pid}),{flag:'wx'}); // Refuse overwriting an earlier take or failed evidence.
   deadline=setTimeout(()=>void finish(1,Error('Prepared render exceeded 30 minutes')),1800e3);
   const show=JSON.parse(await fsp.readFile(path.join(root,'executable-show.json'),'utf8')),plan=encodingPlan(show,root,output);
   const {verifyLivingLightPackageMedia}=await import('./lib/hyperframes-living-light-package.mjs');

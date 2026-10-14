@@ -715,3 +715,8 @@ The local packaging CLI and protected media API share the saved-cut reader. Exac
 ## October 14 — prepared mixed-cut encoding
 
 The local compiler and parent-owned prepared renderer now encode native Living Light with ordinary media, existing lyrics and one master soundtrack.53 distinct affected checks, build,22-second1080p30 encoded inspection and final parent success/cancel proofs pass; source cuts/Journey and process baselines are preserved. The direct-Electron cancellation defect and two source-preflight refusals are retained in the [postmortem](postmortems/2026-10-14-living-light-prepared-export.md). Managed Song Card export, full-song/profile/bound-source and integrated/human acceptance remain open. See [protocol](living-light/DIRECTOR_CUES.md#prepared-mixed-cut-encoding--october-14). No requirement closes.
+
+
+## October 14 — managed Living Light export route
+
+Song Card jobs now freeze exact neutral Journey/media inputs, retain them in source/checkpoint identity, run native pixel checks and select the shared prepared capture owner with progress/cancel.66 distinct checks, final build,31 real mixed-cut pixel samples and actual success/cancel ownership proofs pass; all90 prefix frame hashes match prior evidence. Compiler identity, legacy shader-order expectation and false-success exit corrections are preserved in the [postmortem](postmortems/2026-10-14-living-light-managed-export.md).38 source cuts, pilot child/Journey and process baselines remain unchanged. Live UI-to-release, full-song/profile/bound-source and integrated/human acceptance stay open. No requirement/count changes. See [protocol](living-light/DIRECTOR_CUES.md#managed-song-card-route--october-14).

@@ -608,6 +608,7 @@ export function preflightSongCardRenderReadiness({
   signalPreflight = null,
   signalGraphPreflight = null,
   mediaPreflight = null,
+  livingLightSnapshot = null,
 } = {}) {
   const blockers = [];
   const blockerKeys = new Set();
@@ -687,6 +688,7 @@ export function preflightSongCardRenderReadiness({
       project,
       proxyRegistry,
       fps: 30,
+      livingLightSnapshot,
     });
     inspection = inspectHyperFramesShow(show);
   } catch (error) {

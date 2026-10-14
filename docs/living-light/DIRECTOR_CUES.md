@@ -491,3 +491,53 @@ Card export, resolve ordinary source preparation through that owner, qualify
 real bound sources/full songs/other output profiles and complete shared Hand,
 proposal and integrated album acceptance. LL-903 remains in progress. Human
 creative acceptance and the active GitHub freeze remain unchanged.
+
+
+## Managed Song Card route — October 14
+
+The existing Song Card job bridge now freezes neutral/unbound Living Light
+Journeys through the saved Journey/media owners before forming checkpoint
+identity. Exact metadata and copied painted videos enter its existing source
+manifest; corruption or mid-job changes refuse checkpoint persistence. Repeated
+identical inputs reuse content-addressed copies. Authoring, source cuts and
+media remain unchanged. Renderer identity includes the native source tree and
+Living Light contracts, packaging and capture owners.
+
+The normal compiler readiness gate receives that exact snapshot. Managed
+admission requires matching compiled identity and every existing compiler gate;
+`showcaseReady: false` is not globally ignored. It selects the declared prepared
+route explicitly. Pixel QA requests integer output frames, checks every Living
+Light cue and samples its boundaries, while retaining ordinary shader, lyric,
+network and encoded spatial/audio/release checks. Prepared capture uses original
+source bytes and frame-addressed looping; upstream-only loop-file expansion does
+not rewrite these hashed assets.
+
+`server/prepared-render-owner.mjs` is shared by the CLI and managed job. Jobs
+register the actual Electron process group, show frame progress, and keep
+ownership until bounded cancellation/reaping finishes. Per-run output markers
+prevent failure receipts from modifying another take. Encoding alone is not
+release acceptance or mint authority. No new analysis, generation, publication
+or automatic mint is introduced by Living Light source packaging/capture.
+
+Evidence:66 distinct affected tests, final build, real source snapshot/reuse,
+31 native mixed-cut pixel samples, shared-owner three-second success and explicit
+job-style cancellation pass. All90 captured PNG hashes match the prior verified
+prefix. The regenerated executable show and HTML match the prior22-second
+package exactly, allowing its existing encode/audio evidence to be reused.
+An intentionally wrong pixel expectation now exits1; all owned process baselines
+and proof profiles are clean.38 prior cuts, the pilot child and Journey remain
+unchanged. Source chat01a137cc-de1d-7511-ab65-227c92d5bca0; evidence is under
+`execution/living-light/managed-export/` in that task workspace.
+
+Two initial failures are retained: the successful compiler report lacked its
+new show-hash field, and legacy pixel expectations ignored explicit shader layer
+order on three frames. Both are corrected. Electron previously returned0 after
+a false pixel report; it now propagates failure. No acceptance threshold changed.
+
+This is source-built integration with qualified stages, not a completed live
+UI-to-release render. Restart/delivery certification, the saved pilot's ordinary
+portable-shader readiness, full-song and other output profiles remain acceptance
+work. Audio-bound Journeys remain refused here until their exact prepared bank
+and playback clock are qualified; no neutral substitution is allowed. Shared
+Hand/proposal parity, integrated acceptance and human creative review remain
+open. LL-903/913/914 and the overall goal stay in progress.
