@@ -2533,5 +2533,29 @@
       "integrated-acceptance"
     ],
     "humanAcceptance": "pending"
+  },
+  "livingLightOfflineFrames20261014": {
+    "status": "in_progress",
+    "tasks": [
+      "LL-903"
+    ],
+    "checks": {
+      "focusedPassed": 34,
+      "build": "passed",
+      "nativeRepeatHashes": "matched at sampled scene and passage frames",
+      "profiles": [
+        "1920x1080",
+        "1080x1920",
+        "1080x1080"
+      ],
+      "processBaselineRestored": true
+    },
+    "pending": [
+      "exact-export-snapshot",
+      "media-and-prepared-asset-packaging",
+      "encoder-integration",
+      "encoded-real-cut-acceptance"
+    ],
+    "humanAcceptance": "pending"
   }
 }

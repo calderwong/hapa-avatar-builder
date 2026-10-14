@@ -700,3 +700,8 @@ Living Light now participates in the existing Record + Play compositor, with one
 ## October 14 — saved prepared-source recovery
 
 Director/Follow/recording now read the exact Living Light asset bank for bound Journeys, with one bounded request per host, cancellation and revision comparison. Ordinary visualizer preparation cannot substitute; neutral recipes make no request.24 focused checks, four error-message checks, native synthetic-source browser proof and production build pass. Real-owner bound-source and final-export acceptance remain open. See [Director protocol](living-light/DIRECTOR_CUES.md#saved-prepared-source-recovery--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-prepared-recovery.md).
+
+
+## October 14 — offline native frame primitive
+
+Living Light now has a frame-addressed adapter over its existing Director renderer.34 affected checks and build pass. Native real-video proof reproduces scene and tunnel pixels after backward seeks and cue gaps in landscape, portrait and square; pending, canceled, failed or wrong-index frames cannot paint. Exact prepared choices cannot silently become neutral. Final export remains explicitly unavailable until snapshot/media packaging and encoder integration are qualified. See [Director protocol](living-light/DIRECTOR_CUES.md#frame-addressed-native-rendering--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-offline-frames.md). LL-903 and human creative acceptance remain open.

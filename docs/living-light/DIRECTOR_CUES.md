@@ -297,3 +297,46 @@ explicit SIGTERM (exit143), with zero remaining descendants and restored process
 baseline; this is deliberate teardown, not a passing server exit code. An initial
 Vite/React duplicate-bootstrap warning is retained as fixture evidence. No real
 album bound-Journey acceptance or final-render qualification is inferred.
+
+
+## Frame-addressed native rendering — October 14
+
+`src/living-light/director-offline.js` adapts the existing native Director host
+for an offline encoder. This is a verified frame primitive, **not yet final export
+support**: HyperFrames and Song Card retain their explicit Living Light refusal
+until exact snapshot/media packaging and the encoder are connected and qualified.
+
+The caller supplies a fixed output width/height, integer frame rate (1–120), song
+duration (up to 30 minutes), exact cue/resolution callbacks and prepared inputs.
+`prepareFrame(index, {signal})` evaluates `round(index * 1000000 / fps)` with paused
+muted decoders, high quality and explicit scene/song coordinates. It waits up to
+30 seconds for recipe/input/decode readiness, copying the native canvas immediately
+after its successful draw into one persistent staging canvas. Timers only bound
+readiness; they never choose picture time. The native owner retains its one graphics
+renderer, current/next recipe metadata and two painted-video limit.
+
+`paintFrame(index, context)` only copies a completed frame at that exact index.
+A new preparation invalidates the previous frame; simultaneous prepares, stale
+indices, missing sources, decode failures, timeout and graphics loss refuse.
+Inactive cue gaps leave the ordinary compositor untouched. Cancellation or a fatal
+preparation releases the host, pending wait and canvas storage. Graphics loss
+releases resources immediately. No soundtrack, animation clock, analysis, Card
+write or replacement source owner is introduced. Bound Journeys cannot default to
+neutral input; their existing exact prepared-source adapter remains required.
+
+34 affected checks and the production build passed with restored process baselines.
+Native browser proof used a neutral fixture Journey and a real local video on Solar
+Reliquary and Media Weave surfaces. In 1920×1080,1080×1920 and1080×1080 at30fps,
+requests120→390→120→270→390 reproduced identical scene and passage pixel hashes
+after backward seeks and a cue gap. Both video decoders were muted, paused and
+ready at their requested times; the final host had zero retained recipes/native
+renderer after disposal. No browser warnings/errors were observed. Evidence:
+`tests/fixtures/echo-living-light-offline-ui.html` and source-chat
+`execution/living-light/offline-render/`. This bounds repeatability to the inspected
+browser/GPU, recipe, media, frames and profiles; it is not cross-device bit identity,
+full-song encoding, audio synchronization or human creative acceptance.
+
+Next integration: preserve the cut's exact Journey/Thing/source revisions in a
+bounded export snapshot, package verified local media and prepared assets, bundle
+the native adapter, and await preparation before each HyperFrames frame. The
+existing compositor still owns ordinary media, lyrics and final master audio.
