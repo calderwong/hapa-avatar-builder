@@ -665,3 +665,33 @@ existing editor, immutable recipe and native preview/export adapter. Full-app
 proposal persistence, Hand return, Desktop/profile and prepared audio-bound
 acceptance are also pending. The approved full-song managed render is running;
 its output cannot be called passed until final QA and file inspection complete.
+
+
+## Full-song outgoing decoder correction — October 14
+
+The first managed full-song pilot failed after 2,664 frames at 88.8s; its partial
+MP4 and failure receipts remain failed evidence. A bounded real-source diagnostic
+reproduced the failure: after shot 26 became invisible at 88.74s, endpoint holding
+sought from selected source time 3.393334s to the unused source tail at 7.966666s.
+The macOS decoder emitted PIPELINE_ERROR_DECODE before the next readiness waiter,
+which missed the existing error and reported a 30-second timeout.
+
+The existing HyperFrames media runtime now limits endpoint holds to the clip's
+presentation window. Visible incoming handles retain their declared first frame;
+no source bytes, cue durations, audio or acceptance thresholds changed. Readiness
+also checks already-dispatched decoder errors and recognizes a settled seek.
+44 focused runtime/compiler checks, the delivery build and 154 real prepared
+frames across the failed boundary and reverse seeks pass. Isolated diagnostics
+and checks return to their owned process baselines. A fresh read-only pilot
+readiness audit passes 45 video inputs, 10 shaders, 13 audio references and 169
+semantic samples. All 38 prior cuts, the pilot child and exact Journey are intact.
+
+Automatic approval review initially rejected a certificate refresh because its
+existing apply-stem-repairs option can publish shared derived execution state.
+Calder then explicitly approved the refresh and local render retry. The same
+owner command passed and published its derived execution graph in8.409s; the
+existing Retry render UI started a fresh managed job. Final output is pending.
+No alternate activation route was used. LL-903 and all broader export/profile/creative gates
+remain open. Diagnostic evidence: source chat workspace
+`execution/living-light/media-boundary/`; see the
+[learning checkpoint](../postmortems/2026-10-14-living-light-outgoing-decoder.md).

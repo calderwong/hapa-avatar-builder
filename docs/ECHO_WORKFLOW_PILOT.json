@@ -2689,5 +2689,23 @@
     "humanAcceptance": "pending",
     "activeImplementationMinutes": null,
     "activeVerificationMinutes": null
+  },
+  "livingLightOutgoingDecoder20261014": {
+    "status": "verified_repair_approved_managed_retry_started",
+    "tasks": [
+      "LL-903"
+    ],
+    "failedFullSongFrame": 2664,
+    "targetFrames": 4911,
+    "tests": 44,
+    "preparedDiagnosticFrames": 154,
+    "buildPassed": true,
+    "processBaselineRestored": true,
+    "sourceCutsUnchanged": 38,
+    "readOnlyReadiness": "passed",
+    "fullSongRetry": "started",
+    "humanAcceptance": "pending",
+    "activeImplementationMinutes": null,
+    "activeVerificationMinutes": null
   }
 }

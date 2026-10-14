@@ -156,3 +156,43 @@ export async function prepareHyperFramesVideoFrame(video, timeSeconds, {
     presentationEvidence: !waitForPresentation ? 'settled-decode-only' : decodedFrameReused ? 'settled-seek-without-new-presentation' : presentedMediaTime == null ? 'already-decoded' : 'video-frame-callback',
   };
 }
+
+// Presentation handles may hold an endpoint only while that clip contributes
+// pixels. Seeking an invisible outgoing clip can decode unused (or damaged)
+// footage beyond its selected window and poison the next readiness pass.
+export function holdHyperFramesMediaEndpoint(video, time, instance, timing, fps = 30) {
+  if (video?.tagName !== "VIDEO" || !timing || time < timing.presentationStart || time >= timing.presentationEnd) return;
+  const before = time < timing.logicalStart, after = time >= timing.logicalEnd;
+  if (!before && !after) return;
+  const mapping = instance?.source?.timeMapping;
+  const target = Number(before ? (mapping?.sourceInSeconds ?? 0) : (mapping?.sourceOutSeconds ?? video.duration - 1 / fps));
+  if (!Number.isFinite(target) || target < 0 || video.readyState < 1) return;
+  const epsilon = 1 / Math.max(1, Number(mapping?.sourceFps) || fps);
+  if (Math.abs(video.currentTime - target) > epsilon * .5) video.currentTime = target;
+  if (!video.paused) video.pause();
+}
+
+export function waitForHyperFramesVideoReady(video, { timeoutMs = 30000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      for (const event of ["loadeddata", "canplay", "seeked"]) video.removeEventListener(event, ready);
+      video.removeEventListener("error", failed);
+    };
+    const failed = () => {
+      cleanup();
+      reject(new Error(`Failed preparing shader media input: ${video.dataset.mediaSrc || video.id}${video.error?.message ? ': ' + video.error.message : ''}`));
+    };
+    const ready = () => {
+      if (video.error) return failed();
+      if (video.readyState < 2 || !(video.videoWidth > 0) || !(video.videoHeight > 0)) return;
+      cleanup(); resolve();
+    };
+    const timer = setTimeout(() => {
+      cleanup(); reject(new Error(`Timed out preparing shader media input: ${video.dataset.mediaSrc || video.id}`));
+    }, timeoutMs);
+    for (const event of ["loadeddata", "canplay", "seeked"]) video.addEventListener(event, ready);
+    video.addEventListener("error", failed);
+    ready(); // A decoder error can precede this waiter; do not wait for a repeat.
+  });
+}

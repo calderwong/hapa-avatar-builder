@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { getEventListeners } from "node:events";
-import { hyperFramesVideoFrameTime, prepareHyperFramesVideoFrame } from "../src/domain/hyperframes-media-frame-runtime.js";
+import { hyperFramesVideoFrameTime, prepareHyperFramesVideoFrame, holdHyperFramesMediaEndpoint, waitForHyperFramesVideoReady } from "../src/domain/hyperframes-media-frame-runtime.js";
 
 class Video extends EventTarget {
   id = "fixture-video";
@@ -163,4 +163,39 @@ test('positive source origins hold the first decoded frame without shifting the 
     assert.equal(receipt.sourceOriginClamped, songTime === 42.5);
     assert.ok(Math.abs(receipt.observedTimeSeconds - Math.max(.033008, songTime - 42.5)) < 1e-6);
   }
+});
+
+
+test('outgoing invisible clips never seek unused source tails', () => {
+  const video = new Video(); video.tagName = 'VIDEO'; video.duration = 8; video.time = 3.393334;
+  const timing = { presentationStart: 84.89, logicalStart: 85.34, logicalEnd: 88.74, presentationEnd: 88.74 };
+  let seeks = 0;
+  Object.defineProperty(video, 'currentTime', { get: () => video.time, set() { seeks++; throw Error('Unused source tail'); } });
+  for (const time of [84, 85.34, 88.74, 88.7666667, 89]) holdHyperFramesMediaEndpoint(video, time, {}, timing);
+  assert.equal(seeks, 0);
+});
+
+test('visible incoming transition handles still hold the declared first frame', () => {
+  const video = new Video(); video.tagName = 'VIDEO'; video.time = 3;
+  const timing = { presentationStart: 9.55, logicalStart: 10, logicalEnd: 12, presentationEnd: 12 };
+  holdHyperFramesMediaEndpoint(video, 9.8, { source: { timeMapping: { sourceInSeconds: 1 } } }, timing);
+  assert.equal(video.time, 1);
+  assert.equal(video.paused, true);
+});
+
+test('readiness reports an already dispatched decoder error without waiting for timeout', async () => {
+  const video = new Video(); video.videoHeight = 480; video.readyState = 1;
+  video.error = { message: 'PIPELINE_ERROR_DECODE' };
+  await assert.rejects(waitForHyperFramesVideoReady(video), /Failed preparing.*PIPELINE_ERROR_DECODE/);
+  for (const event of ['loadeddata', 'canplay', 'seeked', 'error']) assert.equal(getEventListeners(video, event).length, 0);
+});
+
+test('readiness settles a seek without requiring another canplay and cleans up timeout', async () => {
+  const video = new Video(); video.videoHeight = 480; video.readyState = 1;
+  const pending = waitForHyperFramesVideoReady(video);
+  video.readyState = 2; video.dispatchEvent(new Event('seeked')); await pending;
+  for (const event of ['loadeddata', 'canplay', 'seeked', 'error']) assert.equal(getEventListeners(video, event).length, 0);
+  video.readyState = 1;
+  await assert.rejects(waitForHyperFramesVideoReady(video, { timeoutMs: 5 }), /Timed out/);
+  for (const event of ['loadeddata', 'canplay', 'seeked', 'error']) assert.equal(getEventListeners(video, event).length, 0);
 });

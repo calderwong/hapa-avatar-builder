@@ -745,3 +745,17 @@ and [learning checkpoint](postmortems/2026-10-14-living-light-cue-acceptance.md)
 The full-song render is still in flight. LL-914 remains open for explicit
 fit/crop preservation; broader integration and human creative acceptance remain
 pending. Unmeasured implementation/verification active time remains null.
+
+
+## October 14 — full-song outgoing decoder correction
+
+The managed pilot failed at frame2664 (88.8s). An isolated diagnostic traced it
+to an unnecessary seek into an invisible outgoing clip's unused source tail,
+followed by a missed decoder error. The existing runtime now prevents invisible
+endpoint seeks and reports existing errors immediately.44 checks, build and154
+real prepared boundary/reverse frames pass;38 old cuts, pilot child and exact
+Journey remain unchanged. Read-only readiness passes. Automatic review initially rejected refreshing the derived
+execution state; Calder then explicitly approved the refresh and retry. The
+same owner command passed, and the existing UI started the managed retry. No repaired full-song output or requirement closure is
+claimed. See [protocol](living-light/DIRECTOR_CUES.md#full-song-outgoing-decoder-correction--october-14)
+and [postmortem](postmortems/2026-10-14-living-light-outgoing-decoder.md).
