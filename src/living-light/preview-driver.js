@@ -1,6 +1,7 @@
-/** The host has one frame handle only while its existing master player moves.
+/** The host has one frame handle only while its supplied clock moves.
  * Paused seeks/resize/controls redraw once. Media capture follows replacement
- * audio elements without owning a decoder, audible clock or second player. */
+ * audio elements without owning a decoder, audible clock or second player.
+ * Explore can supply a silent travel clock through the same getFrame contract. */
 export function createLivingLightPreviewDriver({canvas,runtime,getAudio,getFrame,documentTarget=globalThis.document,requestFrame=globalThis.requestAnimationFrame,cancelFrame=globalThis.cancelAnimationFrame,resizeObserverFactory=globalThis.ResizeObserver?(callback=>new globalThis.ResizeObserver(callback)):null,onStatus=()=>{},onError=()=>{}}={}) {
  let disposed=false,failed=false,contextLost=false,suspended=false,handle=null,lastPicture=null,draws=0,lastSignalStatus=null;
  const events=['play','playing','pause','ended','timeupdate','seeking','seeked','loadedmetadata','emptied','durationchange','ratechange'];

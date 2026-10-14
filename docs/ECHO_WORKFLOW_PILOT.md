@@ -670,3 +670,8 @@ Saved Journey cues now drive the native Director picture from Echo's existing so
 ## October 14 — exact painted-media lookup
 
 Workspace and Director can resolve saved painted clips from their original cut through the protected read-only owner route.21 focused checks, production build and owned cleanup pass. The canonical API reloaded once and reports current source. Full-app browser control stalled before live save/reopen, so that gate remains pending. LL-914 is in progress; no requirement closes. See [lookup contract](living-light/DIRECTOR_CUES.md#exact-painted-media-lookup--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-exact-media-resolution.md).
+
+
+## October 14 — album destination pins and native Explore
+
+Location uses now carry versioned record, clip or Card destinations through the existing Journey owner/editor. Native Explore pauses the song, traverses original passages, provides Back/Home/direct/stop and retains the song bookmark and draft.47 focused checks and final build pass with owned cleanup. LL-915/916 are in progress; real album targets, cross-song handoff, Follow Director, shared Hand roundtrip and desktop delivery remain open. See [navigation contract](living-light/ALBUM_NAVIGATION.md) and [learning checkpoint](postmortems/2026-10-14-living-light-album-navigation.md).

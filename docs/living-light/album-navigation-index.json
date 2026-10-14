@@ -1,0 +1,11 @@
+{
+  "contract": "hapa.protocol-index/v1",
+  "owner": "hapa-avatar-builder",
+  "documents": [
+    {
+      "slug": "hapa-living-light-album-navigation-v1",
+      "title": "Living Light album destination pins and Explore navigation",
+      "path": "docs/living-light/ALBUM_NAVIGATION.md"
+    }
+  ]
+}

@@ -2403,5 +2403,25 @@
       "desktop-shell-acceptance"
     ],
     "humanAcceptance": "pending"
+  },
+  "livingLightAlbumNavigation20261014": {
+    "status": "in_progress",
+    "tasks": [
+      "LL-915",
+      "LL-916"
+    ],
+    "checks": {
+      "affectedPassed": 47,
+      "build": "passed",
+      "processBaselineRestored": true
+    },
+    "pending": [
+      "live-album-targets",
+      "cross-song-cut-handoff",
+      "follow-director",
+      "shared-hand-roundtrip",
+      "desktop-delivery"
+    ],
+    "humanAcceptance": "pending"
   }
 }

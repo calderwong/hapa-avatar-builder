@@ -31,6 +31,7 @@ export function editJourneyDraft(input,action,registry){
  const requireSelected=()=>{if(index<0||!selected)throw Error('Select a Journey instance first.');};
  if(action.type==='title')value.title=action.title;
  else if(action.type==='lock'){requireSelected();if(typeof action.value!=='boolean')throw Error('Choose an explicit lock state.');selected.locked=action.value;}
+ else if(action.type==='destination'){requireSelected();if(action.destination===null)delete selected.destination;else selected.destination=clone(action.destination);}
  else if(action.type==='parameter'){requireSelected();selected.parameters[action.key]=action.value;}
  else if(action.type==='binding'){requireSelected();if(action.binding===null)delete selected.bindings[action.portId];else selected.bindings[action.portId]=clone(action.binding);}
  else if(action.type==='media'){requireSelected();value.mediaSlots=value.mediaSlots.filter(slot=>slot.surfaceRef?.instanceId!==selected.instanceId||slot.surfaceRef?.surfaceId!==action.surfaceId);if(action.placement!==null){if(action.placement?.surfaceRef?.instanceId!==selected.instanceId||action.placement?.surfaceRef?.surfaceId!==action.surfaceId)throw Error('Choose a placement for this exact surface.');value.mediaSlots.push(clone(action.placement));}}
@@ -43,7 +44,7 @@ export function editJourneyDraft(input,action,registry){
   requireSelected();const step=value.mode==='tour'?2:1,next=index+action.direction*step;if(value.mode==='tour'&&index%2)throw Error('Move a Location; its neighbouring passage connections follow it.');if(next<0||next>=rows.length)return value;[rows[index],rows[next]]=[rows[next],rows[index]];rebuild(value,rows);
  }
  else if(action.type==='add'||action.type==='duplicate'){
-  if(action.type==='duplicate')requireSelected();const thing=action.type==='duplicate'?registry.resolveThing(selected.thingRef):registry.resolveThing(action.thingRef);if(!thing)throw Error('This Thing revision is unavailable.');const item=instance(thing);if(action.type==='duplicate'){item.parameters=clone(selected.parameters);item.bindings=clone(selected.bindings);}const last=rows.at(-1);
+  if(action.type==='duplicate')requireSelected();const thing=action.type==='duplicate'?registry.resolveThing(selected.thingRef):registry.resolveThing(action.thingRef);if(!thing)throw Error('This Thing revision is unavailable.');const item=instance(thing);if(action.type==='duplicate'){item.parameters=clone(selected.parameters);item.bindings=clone(selected.bindings);if(selected.destination)item.destination=clone(selected.destination);}const last=rows.at(-1);
   if(value.mode==='continuous'){
    if(!thing.capabilities.continuous)throw Error('Continuous recipes use continuous Tunnel profiles.');const tail=Math.floor(last.lengthUs/2);if(tail<1)throw Error('The last interval is too short to split.');last.lengthUs-=tail;value.instances.push(item);rows.push({instanceId:item.instanceId,lengthUs:tail});
   }else{

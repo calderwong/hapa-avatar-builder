@@ -59,3 +59,8 @@
 .living-light-media-controls select { max-width: min(100%, 28rem); }
 .living-light-media-controls input[type=number] { width: 7rem; }
 .living-light-media-controls p { flex-basis: 100%; }
+
+.living-light-navigation { margin-block: 1rem; padding: 1rem; border: 1px solid #477086; border-radius: .75rem; min-width: 0; overflow-wrap: anywhere; }
+.living-light-navigation button { min-height: 2.5rem; white-space: normal; }
+.living-light-navigation [aria-current=location] { outline: 2px solid #b9dcae; outline-offset: 2px; }
+.living-light-navigation .living-light-card { margin-top: .75rem; }

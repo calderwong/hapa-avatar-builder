@@ -1,3 +1,4 @@
+import {validateLivingLightDestination} from './living-light-navigation.js';
 import {validateLivingLightMedia} from './living-light-media.js';
 /** Shared validators for native authoring, API and CLI. No I/O or executable records. */
 export const LL_SCHEMAS = Object.freeze({thing:'hapa.living-light.thing.v1',journey:'hapa.living-light.journey.v1',source:'hapa.living-light.source-binding.v1',features:'hapa.living-light.features.v1',signalBinding:'hapa.living-light.signal-binding.v1',note:'hapa.living-light.note.v1'});
@@ -85,10 +86,11 @@ export function validateThing(thing,{implementations}={}) {
   const readiness=object(thing.readiness,'readiness');keys(readiness,['state','reasons','evidenceRefs'],'readiness');choices(readiness.state,['catalogued','blocked','preview-ready'],'readiness.state');array(readiness.reasons,'readiness.reasons',50).forEach(v=>string(v,'reason',2000));array(readiness.evidenceRefs,'readiness.evidenceRefs',100).forEach(v=>string(v,'evidenceRef',1000));if(readiness.state==='preview-ready'&&!readiness.evidenceRefs.length)fail('missing_evidence','readiness','Readiness requires evidence');return thing;
 }
 export function validateInstance(instance,{resolveThing},path='instance') {
-  object(instance,path);keys(instance,['instanceId','thingRef','parameters','bindings','locked'],path);id(instance.instanceId,path+'.instanceId');validateRef(instance.thingRef,path+'.thingRef');
+  object(instance,path);keys(instance,['instanceId','thingRef','parameters','bindings','locked','destination'],path);id(instance.instanceId,path+'.instanceId');validateRef(instance.thingRef,path+'.thingRef');
   const thing=resolveThing?.(instance.thingRef);if(!thing)fail('unknown_revision',path+'.thingRef','Pinned Thing revision is unavailable');
   object(instance.parameters,path+'.parameters');for(const [k,v]of Object.entries(instance.parameters)){if(!Object.hasOwn(thing.parameters,k))fail('unknown_parameter',path+'.parameters.'+k,'Unknown control');validateParameterValue(thing.parameters[k],v,path+'.parameters.'+k);}
   object(instance.bindings,path+'.bindings');for(const [port,b]of Object.entries(instance.bindings)){const definition=thing.signalPorts.find(p=>p.portId===port);if(!definition)fail('unknown_port',path+'.bindings.'+port,'Unknown signal port');object(b,path+'.bindings');if(b.schemaVersion!==undefined){validateSignalBinding(b,definition,path+'.bindings.'+port);continue;}keys(b,['source','feature','onUnavailable','aggregation','weights'],path+'.bindings');id(b.source,'bindings.source');string(b.feature,'bindings.feature',100);choices(b.onUnavailable,['neutral','hold','block'],'bindings.onUnavailable');if(b.aggregation!==undefined)choices(b.aggregation,['max','mean','weighted-sum'],'bindings.aggregation');if(b.weights!==undefined)array(b.weights,'bindings.weights',200).forEach(v=>number(v,0,1,'bindings.weight'));}
+  if(instance.destination!==undefined){if(!thing.capabilities.destination)fail('invalid_navigation_target',path+'.destination','Only Locations have album destinations');validateLivingLightDestination(instance.destination);}
   if(instance.locked!==undefined&&typeof instance.locked!=='boolean')fail('invalid_boolean',path+'.locked','Expected boolean');return thing;
 }
 export function validateJourney(journey,{resolveThing,durationUs}={}) {
