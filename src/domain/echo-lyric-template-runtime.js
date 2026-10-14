@@ -179,7 +179,7 @@ export function echoLyricDisplayWindow({
     "letterfall-totem-v1": 1,
   };
   const rows = Array.isArray(words) ? words : [];
-  const limit = limits[templateId] || 10;
+  const limit = templateId === "plain-phrase-v1" ? Math.max(1, rows.length) : limits[templateId] || 10;
   if (rows.length <= limit) {
     return { startIndex: 0, endIndex: rows.length, wordCount: rows.length, text: echoLyricJoinDisplayTokens(rows, timeSeconds) };
   }
@@ -214,6 +214,7 @@ export function resolveEchoLyricTemplateFrame({
     timeSeconds,
     fps,
     timingSource: normalized.timingSource,
+    highlightWords: normalized.highlightWords,
     reducedMotion: normalized.reducedMotion,
     motionIntensity: normalized.motionIntensity,
   });
@@ -353,9 +354,11 @@ export function echoLyricTemplateFrameState({
   timeSeconds = 0,
   fps = 30,
   timingSource = '',
+  highlightWords = true,
   reducedMotion = false,
   motionIntensity = 1,
 } = {}) {
+  if (highlightWords === false) templateId = "plain-phrase-v1";
   const clock = echoLyricFrameTime(timeSeconds, fps);
   const start = echoLyricBoundary(line, "start");
   const end = Math.max(start + 0.001, echoLyricBoundary(line, "end", start + 0.001));
@@ -370,7 +373,9 @@ export function echoLyricTemplateFrameState({
   const unspaced = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー々〆、。！？「」『』]/u;
   const displayWords = words.map((word, index) => ({ ...word, displayText: authoredWordSurfaces[index], joinerBefore: index > 0 && !/-$/u.test(authoredWordSurfaces[index - 1])
     && !(unspaced.test(Array.from(String(authoredWordSurfaces[index - 1] || "")).at(-1) || "") && unspaced.test(Array.from(String(authoredWordSurfaces[index] || ""))[0] || "")) }));
-  const timingPolicy = echoLyricTimingPolicy(line, timingSource);
+  const timingPolicy = highlightWords === false
+    ? { mode: 'phrase', reason: 'word-highlighting-disabled', label: 'Full phrase · word highlighting off', manuallyVerified: false }
+    : echoLyricTimingPolicy(line, timingSource);
   const resolvedIntervals = echoLyricResolvedWordIntervals(line).words;
   const singleWordPerformance = ["center-word-focus-v1", "prism-slam-v1", "letterfall-totem-v1"].includes(templateId);
   // Phrase lines still page by their best interval estimate so long lines never overflow the caption box.

@@ -7160,6 +7160,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                               />
                               LYRICS {activeLyricContract.enabled ? 'ON' : 'OFF'}
                             </label>
+                            <label style={{ color: "#cbd5e1", fontSize: "10px", display: "flex", alignItems: "center", gap: 5 }} title="Turn off to show the complete phrase without word highlighting, dimming, or word-by-word animation.">
+                              <input type="checkbox" aria-label="Highlight individual words" checked={activeLyricContract.highlightWords} disabled={directorEditingLocked}
+                                onChange={(event) => handleUpdateProjectSettings({ lyrics: { ...activeLyricContract, highlightWords: event.target.checked } })} />
+                              Highlight individual words
+                            </label>
                             <label style={{ color: "#cbd5e1", fontSize: "10px", display: "flex", alignItems: "center", gap: 5 }}>
                               <input type="checkbox" aria-label="Reduce lyric motion" checked={activeLyricContract.reducedMotion} disabled={directorEditingLocked}
                                 onChange={(event) => handleUpdateProjectSettings({ lyrics: { ...activeLyricContract, reducedMotion: event.target.checked } })} />

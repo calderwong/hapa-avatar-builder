@@ -5,7 +5,7 @@ import { echoProtectedCameraFrame } from "./echo-camera-framing.js";
  * independently. Functions remain self-contained for offline browser packaging. */
 export function echoLyricPresentation(contract = {}, profile = {}) {
   const width = Number(profile.width) || 1920, height = Number(profile.height) || 1080;
-  const templateId = contract.templateId || 'scanline-phrase-ribbon-v1';
+  const templateId = contract.highlightWords === false ? 'plain-phrase-v1' : contract.templateId || 'scanline-phrase-ribbon-v1';
   const ribbon = templateId === 'scanline-phrase-ribbon-v1';
   const burst = templateId === 'kinetic-word-burst-v1';
   const hookEcho = templateId === 'stacked-hook-echo-v1';
@@ -63,7 +63,7 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
   const fontRatio = centerWordFocus ? .13 : prismSlam ? .15 : letterfallTotem ? .13 : squareMosaic ? .058 : verticalPoster ? .075
     : letterWave ? .08 : kineticTypewriter ? .058 : burst ? .072 : hookEcho ? .068 : orbit ? .05 : .056;
   const fontSize = Math.round(Math.min(width,height)*fontRatio*fontScale);
-  const fontWeight = centerWordFocus ? 700 : kineticTypewriter ? 500 : orbit ? 500 : ribbon ? 600 : letterWave ? 700 : 800;
+  const fontWeight = centerWordFocus ? 700 : kineticTypewriter ? 500 : orbit ? 500 : ribbon || templateId === 'plain-phrase-v1' ? 600 : letterWave ? 700 : 800;
   const lineHeight = centerWordFocus ? 1.05 : prismSlam ? .9 : letterfallTotem ? .8 : squareMosaic ? .92 : verticalPoster ? .9
     : letterWave ? 1.12 : burst ? 1.04 : hookEcho ? 1.08 : 1.3;
   const [padY, padX] = ribbon ? [26, 56] : orbit ? [22, 52] : burst ? [10, 14] : hookEcho ? [16, 22] : letterWave ? [34, 40]
@@ -327,7 +327,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   const visible=Boolean(line && frame?.visible && contract.enabled!==false);
   element.style.visibility=visible?'visible':'hidden';state.frame=visible?frame:null;state.line=visible?line:null;state.rows=[];
   if(!visible)return {visible:false};
-  const key=JSON.stringify([contract.templateId,contract.style,contract.position,contract.fontFamily,contract.fontScale,contract.textColor,outputProfile.width,outputProfile.height,outputProfile.safeArea,contract.safeArea]);
+  const key=JSON.stringify([contract.highlightWords,contract.templateId,contract.style,contract.position,contract.fontFamily,contract.fontScale,contract.textColor,outputProfile.width,outputProfile.height,outputProfile.safeArea,contract.safeArea]);
   if(state.key!==key){state.presentation=echoLyricPresentation(contract,outputProfile);state.key=key;state.layouts.clear();state.contentKey=null;}
   const presentation=state.presentation;
   state.mode=frame.timingPolicy.mode;element.dataset.timingMode=frame.timingPolicy.mode;element.dataset.timingReason=frame.timingPolicy.reason;element.dataset.templateId=frame.templateId;

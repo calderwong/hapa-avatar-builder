@@ -172,6 +172,7 @@ export function normalizeEchoLyricContract(projectInput = {}) {
     ),
     audioHash: text(timingTruth.audioSha256 || mapProvenance.audioSha256 || source.audioHash),
     confidence: Number(timingTruth.confidence ?? timingHeal.timingConfidence ?? source.confidence ?? 0),
+    highlightWords: source.highlightWords !== false,
     reducedMotion: source.reducedMotion === true,
     motionIntensity: typeof source.motionIntensity === "number" && Number.isFinite(source.motionIntensity) ? Math.max(0, Math.min(1, source.motionIntensity)) : 1,
     safeArea: source.safeArea && typeof source.safeArea === "object" ? structuredClone(source.safeArea) : null,

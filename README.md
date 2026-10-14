@@ -329,6 +329,10 @@ The Shared Hand is docked inside the persistent Header. Use **Manage** for Hand/
 
 ## Echo Album timing and smooth preview
 
+In the Director, uncheck **Highlight individual words** to show each full lyric
+phrase uniformly, without karaoke highlighting or word-by-word animation. Save
+as a new cut to keep the setting. See [full-phrase lyrics](docs/PLAIN_PHRASE_LYRICS.md).
+
 ### Master Reference File export
 
 The Echo workbench header includes **Export Master Reference**. It downloads one
