@@ -1,6 +1,6 @@
 # Living Light Director cues
 
-Status: **prototype; authoring contract, cue editor and compiler preservation implemented**.
+Status: **prototype; authoring, compiler preservation and native Director preview implemented**.
 Board: `hapa-living-light-avatar-builder`, LL-911; LL-912/913/903 remain open.
 Source chat: `01a137cc-de1d-7511-ab65-227c92d5bca0`.
 
@@ -65,8 +65,8 @@ state is `requires-native-host-and-exact-resolution`; final encoding is
 containing Living Light cues instead of silently omitting them, including a stale
 graph that forgot the project’s cues.
 
-The cue editor is now visible in Echo’s Living Light tab (see below). The native
-Director canvas host, full live API save/reopen proof, media resolution across cuts and
+The cue editor is now visible in Echo’s Living Light tab (see below). Native Director preview is connected (see the playback checkpoint below). Full
+live API save/reopen proof, media resolution across cuts and
 encoded execution remain open. No live album records were changed by this slice.
 Next: insert/select/swap controls and native host evaluation using the same cue
 contract; then explicit qualified export, with the master soundtrack owned by Echo.
@@ -119,3 +119,52 @@ source chat under `execution/living-light/director-editor/`.
 This browser proof uses fixture Journeys and does not qualify a live album save,
 Director canvas playback or encoded export. LL-912 remains in progress until
 those integrated operations and agent proposal handling are verified.
+
+## Native Director playback checkpoint — October 14
+
+Saved Scene and Transition cues now appear in **Preview**. The existing native
+renderer sits in the Director composition above ordinary media/shaders and below
+lyrics. Between cues, ordinary cut media returns. The native passage runs in full
+at its authored speed. Missing exact Journey/preset/audio references show a
+readable unavailable state with explicit Retry; they never select a latest head
+or silently show an unrelated scene in place of the requested Journey.
+
+The host reuses the existing preview driver and Echo audio element. It creates
+no audible source, audio context or independent clock. It retains current/next
+recipe metadata, creates one active native renderer, and releases its graphics
+and painted decoders at cue handoff, inactive gaps and leaving Preview. Hidden
+view/context recovery follows the existing driver. Failed preparation/draw is
+remembered for that use until an explicit retry or changed input; no retry loop.
+Hold motion retains the last image within a cue and starts a new cue at its
+correct source window. Clean Preview hides ready-status controls.
+
+There are two explicit coordinates: `journeyUs` chooses the authored location,
+passage and painted clip phase; `signalUs` samples prepared audio at the current
+Echo song position. They advance at 1× with the saved cue offset. Native
+`prepare` accepts an explicit `journeyDurationUs`; omitted values retain the
+existing Workspace behavior. `evaluate` accepts `signalTimelineUs`, defaulting
+to Journey time for existing callers. Frame/still receipts retain signal time.
+No source duration, alignment map or saved recipe is rewritten.
+
+Unbound recipes play authored motion. Recipes with saved audio choices require
+exact prepared asset input; a missing or mismatched saved binding is unavailable,
+not a neutral substitution. The Director's full prepared-asset lookup and real
+album qualification remain open. Painted media currently resolves from the
+active cut's declared sources; retained cross-cut lookup remains LL-914.
+
+37 affected checks pass, including clock offsets, same-time signal changes,
+whole native passages, half-open cue handoffs, stale async reads, bounded
+current/next retention, failed graphics cleanup and explicit source refusal.
+An actual native browser study with one silent fixture HTML audio element proved
+play/pause, seek, Scene → Tunnel → Location, return to cut media, missing-revision
+and retry behavior, leave/return, motion hold, and portrait output. It showed one
+audio element/one native canvas, no console errors, and a 320×569 canvas at the
+phone breakpoint (375px client and scroll width). Build and owned process cleanup
+passed. See `tests/fixtures/echo-living-light-preview-ui.html`; local evidence is
+in the source chat's `execution/living-light/director-playback/` directory.
+
+This is native component and source-integration evidence. Live owner save/reopen,
+full album-clock/painted-media acceptance, running Desktop reload, short-transition
+policy and native/baked encoding are unfinished. The preview recorder now refuses
+cuts containing Living Light cues, matching the existing final-export refusal,
+until its composite capture path is qualified. No board requirement is closed.

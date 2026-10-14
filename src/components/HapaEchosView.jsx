@@ -19,6 +19,7 @@ import EchoPreviewPreparationControl from "./EchoPreviewPreparationControl.jsx";
 import { createEchoProxySourcePrefetch } from "../domain/echo-proxy-frame-decoder.js";
 import { createEchoPreviewProxySchedule, applyEchoPreviewProjection, echoPreviewHistoryMediaCue, ECHO_PREVIEW_QUALITY_PRESETS, normalizeEchoPreviewQuality, echoPreviewShaderSize, echoPreviewShaderLayers } from "../domain/echo-preview-projection.js";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+const EchoLivingLightPreview = lazy(() => import("./EchoLivingLightPreview.jsx"));
 const LivingLightWorkspace = lazy(() => import("./LivingLightWorkspace.jsx"));
 import { createPortal } from "react-dom";
 import { createEchoPanelLoader } from "../domain/echo-panel-loader.js";
@@ -3107,6 +3108,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         throw new Error("This browser cannot capture the preview canvas (captureStream unavailable).");
       }
       const project = activeProjectRef.current || activeProject;
+      if(project?.living_light_cues?.length)throw new Error('Living Light preview recording is not yet qualified. This recorder cannot omit saved Journey scenes.');
       const timeline = project?.timeline || [];
       const playhead = Number(currentTimeRef.current || 0);
       const currentItem = timeline.find((item) => playhead >= item.start_sec && playhead < item.end_sec) || timeline[0];
@@ -7628,6 +7630,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                       display: 'block'
                                     }}
                                   />
+
+                                  {activeProject.living_light_cues?.length>0&&<Suspense fallback={null}><EchoLivingLightPreview project={activeProject} clean={cleanPreviewMode} audioRef={audioRef} clockRef={currentTimeRef}
+                                    currentTime={currentTime} active={activeWorkbenchTab==='preview'&&powerMode!=='hidden'}
+                                    audioReceipt={audioPlaybackReceipt} preparedPerformance={activePreparedPerformance}
+                                    mediaSources={livingLightMediaSources}/></Suspense>}
 
                                   {/* Neon HUD Overlay */}
                                   {/* Telemetry badges on the picture; hidden in Clean Preview mode. */}

@@ -660,3 +660,8 @@ Saved Journey uses now have a shared exact-revision Scene/Transition contract, i
 ## October 13 — Living Light cue editing
 
 The Living Light tab now exposes saved Journey insertion, Scene/Transition source windows, moves, independent timing/Journey locks, compatible swaps, removal and bounded undo/redo on the existing cut draft.36 affected checks and the production build pass. Browser proof confirms cue undo preserves unrelated media, complete passage insertion, truncation refusal, zero console errors and a fitting phone layout. Live owner save/reopen, native Director playback and final export remain open; LL-912 is in progress. See [operator flow and evidence](living-light/DIRECTOR_CUES.md) and [learning checkpoint](postmortems/2026-10-13-living-light-cue-editor.md).
+
+
+## October 14 — native Living Light Director preview
+
+Saved Journey cues now drive the native Director picture from Echo's existing song clock, retaining separate visual and audio-signal coordinates.37 focused checks, the final build and native component browser proof pass; play/pause, scene/passage/arrival, handoff, missing revision, retry, leave/return and portrait layout are verified with a single fixture audio element. LL-913 remains in progress for live album/owner/Desktop qualification and short-transition policy. Export, cross-cut media and spatial navigation remain open. See [playback contract and evidence](living-light/DIRECTOR_CUES.md) and [learning checkpoint](postmortems/2026-10-14-living-light-director-preview.md).

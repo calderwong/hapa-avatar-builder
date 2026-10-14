@@ -2368,5 +2368,23 @@
       "encoded-output"
     ],
     "humanAcceptance": "pending"
+  },
+  "livingLightDirectorPreview20261014": {
+    "status": "in_progress",
+    "task": "LL-913",
+    "checks": {
+      "affectedPassed": 37,
+      "nativeComponentAudioClock": "passed",
+      "build": "passed",
+      "processBaselineRestored": true
+    },
+    "pending": [
+      "live-owner-roundtrip",
+      "real-album-painted-media-clock",
+      "desktop-reload",
+      "short-transition-policy",
+      "encoded-output"
+    ],
+    "humanAcceptance": "pending"
   }
 }

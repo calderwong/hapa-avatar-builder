@@ -1,0 +1,19 @@
+import React,{useMemo,useRef,useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import {EchoLivingLightPreviewSurface} from '../../src/components/EchoLivingLightPreview.jsx';
+import {createLivingLightRegistry} from '../../src/living-light/registry.js';
+import {useJourneyPassage} from '../../src/domain/living-light-journey.js';
+import {createEchoLivingLightCue} from '../../src/domain/echo-living-light-editor.js';
+const registry=createLivingLightRegistry(),ref=thing=>({thingId:thing.thingId,revisionId:thing.revisionId});
+const draft=useJourneyPassage(null,{mode:'new',songId:'fixture:song',durationUs:20e6,title:'Solar → Tidal',fromRef:ref(registry.entries.find(t=>t.source.moduleId==='solar-reliquary')),toRef:ref(registry.entries.find(t=>t.source.moduleId==='tidal-observatory')),passageRef:ref(registry.entries.find(t=>t.source.moduleId==='media-weave'))},registry).draft;
+const journey={...draft,journeyId:'fixture:journey',revisionId:'fixture:revision',parentRevisionId:null};
+const wave=new Uint8Array(44+30*8000*2),view=new DataView(wave.buffer);for(const [offset,text]of [[0,'RIFF'],[8,'WAVE'],[12,'fmt '],[36,'data']])for(let i=0;i<text.length;i++)wave[offset+i]=text.charCodeAt(i);view.setUint32(4,wave.length-8,true);view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,8000,true);view.setUint32(28,16000,true);view.setUint16(32,2,true);view.setUint16(34,16,true);view.setUint32(40,wave.length-44,true);const audioURL=URL.createObjectURL(new Blob([wave],{type:'audio/wav'}));
+const client={request:async()=>({journey})},resolveRegistry=async()=>registry;
+function Proof(){
+ const [time,setTime]=useState(0),[active,setActive]=useState(true),[vertical,setVertical]=useState(false),[missing,setMissing]=useState(false),clock=useRef(0),audio=useRef();
+ const project=useMemo(()=>({song_id:'fixture:song',duration:30,living_light_cues:[createEchoLivingLightCue({journey,cueId:'fixture:scene',startUs:2e6,journeyWindow:{startUs:0,endUs:6e6}}),createEchoLivingLightCue({journey,cueId:'fixture:travel',role:'transition',startUs:10e6,journeyWindow:{startUs:6e6,endUs:14e6}}),createEchoLivingLightCue({journey,cueId:'fixture:landing',startUs:18e6,journeyWindow:{startUs:14e6,endUs:20e6}})]}),[]);
+ const failingClient=useMemo(()=>({request:async()=>{throw Error('Exact fixture revision unavailable');}}),[]);
+ function seek(value){clock.current=value;if(audio.current)audio.current.currentTime=value;setTime(value);}
+ return <main style={{fontFamily:'sans-serif',padding:16,maxWidth:1000,margin:'auto'}}><h1>Journey scenes in Director</h1><p>Native renderer and saved cue contract, using one silent fixture audio element as the song clock. No album data writes.</p><audio ref={audio} src={audioURL} onTimeUpdate={()=>{clock.current=audio.current.currentTime;setTime(clock.current);}}/><button onClick={()=>audio.current.paused?audio.current.play():audio.current.pause()}>Play / pause fixture</button><div>{[0,2,5,8,10,14,18,23,24].map(value=><button key={value} onClick={()=>seek(value)}>Seek {value}s</button>)}<button onClick={()=>setVertical(!vertical)}>Rotate preview</button><button onClick={()=>setActive(!active)}>{active?'Leave preview':'Return to preview'}</button><button onClick={()=>setMissing(!missing)}>Toggle missing revision</button></div><p>Song time: {time}s</p><div style={{position:'relative',width:vertical?320:'100%',maxWidth:'100%',aspectRatio:vertical?'9/16':'16/9',background:'#1f2942',marginTop:12}}><p style={{padding:12}}>Existing cut media</p><EchoLivingLightPreviewSurface {...{project,audioRef:audio,clockRef:clock,currentTime:time,active,registryResolver:resolveRegistry}} client={missing?failingClient:client}/></div></main>;
+}
+const root=createRoot(document.getElementById('root'));root.render(<Proof/>);if(import.meta.hot)import.meta.hot.dispose(()=>{root.unmount();URL.revokeObjectURL(audioURL);});

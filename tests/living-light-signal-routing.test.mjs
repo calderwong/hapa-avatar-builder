@@ -73,3 +73,18 @@ test('native host applies selected ports after inherited baselines, blocks unava
  assert.equal(runtime.prepare(prepare).features,'exact-asset-port-response');const packet=runtime.evaluate({timelineUs:750000});assert.equal(runtime.render(packet),true);assert(Math.abs(painted.values['material.emission']-baseline.values['material.emission']-.2)<1e-9);assert(Math.abs(painted.values['world.impulse']-baseline.values['world.impulse']-.2)<1e-7);
  runtime.evaluate({timelineUs:1600000});assert.deepEqual(runtime.evaluate({timelineUs:750000}).signalRouting,packet.signalRouting);journey.instances[0].bindings.energy=binding([stem('not-selected')],{onUnavailable:'block'});runtime.prepare({...prepare,generation:2});assert.equal(runtime.render(runtime.evaluate({timelineUs:750000})),false);assert.equal(draws,1);assert.equal(owner.diagnostics().leases,1);runtime.suspend();runtime.restore();assert.equal(runtime.diagnostics().signalRouting.blocked,true);runtime.dispose();assert.equal(owner.diagnostics().leases,0);owner.dispose();assert.equal(owner.diagnostics().residentBytes,0);
 });
+
+test('Director offset samples current song signals while native route and media retain Journey time',()=>{
+ const input=fixture(),owner=createLivingLightFeatureCache(),n={...createNativeNamespace()};let painted,baseline;
+ const original=n.HapaCore.evaluate;
+ n.HapaRenderer=class{constructor(canvas,score,cache,state){Object.assign(this,{cache,state,programs:{},buffers:[],vaos:[],targets:[]});}render(t){baseline=original(this.cache,this.state,t);painted=n.HapaCore.evaluate(this.cache,this.state,t);}resize(){}dispose(){}};n.HapaPassageRenderer=n.HapaGeometryDanceVisuals=n.HapaJourneyVisuals=()=>{};
+ const draft=recipe();draft.schedule[0].endUs=1000000;draft.instances[0].bindings.energy=binding([stem('exact-asset-0')]);
+ const runtime=createLivingLightRuntime({canvas:{},registry,nativeFactory:()=>n});
+ try{
+ runtime.prepare({journeyRevision:{...draft,journeyId:'fixture:offset',revisionId:'fixture:r1',parentRevisionId:null},journeyDurationUs:1000000,sourceBinding:{songId:input.songId,durationUs:2000000,sourceHash:input.playbackReceipt.sourceHash},generation:1,featureInput:{...input,cache:owner,requiredBytes:livingLightFeatureBytes(input.performance)}});
+ const frame=runtime.evaluate({timelineUs:100000,signalTimelineUs:750000});assert.equal(frame.visualUs,100000);assert.equal(frame.signalUs,750000);assert.equal(frame.signalRouting.ports.energy.effectiveValue,.5);assert.equal(runtime.render(frame),true);assert(Math.abs(painted.values['material.emission']-baseline.values['material.emission']-.2)<1e-9);
+ const held=runtime.evaluate({timelineUs:200000,signalTimelineUs:850000,reducedMotion:true});assert.equal(held.visualUs,100000);assert.equal(held.signalUs,750000);
+ const silent=runtime.evaluate({timelineUs:100000,signalTimelineUs:100000});assert.equal(silent.signalRouting.ports.energy.effectiveValue,0);runtime.render(silent);assert(Math.abs(painted.values['material.emission']-baseline.values['material.emission'])<1e-9);assert.deepEqual(runtime.evaluate({timelineUs:100000,signalTimelineUs:750000}).signalRouting,frame.signalRouting);
+ assert.throws(()=>runtime.evaluate({timelineUs:1000001,signalTimelineUs:750000}),/outside/);assert.throws(()=>runtime.evaluate({timelineUs:1,signalTimelineUs:2000001}),/outside/);
+ }finally{runtime.dispose();owner.dispose();}
+});
