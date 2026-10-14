@@ -634,3 +634,34 @@ resolves the prior activation refusal; it does not establish a completed render,
 release, mint or human creative acceptance. The current service/UI delivery and
 managed render-to-release check remain the next integration step. Evidence:
 `execution/living-light/managed-live/activation-approved.json`.
+
+
+## Cue contract acceptance audit — October 14
+
+LL-911 is technically complete within its four original criteria. The broader
+integration goal and human creative acceptance remain open. This dated audit
+supersedes the earlier foundation checkpoint's pending contract status; historical
+checkpoints above retain their original observations.
+
+| Original criterion | Inspected evidence |
+| --- | --- |
+| One Scene/Transition contract with exact identities, windows, profile and readiness | Shared cue schema and validator; source-binding and complete-passage refusal cases. |
+| Save/reopen/compile/hash preserve exact cues | Persistence/fork/compiler tests plus the saved real-song pilot and fresh-page reopen; the child contains Scene 2–10s and Transition 12–20s pinned to one immutable Journey revision. |
+| Legacy cuts unchanged; no compression or automatic upgrades | Legacy omission/removal tests, equal-duration mapping and exact-revision tests; all 38 prior song cuts, pilot child and Journey payload remain unchanged. |
+| Shared validation and no silent export omission | Save/fork owner validation; human editor and protected proposal API/CLI use the same cue domain; unsupported export refuses, prepared export requires matched snapshot identity. |
+
+Current source audit reran 25 cue, package and media-resolution checks with clean
+owned process teardown. The unchanged surrounding behavior reuses the prior
+106-test foundation regression/build, later affected checks/build and actual
+save/reopen/native/package evidence. Source checkpoints include `84bcd5a`,
+`2b0900d`, `d1e3bcf` and `934dfd4`. Evidence in the source chat workspace:
+`execution/living-light/managed-release/acceptance-audit.md`,
+`cue-audit-tests.log.receipt.json` and `cue-audit-preservation.json`.
+
+This is not full export or authoring acceptance. LL-914 remains open: exact
+closed-cut lookup works, but versioned painted placements currently omit saved
+fit/crop controls. LL-901/902/914 need explicit framing carried through the
+existing editor, immutable recipe and native preview/export adapter. Full-app
+proposal persistence, Hand return, Desktop/profile and prepared audio-bound
+acceptance are also pending. The approved full-song managed render is running;
+its output cannot be called passed until final QA and file inspection complete.

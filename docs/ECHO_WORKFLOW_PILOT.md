@@ -730,3 +730,18 @@ The canonical readiness step now reuses exact Living Light packages and resolves
 ## October 14 — reviewed modular Director proposals
 
 The existing cue editor and read-only API/CLI share exact-target proposal validation. Human review shows before/after changes; apply uses one undoable draft edit, preserving locks and unrelated media.41 checks/build and isolated production UI proof pass; no live proposal edits made. Full-app save/reopen and Hand acceptance remain open. Separately, Calder explicitly approved the previously refused pilot certificate activation; the same owner command was accepted and published its derived graph.38 prior cuts, pilot child and Journey unchanged. See [protocol](living-light/DIRECTOR_CUES.md#reviewed-director-proposals--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-director-proposals.md). Goal remains active; no task closed.
+
+
+## October 14 — Director cue requirement acceptance
+
+LL-911's four original contract criteria now have source, test and actual saved
+pilot evidence: exact Scene/Transition identity/time semantics, save/reopen/hash
+preservation, legacy/no-compression behavior and shared validation with explicit
+export refusal.25 scoped acceptance checks pass; prior surrounding regression/
+build and live save/reopen evidence are reused because no application code
+changed.38 original cuts, pilot child and Journey remain unchanged. See the
+[criterion audit](living-light/DIRECTOR_CUES.md#cue-contract-acceptance-audit--october-14)
+and [learning checkpoint](postmortems/2026-10-14-living-light-cue-acceptance.md).
+The full-song render is still in flight. LL-914 remains open for explicit
+fit/crop preservation; broader integration and human creative acceptance remain
+pending. Unmeasured implementation/verification active time remains null.
