@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import { assertLegacyCaptureRoute } from "./lib/prepared-frame-encoding.cjs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -10,6 +11,8 @@ if (process.env.HAPA_LOCAL_HYPERFRAMES_WORKER === "1") {
   console.error("A HyperFrames worker cannot re-enter the local CLI orchestrator.");
   process.exit(1);
 }
+
+assertLegacyCaptureRoute(process.argv.slice(2), process.cwd());
 
 function versionParts(value) {
   return String(value || "0.0.0").split(/[.-]/).slice(0, 3).map((part) => Number(part) || 0);

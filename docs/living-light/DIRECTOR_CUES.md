@@ -406,3 +406,88 @@ transport and the final proof passed without browser errors/warnings. This proof
 does not include ordinary cut media, lyrics, master audio or final encoded output.
 HyperFrames/Song Card still refuse Living Light until that composition path is
 connected and qualified. LL-903 remains in progress; human review remains separate.
+
+
+## Prepared mixed-cut encoding — October 14
+
+The local compiler accepts `--living-light-package=<living-light-render.json>`
+only when the snapshot's song, duration and exact cues match both project and
+Show Graph. The default path still refuses Living Light export. It copies and
+checks packaged video bytes, bundles the existing native snapshot renderer, and
+composites it above ordinary media/visualizers and below the existing lyric layer.
+The compiled identity includes the snapshot digest and declares
+`captureRoute: hapa-prepared-electron-v1` / `requiresPreparedFrames: true`.
+Compilation success is not encoded acceptance or showcase readiness.
+
+Use the existing compiler's graph/project/telemetry/audio options plus that
+snapshot flag, then run from Builder:
+
+```sh
+node scripts/run-prepared-render.mjs --project=<compiled-package> --output=<new-directory>
+```
+
+This Hapa-owned capture adapter reuses the Echo HTML compositor and its native
+frame primitives; HyperFrames, Electron/Chromium and FFmpeg remain upstream-owned.
+The installed upstream HyperFrames CLI does not await HAPA_PREPARE_MEDIA_AT, so
+its ordinary render command is not an eligible renderer for these packages.
+The local upstream launcher refuses those packages before spawning capture.
+No node_modules patch, external service, dependency installation, source repair,
+analysis, Card mutation or publication is part of the prepared encoder.
+
+`HAPA_RENDER_FRAME_AT(integerIndex)` awaits ordinary media/ISF preparation and
+the exact native Living Light frame, then flushes the shared timeline and lyric
+layout. The capture owner validates the frame/cut/snapshot receipt and dimensions,
+waits two compositor turns, and sends one PNG at a time with encoder backpressure.
+Output is constant-frame-rate H.264 with exactly one mapped stereo AAC master;
+preview media remain muted. Existing packaged audio/media hashes are checked
+before capture. A prepared Living Light bank must additionally match the packaged
+master bytes via its existing playback/source receipt. This metadata and byte
+comparison does not independently certify the bank's historical measurements.
+General source-bound owner acceptance is still pending.
+
+The Node parent owns one Electron process group and its encoder/helpers. Direct
+Electron startup is refused without the parent worker role. Cancellation and
+timeout terminate the group, escalate to bounded force termination, verify exit,
+and remove only the owned per-run Electron profile. A new output directory is
+required. Canceled/failed outputs retain explicit failure evidence. A successful parent
+exit with no failure record is required; an encoded file alone is not completion. The renderer exposes a 30-minute ceiling, bounded frame and
+pipe waits, and validates output dimensions/rate/duration. The parent currently
+uses macOS/POSIX process-group semantics; Windows is not qualified.
+
+Technical proof: a real 22-second landscape prefix contains ordinary footage,
+the exact saved Solar scene at2–10s, ordinary footage at10–12s, the complete
+Media Weave transition at12–20s, then ordinary footage. All660 timestamps match
+30fps; exactly480 frames carry Living Light. Encoded samples show the painted
+portal with readable lyrics, blue-eye wall panels in the tunnel, and subsequent
+video with the original visualizer layer. Audio/video both last22seconds;
+one stereo48kHz AAC track has zero-offset decoded master correlation0.9987603.
+This is technical sampled visual/clock evidence, not human taste or word-timing
+acceptance. The native/cache resources and owned process group return to baseline.
+
+The original saved graph lacked shader byte pins and used a local reference-media
+API URI that the offline preflight did not resolve. Two failed preflights are
+retained. Derived render inputs resolve the clip through the existing reference
+owner and pin the currently verified catalog shader bytes; no source shot,
+Journey, saved cut or shader is changed. Existing Song Registry waveform windows
+provide master telemetry without invented stems/bands/onsets or new analysis.
+The original38 cuts, saved pilot child and exact Journey payload remain unchanged.
+
+Verification:50 affected checks, then9 focused checks after the parent cleanup
+repair (53 distinct tests), production build, native22-second encode/inspection,
+explicit cancellation, and successful short-prefix parent capture. The first
+direct-Electron cancellation left one ffmpeg for the outer test owner to reap;
+that failure is preserved and caused the required parent boundary. All final
+owned process baselines are restored. Successful capture through the parent is
+qualified separately from the earlier22-second content proof; all90 PNG frames
+of the final parent prefix match the corresponding frames of that content proof.
+
+Evidence: source chat01a137cc-de1d-7511-ab65-227c92d5bca0,
+`execution/living-light/prepared-export/` in that task workspace. MP4 digest
+`fafff210fe463672344389cfd8b4980a4d9d0ef9ef224f3727f2e2749d7fa57d`;
+snapshot`f06d94f446aadbfea5dfca5befc9d6d6679fdcf737b2c770c60b32c76ad35d43`.
+
+Remaining: connect the prepared route to existing managed render jobs and Song
+Card export, resolve ordinary source preparation through that owner, qualify
+real bound sources/full songs/other output profiles and complete shared Hand,
+proposal and integrated album acceptance. LL-903 remains in progress. Human
+creative acceptance and the active GitHub freeze remain unchanged.

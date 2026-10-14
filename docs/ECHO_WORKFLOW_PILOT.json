@@ -2578,5 +2578,32 @@
       "integrated-acceptance"
     ],
     "humanAcceptance": "pending"
+  },
+  "livingLightPreparedExport20261014": {
+    "status": "in_progress",
+    "tasks": [
+      "LL-903",
+      "LL-913",
+      "LL-914"
+    ],
+    "checks": {
+      "distinctTests": 53,
+      "build": "passed",
+      "encodedLandscapePrefixSeconds": 22,
+      "frames": 660,
+      "fps": 30,
+      "masterCorrelationAtZeroOffset": 0.9987603124450308,
+      "parentSuccess": "passed",
+      "parentCancellation": "passed",
+      "processBaselineRestored": true,
+      "originalCutsUnchanged": 38
+    },
+    "pending": [
+      "managed-export-job-integration",
+      "real-owner-bound-source",
+      "full-song-and-other-profiles",
+      "integrated-acceptance"
+    ],
+    "humanAcceptance": "pending"
   }
 }

@@ -1,3 +1,5 @@
+import { validateLivingLightRenderSnapshot } from './echo-living-light-render-snapshot.js';
+import { echoProjectLivingLightCues } from './echo-living-light-cues.js';
 import { assertEchoLivingLightExportSupported } from "./echo-living-light-cues.js";
 import { normalizeEchoIsfComposition } from "./echo-isf-frame-intent.js";
 import { echoVisualizerRecipeMix } from "./hyperframes-visualizer-runtime.js";
@@ -978,10 +980,16 @@ export function hyperFramesMediaElementTiming(instance = {}, presentationWindow 
   };
 }
 
-export function compileHyperFramesShow({ showGraph, telemetry, project, proxyRegistry = {}, fps = 30, visualizerMix = null, performance = null } = {}) {
+export function compileHyperFramesShow({ showGraph, telemetry, project, proxyRegistry = {}, fps = 30, visualizerMix = null, performance = null, livingLightSnapshot = null } = {}) {
   if (showGraph?.schemaVersion !== "hapa.music-viz.native-show-graph.v2") throw new Error("HyperFrames compiler requires Native Show Graph v2");
   const projectBody = project?.music_video_project || project?.project || project || {};
-  assertEchoLivingLightExportSupported(projectBody, showGraph);
+  if (livingLightSnapshot) {
+    const cues = echoProjectLivingLightCues(projectBody);
+    if (projectBody.song_id !== livingLightSnapshot.songId) throw new Error('Living Light project song differs from the snapshot.');
+    validateLivingLightRenderSnapshot(livingLightSnapshot, { cues, songId: showGraph.song?.id,
+      durationUs: Math.round(showGraph.song?.durationSeconds * 1e6) });
+    if (hash(showGraph.livingLight?.cues) !== hash(cues)) throw new Error('Living Light graph cues differ from the exact cut. Recompile the Show Graph.');
+  } else assertEchoLivingLightExportSupported(projectBody, showGraph);
   showGraph = upgradeEchoGeneratedVisualizerBindings(showGraph, { project: projectBody });
   const eligibility = inspectEchoTimelineMediaEligibility(projectBody.timeline, projectBody.mediaConstraints);
   const rejectedMedia = eligibility.filter(item => !item.eligible);
@@ -1210,6 +1218,13 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
       treatmentId: showGraph.directorV2?.treatmentId,
       variantHash: showGraph.directorV2?.variantHash,
     },
+    ...(livingLightSnapshot ? { livingLight: {
+      schemaVersion: 'hapa.echo.prepared-composite.v1',
+      snapshotDigest: livingLightSnapshot.snapshotDigest,
+      songId: livingLightSnapshot.songId, durationUs: livingLightSnapshot.durationUs,
+      cues: structuredClone(livingLightSnapshot.cues),
+      captureRoute: 'hapa-prepared-electron-v1', requiresPreparedFrames: true,
+    } } : {}),
     deterministicPolicy: { runtimeDecisionCalls: false, runtimeAudioAnalysis: false, randomCalls: false, wallClockCalls: false, networkCalls: false, creativeInputsPinned: true },
     adapterCapability: getShowGraphCapability("hyperframes"),
     templates,

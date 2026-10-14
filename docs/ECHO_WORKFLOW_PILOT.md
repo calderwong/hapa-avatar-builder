@@ -710,3 +710,8 @@ Living Light now has a frame-addressed adapter over its existing Director render
 ## October 14 — exact Living Light render packages
 
 The local packaging CLI and protected media API share the saved-cut reader. Exact owner Journey/module metadata and copied video bytes now feed an immutable offline snapshot consumer.27 affected checks, syntax checks, build and browser bundle pass. The real saved pilot rendered from an isolated static package with matching repeated scene/tunnel hashes and clean resource/process teardown. Initial UTF-8 transport refusal and correction are preserved. Final composition/encoding and real-owner bound-source qualification remain open. See [protocol](living-light/DIRECTOR_CUES.md#exact-render-packages--october-14) and [checkpoint](postmortems/2026-10-14-living-light-render-package.md). Goal active; no human acceptance or requirement closure.
+
+
+## October 14 — prepared mixed-cut encoding
+
+The local compiler and parent-owned prepared renderer now encode native Living Light with ordinary media, existing lyrics and one master soundtrack.53 distinct affected checks, build,22-second1080p30 encoded inspection and final parent success/cancel proofs pass; source cuts/Journey and process baselines are preserved. The direct-Electron cancellation defect and two source-preflight refusals are retained in the [postmortem](postmortems/2026-10-14-living-light-prepared-export.md). Managed Song Card export, full-song/profile/bound-source and integrated/human acceptance remain open. See [protocol](living-light/DIRECTOR_CUES.md#prepared-mixed-cut-encoding--october-14). No requirement closes.
