@@ -72,3 +72,11 @@ test('two uses of one exact recipe retain one renderer across a gap and still va
  const next=f.host.capture({timelineUs:5e6},()=>{});assert.equal(next.cueId,'cue:two');assert.equal(next.visualUs,0);assert.equal(f.prepared.length,1);
  f.host.evaluate({timelineUs:8e6});assert.equal(f.live.size,0);f.host.dispose();
 });
+
+
+test('native preparation waits for asynchronous exact input and discards it after leaving',async()=>{
+ let release,signal;const f=fixture(undefined,{prepareInput:async(_,options)=>{signal=options.signal;return new Promise(r=>release=r);}});
+ f.host.evaluate({timelineUs:1e6});await flush();assert.equal(f.prepared.length,0);assert.equal(f.host.evaluate({timelineUs:1e6}),null);
+ release({neutralStudy:true,proof:'exact-owner-input'});await flush();assert(f.host.evaluate({timelineUs:1e6}));assert.equal(f.prepared[0].proof,'exact-owner-input');f.host.dispose();assert(signal.aborted);
+ let later;const stale=fixture(undefined,{prepareInput:()=>new Promise(r=>later=r)});stale.host.evaluate({timelineUs:1e6});await flush();stale.host.dispose();later({neutralStudy:true});await flush();assert.equal(stale.prepared.length,0);assert.equal(stale.invalidations,0);
+});

@@ -259,3 +259,41 @@ The source-bound follow-up is recording `014b164a-4b19-42ad-80d7-292c2a07e51e`: 
 
 LL-903 remains in progress until remaining profile and timing acceptance is
 closed; the full integration goal and human creative review remain open.
+
+
+## Saved prepared-source recovery — October 14
+
+Director Preview, Follow Director and Record + Play now resolve bound Journeys
+through the existing protected Living Light prepared-performance read. The ordinary
+Echo visualizer bank is a different source policy and cannot satisfy an exact
+Living Light binding. A resident exact bank can be reused; otherwise the host
+performs one deduplicated read for its current song. Opening/seeking never starts
+analysis, decodes another soundtrack, applies an alignment map or changes a cut.
+
+Native preparation waits for that asynchronous read before allocating its renderer.
+The existing current/next recipe limit still applies. Leaving the host aborts the
+request; abandoning a recipe ignores its late result. The request has a 30-second
+timeout, while a successfully loaded bank remains valid beyond that request window.
+Retry scene creates a fresh host/read after an explicit failure; no automatic retry
+loop or fallback to neutral response is added.
+
+The selected master receipt, exact asset policy, song, prepared fingerprint and
+saved binding revision must agree. Stem audition and changed/missing sources fail
+visibly. Missing preparation names **Living Light → Song and stem signals** as
+the recovery route. A different prepared revision requires explicit source review;
+it never upgrades the saved pin. Existing feature-bank admission still checks
+byte/PCM identity, timeline, extractor and measurement semantics. Unbound authored
+scenes remain neutral and make no prepared-source request. Stem alignment remains
+unverified unless independently applied by its owner.
+
+24 focused host/input/feature/protected-port checks passed, followed by four
+focused checks after a message-only correction; production build passed. The
+production surface rendered actual native prepared response with synthetic
+receipts/curves, retained one read while seeking from 0.5 to 1.5 seconds, refused
+changed and missing preparation, and recovered through explicit retry/leave/return.
+Fixture: `tests/fixtures/echo-living-light-prepared-ui.html`; source-chat evidence:
+`execution/living-light/prepared-recovery/`. The temporary Vite server received
+explicit SIGTERM (exit143), with zero remaining descendants and restored process
+baseline; this is deliberate teardown, not a passing server exit code. An initial
+Vite/React duplicate-bootstrap warning is retained as fixture evidence. No real
+album bound-Journey acceptance or final-render qualification is inferred.

@@ -695,3 +695,8 @@ Saved a three-Location Journey with two real video surfaces and exact record/med
 ## October 14 — mixed native preview recording
 
 Living Light now participates in the existing Record + Play compositor, with one master audio tap, bounded synchronized decode waits and durable incomplete-take labels. A saved real-song MP4 was inspected for encoded portal, ordinary video, tunnel and subsequent video frames plus one non-silent stereo AAC track. Exact playback-byte and cut-graph capture receipts are now requested for Living Light takes. 52 focused checks and production build passed. Landscape preview capture is the bounded pilot; final Song Card export, other profile acceptance and human creative review remain open. See [Director protocol](living-light/DIRECTOR_CUES.md#mixed-native-preview-recording--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-mixed-recording.md).
+
+
+## October 14 — saved prepared-source recovery
+
+Director/Follow/recording now read the exact Living Light asset bank for bound Journeys, with one bounded request per host, cancellation and revision comparison. Ordinary visualizer preparation cannot substitute; neutral recipes make no request.24 focused checks, four error-message checks, native synthetic-source browser proof and production build pass. Real-owner bound-source and final-export acceptance remain open. See [Director protocol](living-light/DIRECTOR_CUES.md#saved-prepared-source-recovery--october-14) and [learning checkpoint](postmortems/2026-10-14-living-light-prepared-recovery.md).

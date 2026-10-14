@@ -19,8 +19,9 @@ export function createEchoLivingLightPreview({canvas,cues,songId,durationUs,reso
     const journey=resolveEchoLivingLightCue(cue,{resolveJourney:()=>record});
     const registry=await resolveRegistry(journey,{signal:controller.signal});
     const sources=await resolveMedia(journey,{signal:controller.signal});
+    const input=await prepareInput(journey,{signal:controller.signal});
     if(disposed||controller.signal.aborted)return;
-    entry.journey=journey;entry.registry=registry;entry.sources=sources;onInvalidate();
+    entry.journey=journey;entry.registry=registry;entry.sources=sources;entry.input=input;onInvalidate();
    }).catch(error=>{if(disposed||controller.signal.aborted)return;entry.error=error;onInvalidate();});
   }
  }
@@ -40,7 +41,7 @@ export function createEchoLivingLightPreview({canvas,cues,songId,durationUs,reso
    const journey=resolveEchoLivingLightCue(cue,{resolveJourney:()=>entry.journey});
    if(activeKey!==useKey)runtime?.resetMotion?.();
    if(!runtime){
-    const options=prepareInput(journey);
+    const options=entry.input;
     runtime=runtimeFactory({canvas,registry:entry.registry,mediaSources:entry.sources,onMediaChange:()=>queueMicrotask(()=>{if(!disposed)onInvalidate();})});
     runtime.prepare({...options,journeyRevision:journey,journeyDurationUs:journey.schedule.at(-1).endUs,sourceBinding:{...options.sourceBinding,songId,durationUs},generation:++generation});activeRecipeKey=id;
    }
