@@ -44,7 +44,7 @@ export async function readEchoPlaybackProxyFrameIndex({ proxyRoot, key } = {}) {
   })().finally(() => indexing.delete(cacheKey));
   indexing.set(cacheKey, work); return work;
 }
-async function command(executable, args, { signal, timeoutMs = 30000 } = {}) {
+async function command(executable, args, { signal, timeoutMs = 30000, maxOutputBytes = 1024 * 1024 } = {}) {
   let output = '';
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -53,14 +53,15 @@ async function command(executable, args, { signal, timeoutMs = 30000 } = {}) {
   let overflow = false;
   try {
     await runEchoPreparationStage(executable, args, { signal: controller.signal, timeoutMs, onOutput: chunk => {
-      if (output.length + chunk.length > 1024 * 1024) { overflow = true; controller.abort(); } else output += chunk;
+      if (output.length + chunk.length > maxOutputBytes) { overflow = true; controller.abort(); } else output += chunk;
     } });
     if (overflow) throw new Error('proxy-process-output-budget');
     return output;
+  } catch (error) { error.processOutput = output.slice(-2000); throw error;
   } finally { signal?.removeEventListener('abort', abort); }
 }
 async function probe(file, options) {
-  const data = JSON.parse(await command('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,pix_fmt,width,height,avg_frame_rate,start_time,duration:format=duration,start_time', '-of', 'json', file], options));
+  const data = JSON.parse(await command('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,pix_fmt,width,height,avg_frame_rate,r_frame_rate,start_time,duration:format=duration,start_time', '-of', 'json', file], options));
   const stream = data.streams?.[0];
   const startSeconds = Number(stream?.start_time ?? data.format?.start_time ?? 0);
   // A container can report an interval length without its positive video origin.
@@ -68,7 +69,32 @@ async function probe(file, options) {
   const duration = Number(stream?.duration) > 0 ? startSeconds + Number(stream.duration) : Number(data.format?.duration);
   if (!stream || ![stream.width, stream.height].every(value => Number.isSafeInteger(value) && value > 0) || !(duration > 0 && duration <= 1800)) throw new Error('proxy-source-dimensions-or-duration-budget');
   return { codec: stream.codec_name, pixelFormat: stream.pix_fmt, width: stream.width, height: stream.height,
-    durationSeconds: duration, frameRate: stream.avg_frame_rate, startSeconds };
+    durationSeconds: duration, frameRate: stream.avg_frame_rate, nominalFrameRate: stream.r_frame_rate, startSeconds };
+}
+
+// Prepared export keeps native decoded pixels and source timestamps. This is
+// a separate cache profile, never an upgrade claim about a preview derivative.
+const LOSSLESS_PROFILE = 'prepared-export-lossless-v1';
+async function losslessMetadata(file, options) {
+  const data = JSON.parse(await command('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_streams', '-of', 'json', file], options));
+  const stream = data.streams?.[0];
+  if (!stream || stream.pix_fmt !== 'yuv420p' || (stream.side_data_list || []).some(row => Number(row.rotation || 0) !== 0)) throw new Error('export-lossless-source-format-unsupported');
+  return { pixelFormat: stream.pix_fmt, width: stream.width, height: stream.height,
+    sampleAspectRatio: stream.sample_aspect_ratio || '1:1',
+    colorRange: stream.color_range || 'unknown', colorSpace: stream.color_space || 'unknown',
+    colorTransfer: stream.color_transfer || 'unknown', colorPrimaries: stream.color_primaries || 'unknown' };
+}
+async function decodedFrames(file, options) {
+  const value = await command('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-xerror', '-threads', '2', '-noautorotate', '-copyts', '-i', file,
+    '-map', '0:v:0', '-an', '-fps_mode', 'passthrough', '-enc_time_base', '1:1000000', '-f', 'framemd5', '-'],
+    { ...options, timeoutMs: 600000, maxOutputBytes: 16 * 1024 * 1024 });
+  const rows = value.split('\n').filter(line => line.trim() && !line.startsWith('#')).map(line => line.split(',').map(part => part.trim()));
+  if (!rows.length || rows.length > 65536 || rows.some(row => row.length !== 6 || !/^[a-f0-9]{32}$/.test(row[5]))) throw new Error('export-lossless-frame-proof-invalid');
+  // Decoder packet durations are not uniformly populated across containers;
+  // the decoded frame presentation time, pixels and final stream end are checked.
+  const frames = rows.map(row => [Number(row[2]), Number(row[4]), row[5]]);
+  if (frames.some((row, i) => !Number.isSafeInteger(row[0]) || !Number.isSafeInteger(row[1]) || row[1] <= 0 || (i && row[0] <= frames[i - 1][0]))) throw new Error('export-lossless-frame-time-invalid');
+  return { frameCount: frames.length, frameDigest: hash(frames), timestampUnit: 'microseconds', pixelHash: 'md5-per-decoded-frame', firstUs: frames[0][0], lastUs: frames.at(-1)[0] };
 }
 
 /** Extracts the existing bounded H.264 preview transcode into a source-hashed,
@@ -83,7 +109,10 @@ export function prepareEchoPlaybackProxy(options) {
   pending.set(key, work);
   return work;
 }
-async function prepare({ sourcePath, proxyRoot, uriRoot = '/media/echo-proxies-v2', maximumDurationSeconds = null, seekOptimized = false, maximumDimension = 1280, signal } = {}) {
+async function prepare({ sourcePath, proxyRoot, uriRoot = '/media/echo-proxies-v2', maximumDurationSeconds = null, seekOptimized = false, maximumDimension = 1280, purpose = 'preview', signal } = {}) {
+  if (!['preview', LOSSLESS_PROFILE].includes(purpose)) throw new Error('proxy-purpose-unsupported');
+  const lossless = purpose === LOSSLESS_PROFILE, filename = lossless ? 'export.mp4' : 'preview.mp4';
+  if (lossless && maximumDurationSeconds !== null) throw new Error('export-lossless-trimming-forbidden');
   if (![640, 960, 1280].includes(maximumDimension)) throw new Error('proxy-dimension-unsupported');
   if (typeof uriRoot !== 'string' || !uriRoot.startsWith('/media/') || uriRoot.includes('..')) throw new Error('proxy-local-media-uri-required');
   const source = await fs.realpath(sourcePath), root = path.resolve(proxyRoot);
@@ -107,6 +136,12 @@ async function prepare({ sourcePath, proxyRoot, uriRoot = '/media/echo-proxies-v
   const settings = { fps: 30, maximumDimension, codec: 'libx264', preset: 'veryfast', crf: 27, maximumBitrate: '1500k', bufferSize: '3000k', gop: 30, pixelFormat: 'yuv420p', sourceOrigin: 'preserved-zero', durationSeconds: duration };
   if (seekOptimized) Object.assign(settings, { gop: 1, bFrames: 0, maximumBitrate: '8000k', bufferSize: '16000k', seekOptimized: true });
   if (original.startSeconds > .001) Object.assign(settings, { sourceOrigin: 'preserved-positive', sourceOriginSeconds: original.startSeconds, copyTimestamps: true });
+  const sourceMetadata = lossless ? await losslessMetadata(source, { signal }) : null;
+  if (lossless) {
+    for (const field of Object.keys(settings)) delete settings[field];
+    Object.assign(settings, { purpose: LOSSLESS_PROFILE, codec: 'libx264', preset: 'veryfast', qp: 0, gop: 1, bFrames: 0,
+      fps: 'source-passthrough', encoderTimeBase: 'demux', lastFrameDuration: 'source-end', nominalFrameRate: original.nominalFrameRate, copyTimestamps: true, nativeDimensions: true, sourceMetadata });
+  }
   const key = hash({ version: VERSION, sourceHash: identity.sha256, settings, decoder });
   await fs.mkdir(root, { recursive: true });
   const realRoot = await fs.realpath(root);
@@ -116,13 +151,17 @@ async function prepare({ sourcePath, proxyRoot, uriRoot = '/media/echo-proxies-v
     const manifestBytes = await fs.readFile(manifestPath);
     if (manifestBytes.length > 65536) throw new Error('proxy-manifest-budget');
     const cached = JSON.parse(manifestBytes);
-    const file = path.join(directory, 'preview.mp4');
+    const file = path.join(directory, filename);
     const measured = await inspector.inspect(file);
     if (cached.key !== key || cached.sourceHash !== identity.sha256 || cached.sha256 !== measured.sha256 || cached.byteSize !== measured.bytes) throw new Error('proxy-cache-identity-mismatch');
     const current = await probe(file, { signal });
     if (current.codec !== 'h264' || current.pixelFormat !== 'yuv420p' || current.width !== cached.width || current.height !== cached.height || Math.abs(current.durationSeconds - cached.durationSeconds) > .001 || Math.abs(current.startSeconds - original.startSeconds) > .001) throw new Error('proxy-cache-probe-mismatch');
+    if (lossless) {
+      if (cached.schemaVersion !== VERSION || JSON.stringify(cached.settings) !== JSON.stringify(settings) || cached.fidelity !== 'verified-lossless-decoded-frames-and-source-timestamps' || !cached.losslessVerification || cached.losslessVerification.frameDigest !== cached.sourceFrameDigest || JSON.stringify(await losslessMetadata(file, { signal })) !== JSON.stringify(sourceMetadata)) throw new Error('export-lossless-cache-proof-mismatch');
+      if (current.width !== original.width || current.height !== original.height || Math.abs(current.durationSeconds - original.durationSeconds) > .000002) throw new Error('export-lossless-cache-timing-mismatch');
+    }
     await ensureSourceUnchanged();
-    return { ...cached, sourceStamp, uri: `${uriRoot}/${key}/preview.mp4`, path: file, cached: true };
+    return { ...cached, sourceStamp, uri: `${uriRoot}/${key}/${filename}`, path: file, cached: true };
   } catch (error) {
     if (signal?.aborted || error.message === 'proxy-source-changed-during-preparation') throw error;
     // An owned corrupt/incomplete derivative is disposable. Remove only this
@@ -137,23 +176,45 @@ async function prepare({ sourcePath, proxyRoot, uriRoot = '/media/echo-proxies-v
   }
   const temporary = await fs.mkdtemp(path.join(root, '.preparing-'));
   try {
-    const file = path.join(temporary, 'preview.mp4');
+    const file = path.join(temporary, filename);
+    const sourceFrames = lossless ? await decodedFrames(source, { signal }) : null;
+    if (lossless) {
+      const lastDuration = original.durationSeconds - sourceFrames.lastUs / 1e6;
+      if (!(lastDuration > 0)) throw new Error('export-lossless-source-end-invalid');
+      // MP4 uses adjacent DTS values for preceding sample durations. Explicitly
+      // preserve the final sample's end; a VFR encoder otherwise guesses it.
+      const durationFilter = `setts=duration=if(eq(N\\,${sourceFrames.frameCount - 1})\\,${lastDuration.toFixed(6)}/TB\\,DURATION)`;
+      await command('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-n', '-xerror', '-threads', '2', '-noautorotate', '-copyts', '-i', source, '-map', '0:v:0', '-an',
+        '-c:v', 'libx264', '-preset', 'veryfast', '-qp', '0', '-g', '1', '-bf', '0', '-fps_mode', 'passthrough', '-enc_time_base', 'demux',
+        '-bsf:v', durationFilter, '-fs', String(2 * 1024 ** 3), '-movflags', '+faststart', '-threads', '2', file], { signal, timeoutMs: 600000 });
+    } else {
     await command('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', ...(settings.copyTimestamps ? ['-copyts'] : []), '-i', source, '-t', duration.toFixed(6), '-map', '0:v:0', '-an',
       '-vf', "scale='min(" + maximumDimension + ",iw)':'min(" + maximumDimension + ",ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:out_range=tv,format=yuv420p", '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27',
       '-maxrate', settings.maximumBitrate, '-bufsize', settings.bufferSize, '-pix_fmt', 'yuv420p', '-r', '30', '-g', String(settings.gop), '-keyint_min', String(settings.gop), ...(seekOptimized ? ['-bf', '0'] : []), '-sc_threshold', '0', '-movflags', '+faststart', '-threads', '2', file], { signal, timeoutMs: 600000 });
+    }
     const media = await probe(file, { signal });
-    if (media.codec !== 'h264' || media.pixelFormat !== 'yuv420p' || media.durationSeconds < duration - .08 || Math.max(media.width, media.height) > maximumDimension) throw new Error('proxy-encode-verification-failed');
+    if (!lossless && (media.codec !== 'h264' || media.pixelFormat !== 'yuv420p' || media.durationSeconds < duration - .08 || Math.max(media.width, media.height) > maximumDimension)) throw new Error('proxy-encode-verification-failed');
     if (Math.abs(media.startSeconds - original.startSeconds) > .001) throw new Error('proxy-encode-source-origin-shift');
+    let losslessVerification;
+    if (lossless) {
+      losslessVerification = await decodedFrames(file, { signal });
+      const outputMetadata = await losslessMetadata(file, { signal });
+      const checks = { codec: media.codec === 'h264', metadata: JSON.stringify(outputMetadata) === JSON.stringify(sourceMetadata),
+        start: Math.abs(media.startSeconds - original.startSeconds) <= .000002, end: Math.abs(media.durationSeconds - original.durationSeconds) <= .000002,
+        frames: JSON.stringify(sourceFrames) === JSON.stringify(losslessVerification) };
+      if (Object.values(checks).some(value => !value)) throw Object.assign(new Error('export-lossless-verification-failed: ' + Object.keys(checks).filter(key => !checks[key]).join(', ')), { details: {original, media, sourceFrames, losslessVerification} });
+    }
     const bytes = await inspector.inspect(file);
     await ensureSourceUnchanged();
     const verifiedSource = await createEchoSourceInspector().inspect(source);
     if (verifiedSource.sha256 !== identity.sha256) throw new Error('proxy-source-hash-changed');
     if (!bytes.sha256) throw new Error('proxy-output-hash-unavailable');
     const manifest = { schemaVersion: VERSION, key, status: 'ready', sourcePath: source, sourceHash: identity.sha256, sourceDurationSeconds: original.durationSeconds,
-      ...media, sha256: bytes.sha256, byteSize: bytes.bytes, uri: `${uriRoot}/${key}/preview.mp4`, settings, decoder,
-      fidelity: 'sampled-H264-preview; originals retained for export', fastStart: true, maxDimension: maximumDimension, maxBitRate: seekOptimized ? 8000000 : 1500000, gopSeconds: settings.gop / settings.fps, fingerprint: key, mimeType: 'video/mp4' };
+      ...media, sha256: bytes.sha256, byteSize: bytes.bytes, uri: `${uriRoot}/${key}/${filename}`, settings, decoder,
+      fidelity: lossless ? 'verified-lossless-decoded-frames-and-source-timestamps' : 'sampled-H264-preview; originals retained for export', fastStart: true,
+      ...(lossless ? { losslessVerification, sourceFrameDigest: sourceFrames.frameDigest } : { maxDimension: maximumDimension, maxBitRate: seekOptimized ? 8000000 : 1500000, gopSeconds: settings.gop / settings.fps }), fingerprint: key, mimeType: 'video/mp4' };
     await fs.writeFile(path.join(temporary, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx' });
     await fs.rename(temporary, directory);
-    return { ...manifest, sourceStamp, path: path.join(directory, 'preview.mp4'), cached: false };
+    return { ...manifest, sourceStamp, path: path.join(directory, filename), cached: false };
   } finally { await fs.rm(temporary, { recursive: true, force: true }); }
 }

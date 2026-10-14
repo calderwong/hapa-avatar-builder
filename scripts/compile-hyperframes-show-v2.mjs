@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { packagePreparedVideo } from './lib/hyperframes-prepared-video.mjs';
 import { packageHyperFramesLivingLight } from './lib/hyperframes-living-light-package.mjs';
 import { verifyImageShotOriginal } from "../server/echo-image-preparation.mjs";
 import { selectImageShotRendition } from "../src/domain/unified-media-catalog.js";
@@ -362,6 +363,18 @@ for (const instance of show.instances.media) {
       outputProfile: { width: outputWidth, height: outputHeight }, finalRender: true });
     if (!selection.selected) throw new Error(`Image original exceeds the render decode budget: ${instance.id}`);
     instance.imageOriginalVerification = await verifyImageShotOriginal(source, instance.imageShot);
+  }
+  if (show.livingLight?.requiresPreparedFrames && instance.source.type === 'video') {
+    if (!source) throw new Error(`Prepared video source is unavailable: ${instance.id}`);
+    const preparation = new AbortController(), abortPreparation = () => preparation.abort();
+    process.once('SIGTERM', abortPreparation); process.once('SIGINT', abortPreparation);
+    try {
+      Object.assign(instance.source, await packagePreparedVideo({source, contract: instance.source, output,
+        cacheRoot: path.join(ROOT, 'data/cache/echo-export-video'), signal: preparation.signal}));
+    } finally {
+      process.removeListener('SIGTERM', abortPreparation); process.removeListener('SIGINT', abortPreparation);
+    }
+    continue;
   }
   const destination = path.join(output, "assets/media", instance.source.assetName);
   if (source && (!fs.existsSync(destination) || fileSha256(destination) !== fileSha256(source))) fs.copyFileSync(source, destination);

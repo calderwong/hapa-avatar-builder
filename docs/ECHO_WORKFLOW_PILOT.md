@@ -779,3 +779,20 @@ later tail check fails on another clip at146s. Those capture-policy changes are
 uncommitted investigation, not a completed repair or successful retry. Both
 original source clips decode fully with FFmpeg. No new full render has started;
 source-preserving final-quality decoder preparation is the next critical path.
+
+
+## October 14 — lossless prepared video export repair
+
+The existing preparation owner now supplies verified independently coded video
+frames to prepared Living Light export, retaining original identity, pixels,
+source times and color/aspect metadata.45 real pilot videos compile and4,911 forward frame requests pass.
+A byte-exact reverse-picture check failed. The focused12-request repeat
+confirms ordinary video hashes match; native scenes vary by at most2/255
+at20 pixels, within an explicit32-pixel rounding allowance. Exact GPU
+pixel reproducibility is not claimed.
+36 distinct affected checks and build pass; a broader unrelated project-data
+inventory assertion remains failing and is recorded, not waived or repaired here.
+38 earlier cuts, saved child and Journey are unchanged. Full managed encoding,
+other profiles/bound sources and human acceptance remain open. See
+[protocol](living-light/DIRECTOR_CUES.md#lossless-prepared-video-sources--october-14)
+and [checkpoint](postmortems/2026-10-14-living-light-lossless-export.md).

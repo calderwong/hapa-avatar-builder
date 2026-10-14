@@ -176,3 +176,11 @@ test('saved-cut readiness freezes the same package and invalidates a modified ce
  await assert.rejects(prepareEchoReadinessLivingLight({project:f.project,root:f.root,cacheRoot:path.join(f.root,'failed'),ownerFactory:()=>({exportPackage:()=>{throw Error('owner unavailable');},resolveMedia:()=>{},close:()=>closed++})}),/owner unavailable/);
  assert.equal(closed,2);
 });
+
+test('prepared macOS capture and QA use software video decoding while retaining GPU scene rendering',()=>{
+ for(const [platform,prepared,expected] of [['darwin',true,'software'],['darwin',false,'platform-default'],['linux',true,'platform-default']]){
+  const switches=[],app={isReady:()=>false,commandLine:{appendSwitch:name=>switches.push(name)}};
+  const policy=encoding.configurePreparedVideoDecode(app,{platform,prepared});assert.equal(policy.videoDecode,expected);assert.equal(policy.gpuSceneRendering,'unchanged');assert.deepEqual(switches,expected==='software'?['disable-accelerated-video-decode']:[]);
+ }
+ assert.throws(()=>encoding.configurePreparedVideoDecode({isReady:()=>true},{platform:'darwin'}),/before Electron/);
+});

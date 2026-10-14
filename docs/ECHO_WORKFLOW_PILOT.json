@@ -2725,5 +2725,29 @@
     "humanAcceptance": "pending",
     "activeImplementationMinutes": null,
     "activeVerificationMinutes": null
+  },
+  "livingLightLosslessExport20261014": {
+    "status": "verified_prepared_frames_managed_encode_pending",
+    "tasks": [
+      "LL-903"
+    ],
+    "passingDistinctChecks": 36,
+    "unrelatedInventoryFailure": "Hey Sister project playback manifest missing",
+    "videoSources": 45,
+    "forwardFrames": 4911,
+    "focusedFrameRequests": 12,
+    "exactReversePngGate": "failed_and_preserved",
+    "nativePixelComparison": {
+      "maxObservedChangedPixels": 20,
+      "maxObservedChannelDelta": 2,
+      "allowancePixels": 32,
+      "allowanceChannelDelta": 2
+    },
+    "buildPassed": true,
+    "processBaselineRestored": true,
+    "sourceCutsUnchanged": 38,
+    "humanAcceptance": "pending",
+    "activeImplementationMinutes": null,
+    "activeVerificationMinutes": null
   }
 }

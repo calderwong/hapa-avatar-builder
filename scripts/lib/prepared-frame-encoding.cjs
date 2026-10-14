@@ -69,3 +69,13 @@ function preparedPixelTimestamps(show,timestamps){
  return [...indices].sort((a,b)=>a-b).map(i=>i/show.fps);
 }
 module.exports.preparedPixelTimestamps=preparedPixelTimestamps;
+
+// Frame-addressed macOS seeks can fail in VideoToolbox on valid H.264 sources.
+// Use the browser software video decoder for prepared offline capture and QA;
+// GPU composition, shaders and native Living Light remain enabled.
+function configurePreparedVideoDecode(app,{platform=process.platform,prepared=true}={}){
+ const software=prepared&&platform==='darwin';
+ if(software){if(app.isReady())throw Error('Prepared video decoding must be configured before Electron is ready');app.commandLine.appendSwitch('disable-accelerated-video-decode');}
+ return {videoDecode:software?'software':'platform-default',gpuSceneRendering:'unchanged',scope:'prepared-offline-capture'};
+}
+module.exports.configurePreparedVideoDecode=configurePreparedVideoDecode;

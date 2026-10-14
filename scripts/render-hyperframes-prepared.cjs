@@ -5,7 +5,7 @@
 const {app,BrowserWindow}=require('electron');
 const fs=require('node:fs'),fsp=require('node:fs/promises'),path=require('node:path'),http=require('node:http'),crypto=require('node:crypto');
 const {spawn}=require('node:child_process');
-const {encodingPlan,encoderEnvironment,checkFrameReceipt,checkPreparedSoundtrack}=require('./lib/prepared-frame-encoding.cjs');
+const {encodingPlan,encoderEnvironment,checkFrameReceipt,checkPreparedSoundtrack,configurePreparedVideoDecode}=require('./lib/prepared-frame-encoding.cjs');
 if(process.env.HAPA_PREPARED_CAPTURE_WORKER!=='1')throw Error('Use scripts/run-prepared-render.mjs so cancellation owns the complete process group');
 if(!/^[a-f0-9-]{36}$/.test(process.env.HAPA_PREPARED_CAPTURE_ID||''))throw Error('Prepared capture ownership is missing');
 if(process.env.HAPA_PREPARED_ENCODER_WORKER==='1')throw Error('Encoder child cannot enter the capture owner');
@@ -15,6 +15,7 @@ const root=fs.realpathSync(arg('project')),output=path.resolve(arg('output'));
 const userData=path.join(app.getPath('temp'),'hapa-prepared-render-'+process.pid);
 app.setName('Hapa prepared cut renderer');app.setPath('userData',userData);
 app.commandLine.appendSwitch('force-device-scale-factor','1');app.commandLine.appendSwitch('disable-background-timer-throttling');app.commandLine.appendSwitch('disable-renderer-backgrounding');
+const videoDecodePolicy=configurePreparedVideoDecode(app);
 app.on('window-all-closed',()=>{});
 let win,server,encoder,encoderExit,exitResult,stopping=false,ownsOutput=false,frames=0,stderr='',deadline;
 const hashFile=async file=>{const hash=crypto.createHash('sha256');for await(const bytes of fs.createReadStream(file))hash.update(bytes);return 'sha256:'+hash.digest('hex');};
@@ -89,6 +90,6 @@ app.whenReady().then(async()=>{
   encoder.stdin.end();await bounded(encoderExit,120000,'Encoder completion');if(exitResult.code!==0)throw Error('Encoder failed: '+stderr);
   if(browserErrors.length)throw Error('Browser errors during prepared render: '+browserErrors.slice(0,3).join('; '));
   const cleanup=await win.webContents.executeJavaScript('window.HAPA_DISPOSE_RENDER()');
-  const result={ok:true,stage:'encoded-awaiting-media-and-creative-acceptance',showHash:show.showHash,snapshotDigest:snapshot.snapshotDigest,frames,fps:plan.fps,width:plan.width,height:plan.height,duration:plan.duration,masterAudio:plan.audio,sha256:await hashFile(path.join(output,'cut.mp4')),cleanup};
+  const result={ok:true,stage:'encoded-awaiting-media-and-creative-acceptance',videoDecodePolicy,showHash:show.showHash,snapshotDigest:snapshot.snapshotDigest,frames,fps:plan.fps,width:plan.width,height:plan.height,duration:plan.duration,masterAudio:plan.audio,sha256:await hashFile(path.join(output,'cut.mp4')),cleanup};
   await fsp.writeFile(path.join(output,'render-result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));await finish(0);
 }).catch(error=>void finish(1,error));

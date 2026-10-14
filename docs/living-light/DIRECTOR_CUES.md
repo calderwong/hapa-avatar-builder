@@ -729,3 +729,49 @@ saved Journey revisions are unchanged. Full desktop/integrated acceptance and
 human creative review remain separate. Source chat evidence:
 `execution/living-light/framing/`; see the
 [learning checkpoint](../postmortems/2026-10-14-living-light-framing.md).
+
+
+## Lossless prepared video sources — October 14
+
+Prepared Living Light cuts now reuse the existing media preparation owner with
+an explicit `prepared-export-lossless-v1` profile. Ordinary videos become
+independently coded H.264 frames at native dimensions, retaining decoded pixels,
+source presentation times, aspect ratio and color metadata. This profile never
+uses the lower resolution/bitrate preview copies. The original media and saved
+cut remain unchanged. Each compiled source carries a separate `compiledDerivation`
+receipt with original/output hashes, preparation settings, encoder version and
+full decoded-frame verification. These fields participate in the show hash;
+renderer build identity includes the preparation owner and packaging adapter.
+
+The owner checks every decoded frame and presentation time at microsecond
+precision, and checks the stream endpoint within two microseconds. It preserves
+the source encoder timebase and final sample duration; nominal-fps rounding or
+guessing the final VFR sample duration is refused. Current qualified source
+format is unrotated eight-bit `yuv420p`; unsupported rotation/formats fail before
+preparation. Inputs retain existing size/dimension/duration budgets; decoded
+verification is bounded to65,536 frames/16MiB text and each derivative to2GiB.
+No frame dropping, resampling, downscaling, lossy fallback or original-file repair
+is implicit. Muted source videos still share the single cut soundtrack.
+
+Existing source-hash cache checks, atomic publication, corruption recovery and
+bounded preparation processes are reused. Managed compiler cancellation reaches
+the owned stage and cleans partial derivatives. macOS prepared pixel checks and
+capture use software video decoding while retaining GPU scene rendering. This
+policy alone did not solve the incident; the lossless independent frames are
+also required. Other ordinary export routes keep their original-source behavior.
+
+The real pilot packages45 verified videos. All4,911 forward output frame requests pass through the native prepared
+compositor. The original run then failed a byte-exact reverse PNG comparison.
+A focused12-request repeat shows three ordinary pictures byte-identical;
+the tunnel differs at20 pixels by at most2/255 and the portal at12 pixels
+by1/255. The repeat passes an explicitly bounded32-pixel/2-level tolerance
+at1920×1080. This supports frame/content equivalence, not bit-exact GPU
+reproducibility; the original failure remains recorded.36 distinct affected checks pass
+across this batch and reused unchanged regression evidence, and the build passes.
+A broader existing data-inventory test fails because the unrelated Hey Sister
+project lacks its playback-manifest schema; its data is untouched. This is not
+a claim of a clean complete repository suite.38 earlier cuts, pilot child and
+exact Journey remain unchanged. Full managed encoded release, additional
+profiles/bound-source qualification and human creative acceptance remain open.
+Evidence: source chat `execution/living-light/lossless-export/`; see the
+[decoder checkpoint](../postmortems/2026-10-14-living-light-lossless-export.md).

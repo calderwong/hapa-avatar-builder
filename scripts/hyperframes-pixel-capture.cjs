@@ -6,7 +6,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
-const {preparedPixelTimestamps,checkFrameReceipt} = require("./lib/prepared-frame-encoding.cjs");
+const {preparedPixelTimestamps,checkFrameReceipt,configurePreparedVideoDecode} = require("./lib/prepared-frame-encoding.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const value = (name, fallback = "") => {
@@ -231,6 +231,7 @@ app.setPath("userData", path.join("/tmp", `hapa-hyperframes-pixel-capture-${proc
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 
+const videoDecodePolicy=configurePreparedVideoDecode(app,{prepared:fs.existsSync(manifestPath)&&JSON.parse(fs.readFileSync(manifestPath,'utf8')).livingLight?.requiresPreparedFrames===true});
 console.log(`[lyric-capture] boot pid=${process.pid}`);
 app.whenReady().then(async () => {
   const { echoLyricTemplateFrameState } = await import("../src/domain/echo-lyric-template-runtime.js");
@@ -525,6 +526,7 @@ app.whenReady().then(async () => {
       : lyricFrameChecks.length > 0 && lyricFrameChecks.every((sample) => sample.ok && sample.observed?.visible !== true);
     const report = {
       schemaVersion: "hapa.hyperframes.pixel-capture.v2",
+      videoDecodePolicy,
       project,
       entry,
       executableShow: manifestPath,
