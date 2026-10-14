@@ -17,13 +17,13 @@ import {fixture as signals} from './fixtures/living-light-signals.mjs';
 import {readEchoSavedCut,readEchoSavedVariant} from '../server/echo-saved-cut-reader.mjs';
 const registry=createLivingLightRegistry(),actor={mode:'authenticated-api',actor:{actorId:'agent:test',kind:'agent',displayName:'Test'}};
 const seal=s=>{const {snapshotDigest,...body}=s;return {...body,snapshotDigest:livingLightRenderDigest(body)};};
-async function setup({painted=true,bound=false}={}){
+async function setup({painted=true,bound=false,framing}={}){
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'ll-render-package-')),input=signals(0),songId=input.songId,durationUs=2e6;
  const cut={song_id:songId,active_direction_script_variant:{id:'cut:one'},timeline:[{id:'shot:one',media_id:'clip:one',media_uri:'/media/test.mp4'}]};
  await fs.mkdir(path.join(root,'data/media'),{recursive:true});await fs.writeFile(path.join(root,'data/media/test.mp4'),'fixture video bytes');
  const owner=createLivingLightService({root,registry,resolveSong:async id=>({id}),resolveCut:async()=>cut});
  const draft=newJourneyDraft({songId,durationUs,thing:registry.entries.find(t=>t.capabilities.continuous)},registry),source=livingLightCutMedia(cut)[0];
- if(painted)draft.mediaSlots=[{schemaVersion:LIVING_LIGHT_MEDIA_SCHEMA,enabled:true,surfaceRef:{instanceId:draft.instances[0].instanceId,surfaceId:'wall-left'},mediaRef:source.ref,trim:{inUs:0,outUs:null},loopPolicy:'loop',brightness:1}];
+ if(painted)draft.mediaSlots=[{schemaVersion:LIVING_LIGHT_MEDIA_SCHEMA,enabled:true,surfaceRef:{instanceId:draft.instances[0].instanceId,surfaceId:'wall-left'},mediaRef:source.ref,trim:{inUs:0,outUs:null},loopPolicy:'loop',brightness:1,...(framing?{framing}: {})}];
  if(bound){const binding=livingLightPreparedBinding(input);draft.sourceBindingRef={bindingId:binding.bindingId,revisionId:binding.revisionId};}
  const saved=await owner.saveJourney({journey:draft,expectedRevision:null,idempotencyKey:'test:saved'},actor),project={song_id:songId,duration:4,living_light_cues:[createEchoLivingLightCue({journey:saved.journey,cueId:'cue:one',startUs:1e6})]};
  // Bound preparation uses the same actual two-second song, not this neutral four-second placement fixture.
@@ -89,5 +89,15 @@ test('shared saved-cut reader preserves exact append-only and embedded variants 
 test('portable render metadata cannot carry local paths or authority',async()=>{
  const f=await setup({painted:false,bound:true});try{const snapshot=await f.build({preparedSource:{performance:f.input.performance,playbackReceipt:f.input.playbackReceipt}});
   for(const entry of [{path:'/Users/operator/private/source.wav'},{authorization:'private'},{uri:'https://name:secret@example.invalid'}]){const bad=structuredClone(snapshot);Object.assign(bad.preparedSource.playbackReceipt,entry);assert.throws(()=>validateLivingLightRenderSnapshot(seal(bad)),/cannot carry/);}
+ }finally{await f.close();}
+});
+
+test('exact render snapshots retain explicit crop and fit into the native recipe',async()=>{
+ const framing={fit:'contain',crop:{x:.15,y:.2,width:.7,height:.6}},f=await setup({framing});try{
+  const snapshot=await f.build();validateLivingLightRenderSnapshot(snapshot);assert.deepEqual(snapshot.recipes[0].package.journey.mediaSlots[0].framing,framing);
+  let options;const canvas=()=>({width:0,height:0,getContext:()=>({clearRect(){},drawImage(){}}),addEventListener(){},removeEventListener(){}});
+  const renderer=createEchoLivingLightSnapshotRenderer(snapshot,{width:100,height:100,canvasFactory:canvas,previewFactory:value=>{options=value;return {capture:()=>null,dispose(){},diagnostics:()=>({})};}});
+  try{snapshot.recipes[0].package.journey.mediaSlots[0].framing.crop.x=.99;const recipe=await options.resolveJourney(f.project.living_light_cues[0].journeyRef);assert.deepEqual(recipe.mediaSlots[0].framing,framing);}finally{renderer.dispose();}
+  const bad=structuredClone(await f.build());bad.recipes[0].package.journey.mediaSlots[0].framing.crop.x=.99;const {packageDigest,...body}=bad.recipes[0].package;bad.recipes[0].package.packageDigest=livingLightRenderDigest(body);assert.throws(()=>validateLivingLightRenderSnapshot(seal(bad)),/crop fully inside/);
  }finally{await f.close();}
 });

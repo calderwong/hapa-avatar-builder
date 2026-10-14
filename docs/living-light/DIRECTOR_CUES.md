@@ -695,3 +695,37 @@ No alternate activation route was used. LL-903 and all broader export/profile/cr
 remain open. Diagnostic evidence: source chat workspace
 `execution/living-light/media-boundary/`; see the
 [learning checkpoint](../postmortems/2026-10-14-living-light-outgoing-decoder.md).
+
+
+## Painted fit and crop — October 14
+
+Each painted placement can now save optional `framing: {fit, crop}`. Fit is
+`cover` (Fill surface) or `contain` (Fit inside); crop is a normalized top-left
+`{x, y, width, height}` rectangle entirely inside the source. Omitted framing
+renders centered full-source cover without rewriting old immutable revisions.
+Apply saves framing with source window, loop and brightness. Replacing the clip
+retains framing; locks and the existing atomic edit/undo path apply. Invalid crops
+leave the saved draft intact. Owner save/reopen, metadata export and exact offline
+snapshots retain the same rectangle. Painted metadata import still explicitly
+refuses `portable_media_slots_unqualified`; no unavailable source is substituted.
+
+The painted adapter owns one private program per host, adapting the retained
+native depth/mask/linear-light/grade/emission behavior. Every surface supplies its
+own source/destination rectangles; shared shader state cannot change its crop.
+Preview and offline rendering use this same adapter. Fit bars are black within
+the existing panel/portal mask. Decoders remain muted. A seek that settles more
+than40ms from the requested time now fails explicitly instead of reporting a
+stale frame ready. Textures, programs and decoders retain owned disposal.
+
+25 direct framing/media/render-package checks pass, within a64-check affected
+regression batch and successful delivery build. Twelve actual native GL pixel
+checks cover crop orientation, fill and both letterbox directions. Production
+controls verify Apply, independent wall framing, source swap, Undo, locks,
+invalid crop and390px layout. Real clips paint on the portal and two tunnel walls;
+both tunnel clips settle at requested2s, muted/paused. The initial test server
+omitted byte-range support and its0s/2s mismatch is preserved as failed clock
+evidence; the corrected server and final seek guard pass. Old source cuts and
+saved Journey revisions are unchanged. Full desktop/integrated acceptance and
+human creative review remain separate. Source chat evidence:
+`execution/living-light/framing/`; see the
+[learning checkpoint](../postmortems/2026-10-14-living-light-framing.md).

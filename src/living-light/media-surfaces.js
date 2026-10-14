@@ -1,9 +1,10 @@
-import {livingLightMediaKey,livingLightMediaTime} from '../domain/living-light-media.js';
+import {createLivingLightMediaMaterial} from './media-material.js';
+import {livingLightMediaKey,livingLightMediaTime,livingLightMediaFrameRects} from '../domain/living-light-media.js';
 
 /** Bounded native depth surfaces. Echo owns time/audio/RAF; this adapter owns
  * at most two muted decoders and their textures. No vendor source is changed. */
 export function installLivingLightMedia({renderer:r,native,journey,sources=[],onChange=()=>{},videoFactory=()=>document.createElement('video')}){
- const gl=r.gl,entries=[],previousDraw=r.drawScene.bind(r);let disposed=false,clockUs=0,playing=false;
+ const gl=r.gl,entries=[],previousDraw=r.drawScene.bind(r);let disposed=false,clockUs=0,playing=false,paintProgram=null;
  const notify=()=>{if(!disposed)onChange();};
  const activeRow=()=>journey.schedule.find(row=>clockUs>=row.startUs&&clockUs<row.endUs)||journey.schedule.at(-1);
  function visibleInstance(){
@@ -35,7 +36,7 @@ export function installLivingLightMedia({renderer:r,native,journey,sources=[],on
     clearTimeout(entry.timer);entry.status='ready';entry.message='Muted clip follows the recipe clock';entry.dirty=true;notify();
    }catch(e){error(e.message);}
   });
-  listen('seeked',()=>{if(disposed||entry.status!=='ready')return;clearTimeout(entry.seekTimer);entry.settled=entry.desired;entry.dirty=true;notify();});
+  listen('seeked',()=>{if(disposed||entry.status!=='ready')return;if(entry.desired!==null&&Math.abs(video.currentTime-entry.desired)>.04){error('Clip could not reach the selected time. Check that its source supports seeking.');return;}clearTimeout(entry.seekTimer);entry.settled=entry.desired;entry.dirty=true;notify();});
   entry.fail=error;
   entry.timer=setTimeout(()=>error('Clip loading timed out. Study the recipe again to retry.'),15000);
   video.src=source.uri;video.load();
@@ -63,8 +64,8 @@ export function installLivingLightMedia({renderer:r,native,journey,sources=[],on
   const side=surface==='wall-left'?1:-1,base=Math.floor(frame.cam.eye[2]/12)*12;
   const panels=tunnel?[0,1,2].map(i=>({pos:[side*2.65,0,base+8+i*12],angles:[0,side*.9,0],size:[2.2,2.8]})):[{pos:[0,.2,1.45],angles:[0,0,0],size:[3.4,3.4]}];
   r.bind(r.scene);gl.enable(gl.DEPTH_TEST);gl.depthMask(true);gl.depthFunc(gl.LEQUAL);gl.disable(gl.BLEND);gl.disable(gl.CULL_FACE);
-  const p=r.programs.media;gl.useProgram(p.p);gl.bindVertexArray(r.quadVAO);
-  for(const panel of panels){native.HapaRenderer.uniforms(gl,p,{uPV:frame.cam.pv,uModel:native.HapaMath.model(panel.pos,panel.angles),uSize:panel.size,uVideo:0,uMediaAspect:entry.video.videoWidth/entry.video.videoHeight,uSurfaceAspect:panel.size[0]/panel.size[1],uRadiance:.25,uMediaGain:entry.slot.brightness,uMask:surface==='portal'?1:0,uGrade:1,uEye:frame.cam.eye,uHighlight:frame.values.uHighlight,uAccent:frame.values.uAccent});r.texture(entry.texture,0);gl.drawArrays(gl.TRIANGLES,0,6);r.drawCalls++;}
+  const p=paintProgram||(paintProgram=createLivingLightMediaMaterial(gl,native));gl.useProgram(p.p);gl.bindVertexArray(r.quadVAO);
+  for(const panel of panels){const framing=livingLightMediaFrameRects(entry.slot,entry.video.videoWidth,entry.video.videoHeight,panel.size[0]/panel.size[1]);native.HapaRenderer.uniforms(gl,p,{uPaintSourceRect:framing.source,uPaintDestinationRect:framing.destination,uFocal:[.5,.5],uSourceTrim:0,uPV:frame.cam.pv,uModel:native.HapaMath.model(panel.pos,panel.angles),uSize:panel.size,uVideo:0,uMediaAspect:entry.video.videoWidth/entry.video.videoHeight,uSurfaceAspect:panel.size[0]/panel.size[1],uRadiance:.25,uMediaGain:entry.slot.brightness,uMask:surface==='portal'?1:0,uGrade:1,uEye:frame.cam.eye,uHighlight:frame.values.uHighlight,uAccent:frame.values.uAccent});r.texture(entry.texture,0);gl.drawArrays(gl.TRIANGLES,0,6);r.drawCalls++;}
  }
  // Wrap the complete scene path: specialized Location renderers return before
  // the original generic drawMedia hook. The final optical pass remains native.
@@ -73,6 +74,6 @@ export function installLivingLightMedia({renderer:r,native,journey,sources=[],on
   sync(packet){clockUs=packet.visualUs;playing=packet.playing&&!packet.reducedMotion;for(const entry of entries)entry.paintReady=sync(entry);},
   suspend(){playing=false;for(const e of entries)e.video?.pause();},
   diagnostics:()=>entries.map(e=>({surface:e.slot.surfaceRef,mediaRef:e.slot.mediaRef,status:e.status,message:e.message,paintReady:!!e.paintReady,targetSeconds:e.target??null,decodedSeconds:e.video?.currentTime??null,muted:e.video?.muted??true,paused:e.video?.paused??true})),
-  dispose(){if(disposed)return;disposed=true;r.drawScene=previousDraw;for(const entry of entries)destroy(entry);}
+  dispose(){if(disposed)return;disposed=true;r.drawScene=previousDraw;for(const entry of entries)destroy(entry);if(paintProgram){gl.deleteProgram(paintProgram.p);paintProgram=null;}}
  };
 }

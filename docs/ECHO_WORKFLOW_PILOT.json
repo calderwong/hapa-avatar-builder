@@ -2707,5 +2707,23 @@
     "humanAcceptance": "pending",
     "activeImplementationMinutes": null,
     "activeVerificationMinutes": null
+  },
+  "livingLightFraming20261014": {
+    "status": "verified_local_framing",
+    "tasks": [
+      "LL-901",
+      "LL-902",
+      "LL-914"
+    ],
+    "directChecks": 25,
+    "affectedTests": 64,
+    "nativePixelSamples": 12,
+    "buildPassed": true,
+    "processBaselineRestored": true,
+    "sourceCutsUnchanged": 38,
+    "fullSongRender": "second_attempt_failed_decoder_investigation",
+    "humanAcceptance": "pending",
+    "activeImplementationMinutes": null,
+    "activeVerificationMinutes": null
   }
 }

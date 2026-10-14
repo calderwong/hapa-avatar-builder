@@ -7,6 +7,7 @@ import {livingLightCutMedia,livingLightMediaKey,livingLightMediaTime,LIVING_LIGH
 import {newJourneyDraft,editJourneyDraft,validateDraft} from '../src/domain/living-light-journey.js';
 import {createLivingLightRegistry} from '../src/living-light/registry.js';
 import {createLivingLightService} from '../server/living-light-service.mjs';
+import {createNativeNamespace} from '../src/living-light/native.generated.js';
 import {installLivingLightMedia} from '../src/living-light/media-surfaces.js';
 const registry=createLivingLightRegistry(),thing=registry.entries.find(t=>t.capabilities.continuous);
 const project={song_id:'song:one',active_direction_script_variant:{id:'cut:one'},timeline:[{id:'shot:a',media_id:'media:a',media_title:'Same title',media_uri:'/media/a.mp4'},{id:'shot:b',media_id:'media:b',media_title:'Same title',media_uri:'/media/b.mp4'}]},sources=livingLightCutMedia(project);
@@ -41,19 +42,21 @@ test('source clock maps loop, held trim, backward seek and invalid decoder metad
 });
 test('owner save/reopen retains painted references and revisions without rewriting old choices',async()=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'ll-painted-')),actor={mode:'authenticated-api',actor:{actorId:'agent:test',kind:'agent',displayName:'Test'}},resolveSong=async()=>({id:'song:one'});let service=createLivingLightService({root,registry,resolveSong});
- try{const first=await service.saveJourney({journey:paint(draft()),expectedRevision:null,idempotencyKey:'media:first'},actor),changed=paint(first.journey,{...first.journey.mediaSlots[0],mediaRef:sources[1].ref});
+ try{const first=await service.saveJourney({journey:paint(draft()),expectedRevision:null,idempotencyKey:'media:first'},actor),changed=paint(first.journey,{...first.journey.mediaSlots[0],mediaRef:sources[1].ref,framing:{fit:'contain',crop:{x:.1,y:.2,width:.5,height:.4}}});
  const {journeyId,revisionId,parentRevisionId,...authoring}=changed;
  await service.saveJourney({journeyId,journey:authoring,expectedRevision:revisionId,idempotencyKey:'media:second'},actor);service.close();service=createLivingLightService({root,registry,resolveSong});
- assert.deepEqual(service.journey(journeyId,revisionId).journey.mediaSlots,first.journey.mediaSlots);assert.deepEqual(service.journey(journeyId).journey.mediaSlots[0].mediaRef,sources[1].ref);
+ assert.deepEqual(service.journey(journeyId,revisionId).journey.mediaSlots,first.journey.mediaSlots);assert.deepEqual(service.journey(journeyId).journey.mediaSlots[0].mediaRef,sources[1].ref);assert.deepEqual(service.journey(journeyId).journey.mediaSlots[0].framing,changed.mediaSlots[0].framing);assert.equal(first.journey.mediaSlots[0].framing,undefined);
+ const packet=service.exportPackage({kind:'journey',id:journeyId}).package;assert.deepEqual(packet.journey.mediaSlots[0].framing,changed.mediaSlots[0].framing);
+ const target=createLivingLightService({root:path.join(root,'import-target'),registry,resolveSong});try{const preview=await target.importPreview(packet);assert.equal(preview.canCommit,false);assert(preview.unresolved.some(row=>row.code==='portable_media_slots_unqualified'));await assert.rejects(target.importCommit({package:packet,previewDigest:preview.previewDigest,idempotencyKey:'framing:import'},actor),{code:'import_unresolved'});}finally{target.close();}
  }finally{service.close();await fs.rm(root,{recursive:true,force:true});}
 });
 function harness(supplied=sources,patch={}){
- const d=paint(draft()),events={},deleted=[],uploads=[],draws=[];Object.assign(d.mediaSlots[0],patch);let plays=0,pauses=0;
+ const d=paint(draft()),events={},deleted=[],uploads=[],draws=[],uniforms=[],programsDeleted=[];Object.assign(d.mediaSlots[0],patch);let plays=0,pauses=0;
  const video={muted:false,paused:true,seeking:false,readyState:2,duration:8,videoWidth:640,videoHeight:360,_time:0,get currentTime(){return this._time;},set currentTime(t){this._time=t;this.seeking=true;},addEventListener(t,f){events[t]=f;},removeEventListener(t){delete events[t];},pause(){this.paused=true;pauses++;},play(){this.paused=false;plays++;return Promise.resolve();},load(){},remove(){},removeAttribute(){}};
- const gl=new Proxy({createTexture:()=>({id:'texture'}),deleteTexture:t=>deleted.push(t),texImage2D:()=>uploads.push(video.currentTime),drawArrays:()=>draws.push(1)}, {get:(o,k)=>k in o?o[k]:(/^[A-Z_0-9]+$/.test(k)?k:()=>{})});
+ const gl=new Proxy({createShader:()=>({}),getShaderParameter:()=>true,createProgram:()=>({id:'painted-program'}),getProgramParameter:(_p,key)=>key==='LINK_STATUS'?true:0,deleteProgram:p=>programsDeleted.push(p),createTexture:()=>({id:'texture'}),deleteTexture:t=>deleted.push(t),texImage2D:()=>uploads.push(video.currentTime),drawArrays:()=>draws.push(1)}, {get:(o,k)=>k in o?o[k]:(/^[A-Z_0-9]+$/.test(k)?k:()=>{})});
  const renderer={gl,state:{_journey:true},scene:{},programs:{media:{p:{}}},quadVAO:{},drawCalls:0,drawScene:()=>({cam:{eye:[0,0,0],pv:[]},values:{}}),bind(){},texture(){}};
- const adapter=installLivingLightMedia({renderer,journey:d,sources:supplied,native:{HapaRenderer:{uniforms(){}},HapaMath:{model:()=>[]}},videoFactory:()=>video});
- return {adapter,video,events,deleted,uploads,draws,renderer,get plays(){return plays;},get pauses(){return pauses;},settle(){video.seeking=false;events.seeked?.();},frame(t,playing=false,reducedMotion=false){adapter.sync({visualUs:t,playing,reducedMotion});renderer.drawScene(t/1e6);}};
+ const native=createNativeNamespace();const adapter=installLivingLightMedia({renderer,journey:d,sources:supplied,native:{...native,HapaRenderer:{safeShader:native.HapaRenderer.safeShader,uniforms:(_gl,_program,data)=>uniforms.push(data)},HapaMath:{model:()=>[]}},videoFactory:()=>video});
+ return {adapter,video,events,deleted,uploads,draws,uniforms,programsDeleted,renderer,get plays(){return plays;},get pauses(){return pauses;},settle(){video.seeking=false;events.seeked?.();},frame(t,playing=false,reducedMotion=false){adapter.sync({visualUs:t,playing,reducedMotion});renderer.drawScene(t/1e6);}};
 }
 test('decoder follows paused seeks and reverse playback; stale frames never paint; suspension/disposal release owners',async()=>{
  const h=harness();try{h.events.loadeddata();h.frame(0);assert.equal(h.draws.length,0);h.settle();h.frame(0);assert.equal(h.draws.length,3);assert.equal(h.video.muted,true);assert.equal(h.video.volume,0);
@@ -69,4 +72,17 @@ test('missing and failed clips stay explicit and cannot masquerade as painted fr
 
 test('trim-end hold settles the shared terminal frame instead of holding the full clip end',()=>{
  const h=harness(sources,{loopPolicy:'hold'});try{h.events.loadeddata();h.video._time=4;h.video.paused=false;h.frame(6000000,true);assert.equal(h.video.paused,true);assert.equal(h.video.currentTime,3.94);assert.equal(h.draws.length,0);h.settle();h.frame(6000000,true);assert.equal(h.draws.length,3);assert.equal(h.plays,0);}finally{h.adapter.dispose();}
+});
+
+
+test('painted framing uses its own material, exact crop uniforms and owned program disposal',()=>{
+ const h=harness(sources,{framing:{fit:'contain',crop:{x:.1,y:.2,width:.5,height:.4}}}),original=h.renderer.programs.media;
+ try{h.events.loadeddata();h.frame(0);h.settle();h.frame(0);assert.equal(h.uniforms.length,3);
+  for(const u of h.uniforms){assert.deepEqual(u.uPaintSourceRect.map(v=>Math.round(v*1e6)/1e6),[.1,.4,.5,.4]);assert(u.uPaintDestinationRect[3]<1);assert.deepEqual(u.uFocal,[.5,.5]);assert.equal(u.uSourceTrim,0);}
+  assert.equal(h.renderer.programs.media,original);assert.equal(h.programsDeleted.length,0);
+ }finally{h.adapter.dispose();}assert.equal(h.programsDeleted.length,1);h.adapter.dispose();assert.equal(h.programsDeleted.length,1);
+});
+
+test('a seek event that clamps to another time cannot certify a painted frame',()=>{
+ const h=harness();try{h.events.loadeddata();h.frame(2000000);h.video._time=0;h.settle();h.frame(2000000);assert.equal(h.draws.length,0);assert.equal(h.adapter.diagnostics()[0].status,'error');assert.match(h.adapter.diagnostics()[0].message,/supports seeking/);}finally{h.adapter.dispose();}
 });

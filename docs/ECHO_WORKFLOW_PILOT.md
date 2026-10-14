@@ -759,3 +759,23 @@ execution state; Calder then explicitly approved the refresh and retry. The
 same owner command passed, and the existing UI started the managed retry. No repaired full-song output or requirement closure is
 claimed. See [protocol](living-light/DIRECTOR_CUES.md#full-song-outgoing-decoder-correction--october-14)
 and [postmortem](postmortems/2026-10-14-living-light-outgoing-decoder.md).
+
+
+## October 14 — saved painted fit and crop
+
+Placements now retain Fill/Fit and source crop through explicit edits, owner
+reopen and exact render snapshots.25 direct checks within64 affected tests,
+build,12 native pixel samples and production UI/390px checks pass. Real clips
+paint independently on portal/wall geometry; locks, swap, Undo and invalid crop
+are verified. A fixture range-serving defect exposed false seek readiness, now
+refused by the native adapter.38 prior cuts, pilot child and exact Journey remain
+unchanged. Full desktop/integrated and human acceptance stay open. See
+[contract](living-light/DIRECTOR_CUES.md#painted-fit-and-crop--october-14) and
+[checkpoint](postmortems/2026-10-14-living-light-framing.md).
+
+The approved second full-song render failed after3,774 frames at125.8s. An exact
+VideoToolbox failure reproduces; software decoding passes that interval but a
+later tail check fails on another clip at146s. Those capture-policy changes are
+uncommitted investigation, not a completed repair or successful retry. Both
+original source clips decode fully with FFmpeg. No new full render has started;
+source-preserving final-quality decoder preparation is the next critical path.
