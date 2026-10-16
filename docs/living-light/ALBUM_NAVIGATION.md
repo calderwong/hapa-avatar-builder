@@ -272,3 +272,39 @@ encoded evidence remains applicable to the separate unchanged export adapter.
 Lesson candidate: validate a seek while the decoder is stationary; tolerate
 ordinary interrupted playback without weakening rejection of a wrong picture.
 Source: Codex /root, chat `01a137cc-de1d-7511-ab65-227c92d5bca0`.
+
+
+## October 16 — LL-915 route and bookmark model accepted
+
+The four original LL-915 criteria are technically accepted. This is the route,
+owner-reference and bookmark model. LL-916 still owns the complete interactive
+travel/comfort/resource acceptance; the latest embedded-browser Workspace crash
+is unresolved and is not relabeled as a successful navigation check.
+
+| Original criterion | Authoritative evidence and scope |
+| --- | --- |
+| Three Location destinations and two tunnel edges link real album/media/Card targets with versioned metadata. | Read-only owner proof of saved Journey `ll-journey:9292b4c0-1eff-4455-b824-659f4b0d051e`, revision `ll-journey-r:7c9eb9c31cfc30226a62e5a33fe83145`, resolves all three targets: the exact 2 a.m. Lights performance cut, the saved 11:23 shot-3 Deevid clip, and Media Weave revision `ll109-source-r1`. There are three distinct destination uses and two authored edges. The modularly edited current recipe uses Tidal for two stops; earlier saved route evidence above covers Solar, Tidal and Resonance. Instances may reuse a Location definition without merging their target identities. |
+| Reuse Record Garden, Living Light identities and Overcard inspect/Hand actions without parallel stores. | Current owner proof reads the existing catalog and exact saved-cut reader; Card resolution uses the existing registry. Production navigation mounts the existing inspector and shared actions. Live saved-pilot pickup/inspection and the later persistent Calder Hand exact-Journey round trip are retained evidence. Current seven shared-Hand checks cover lazy custody, exact refs, duplicate/capacity/offline refusal, historical revisions and protected parity. No new store or media copy. |
+| Catch dangling targets, missing revisions and unsupported passages; represent direct jump and return. | Current navigation checks reject missing endpoints/revisions, unsupported bridge capability and durations outside 4–60 seconds. Record checks reject changed/missing/wrong-song targets; media and Card retain their existing owner validation. Explore tests cover explicit direct jumps, Back/Home, stop, held travel and bounded history; the actual saved route was traversed in the earlier full-app proof. |
+| Preserve song, cut, time, selection and unsaved draft independently from exploration. | The excursion controller deep-copies the exact original editing snapshot and refuses stale loads/nested visits or a dirty destination return. Journey editor retains selected use and bounded Undo/Redo separately for three visited song sessions; Explore does not change either editor. Actual 11:23 → 2 a.m. Lights → 11:23 restored the exact cut and paused 11.205453s, retained dirty lyric size105 and Journey Undo/Redo, then canceled the temporary edit back to100. Current regression explicitly retains nested selection alongside the dirty draft. Bookmark recovery remains in-tab, not a promise of crash/reload recovery. |
+
+Twenty current navigation, record-visit and shared-Hand checks pass. Added
+negative route boundaries and nested selection strengthen the criterion audit;
+no runtime implementation changed. Existing build and native evidence are reused
+for their unchanged paths. The read-only real-owner proof resolves all targets
+now; source preservation still verifies all41 prior cuts and prior Journey
+payloads. No new build/restart/render was caused by this test/documentation batch.
+
+Evidence in the source chat: `audio-bound-pilot/navigation-owner-proof.json`,
+`navigation-model-final-tests.log` and its cleanup receipt;
+`record-handoff/browser-proof.json`, `navigation-seek/browser-proof.json`,
+`hand-roundtrip/hand-verification.json`. The current audio-bound encode is still
+running and has no finished-output claim. Permanent Hand-creation package
+promotion, LL-910/916/917 acceptance and human creative review remain open.
+
+Reuse/learning: the versioned route is a projection of the saved Journey, while
+navigation position and editor selection are separate session state. Exact owner
+readback completes the metadata proof; an active encoder or successful previous
+route does not explain the later browser crash. Preserve that distinction when
+closing LL-915 and pursuing LL-916. This is a Decision/Flow-explainer candidate
+from Codex `/root`, chat `01a137cc-de1d-7511-ab65-227c92d5bca0`.

@@ -26,6 +26,9 @@ test('destination validation rejects URLs, extra fields and use on a tunnel; loc
 test('three Location map uses two original bridges; missing refs and dangling destinations refuse',()=>{
  const draft=route(),map=livingLightNavigationMap(draft,registry);assert.equal(map.locations.length,3);assert.equal(map.edges.length,2);assert.deepEqual(map.edges.map(row=>row.title),[thing('fractal-loom').title,thing('silken-current').title]);
  const bad=structuredClone(draft);bad.schedule[1].toInstanceId='missing';assert.throws(()=>livingLightNavigationMap(bad,registry),/missing endpoints/);bad.schedule[1].toInstanceId=draft.schedule[1].toInstanceId;bad.instances[0].thingRef.revisionId='latest';assert.throws(()=>livingLightNavigationMap(bad,registry),/revision/);
+ for(const span of [3999999,60000001]){const invalid=structuredClone(draft);invalid.schedule[1].endUs=invalid.schedule[1].startUs+span;assert.throws(()=>livingLightNavigationMap(invalid,registry),/unsupported duration/);}
+ const unsupported={resolveThing:reference=>{const value=registry.resolveThing(reference);return value?.capabilities.bridge?{...value,capabilities:{}}:value;}};
+ assert.throws(()=>livingLightNavigationMap(draft,unsupported),/unsupported passage/);
 });
 test('Explore travels full passages, holds without elapsed drift, returns exact bookmark and never edits the route',()=>{
  const draft=route(),before=structuredClone(draft),map=livingLightNavigationMap(draft,registry),bookmark={songId:'song:one',cutId:'cut:one',timeSeconds:17.3};let clock=0;const explorer=createLivingLightExplorer(map,{now:()=>clock,bookmark});

@@ -1,4 +1,18 @@
 {
+  "livingLightNavigationModelAcceptance20261016": {
+    "status": "technically-accepted",
+    "task": "LL-915",
+    "checks": 20,
+    "realOwnerTargetsResolved": 3,
+    "locationUses": 3,
+    "tunnelEdges": 2,
+    "runtimeChanged": false,
+    "nativeEvidence": "prior exact record/draft return, saved route, Hand roundtrip",
+    "interactiveTravelAcceptance": "LL-916 pending",
+    "workspaceCrash": "unresolved",
+    "humanAcceptance": "pending",
+    "goal": "active"
+  },
   "livingLightCertificateReopen20261016": {
     "status": "certificate-identity-repaired-retry-pending",
     "checks": 40,

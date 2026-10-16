@@ -17,7 +17,7 @@ test('changed metadata, wrong song, changed cut and missing pinned cut all refus
  let reads=0;await assert.rejects(loadLivingLightRecordDestination(target,{request:async()=>{reads++;return [{music_video_project:{...catalog[0].music_video_project,updated_at:'revision:2'}}];}}),/missing or changed/);assert.equal(reads,1);
 });
 function fixture(extra={}){
- const origin={songId:'song:origin',cutId:'cut:original',title:'Original',detail:{music_video_project:{song_id:'song:origin',timeline:[{id:'keep'}]}},workingFork:{project:{living_light_cues:[{id:'unsaved'}]}},dirty:true,timeSeconds:7,cardPlan:{revision:'draft'}};
+ const origin={songId:'song:origin',cutId:'cut:original',title:'Original',detail:{music_video_project:{song_id:'song:origin',timeline:[{id:'keep'}]}},workingFork:{project:{living_light_cues:[{id:'unsaved'}]}},selection:{instanceId:'use:chosen',cardRef:{id:'card:chosen',revision:'r:one'}},dirty:true,timeSeconds:7,cardPlan:{revision:'draft'}};
  let selected=structuredClone(origin),token='initial',busy=false;const states=[],activations=[];
  const visit=createLivingLightRecordVisit({readCurrent:()=>({snapshot:selected,token,busy}),load:async()=>({songId:'song:destination',cutId:'cut:pinned',dirty:false,timeSeconds:0}),activate:value=>{selected=value;token=value.songId;activations.push(structuredClone(value));},onState:value=>states.push(value),...extra});
  return {visit,origin,states,activations,get selected(){return selected;},set selected(value){selected=value;},set token(value){token=value;},set busy(value){busy=value;}};

@@ -935,3 +935,15 @@ checks, exact real-plan replay, build and supervised API delivery pass. The
 fresh full-song retry and Workspace crash/navigation acceptance remain open;
 no requirement closes and no edition is minted. See the
 [incident and repair](postmortems/2026-10-16-living-light-certificate-reopen.md).
+
+
+## October 16 — route and bookmark model acceptance
+
+LL-915's four original criteria are verified: a saved versioned three-stop,
+two-tunnel route resolves real album, clip and Card targets through their owners;
+existing inspect/Hand actions, exact refusals, independent navigation and retained
+editor/bookmark state are covered by20currentchecks and prior scoped native
+proof. No runtime/build change during the ongoing audio-bound encode. LL-916
+travel/comfort/resources and the latest Workspace crash remain open; no full
+interactive or human acceptance is inferred. See the
+[criterion audit and learning](living-light/ALBUM_NAVIGATION.md#october-16--ll-915-route-and-bookmark-model-accepted).
