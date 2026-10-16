@@ -810,3 +810,18 @@ Candidate remains ready-for-mint-review, edition 1 unchanged. No mint or human
 acceptance. LL-903 stays open for original remaining criteria, including explicit
 profile qualification. No application code changed, broad tests or render repeated.
 See [evidence and next batch](postmortems/2026-10-15-living-light-final-pilot.md).
+
+
+## October 15 — mixed-cut portrait export qualified
+
+The canonical editor projection produces a correctly framed 22-second Vertical
+derivative with ordinary footage, painted portal/tunnel scenes and one master
+soundtrack. All 660 encoded frames, timestamps, dimensions, exact cue boundaries
+and source hashes pass; actual encoded pictures inspected. Twenty-three focused
+tests pass, including profile mismatch and stale compiler-proof refusal. First
+study retained Landscape camera paths and is preserved as limited evidence;
+the correction uses the existing editor owner without changing runtime code.
+Owned process cleanup passes. No saved cut/Journey edit, mint or full-song
+Vertical release is claimed. LL-903 retains original dependency acceptance;
+no task count or human acceptance changes. See the
+[checkpoint](postmortems/2026-10-15-living-light-portrait-export.md).

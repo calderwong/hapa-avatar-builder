@@ -2777,5 +2777,30 @@
     "humanAcceptance": "pending",
     "activeImplementationMinutes": null,
     "activeVerificationMinutes": null
+  },
+  "livingLightPortraitExport20261015": {
+    "status": "short_mixed_vertical_verified_dependencies_open",
+    "tasks": [
+      "LL-903",
+      "LL-913"
+    ],
+    "encodedFrames": 660,
+    "durationSeconds": 22,
+    "outputProfile": "vertical",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "audioCorrelationAtZeroOffset": 0.9987603124450308,
+    "activeLivingLightFrames": 480,
+    "sourceInputsUnchanged": true,
+    "targetedTests": 23,
+    "processBaselineRestored": true,
+    "savedOwnerMutations": 0,
+    "fullSongVerticalManagedRelease": false,
+    "minted": false,
+    "humanAcceptance": "pending",
+    "activeImplementationMinutes": null,
+    "activeVerificationMinutes": null
   }
 }

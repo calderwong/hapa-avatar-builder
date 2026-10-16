@@ -799,3 +799,38 @@ and build are reused. No additional render or mint was started.
 
 See the [final pilot evidence and learning](../postmortems/2026-10-15-living-light-final-pilot.md).
 Private evidence: source chat `execution/living-light/final-pilot/`.
+
+
+## Portrait mixed-cut qualification and profile policy — October 15
+
+A 22-second isolated derivative of the saved pilot now passes actual encoded
+Vertical inspection: 1080×1920, 30 fps, 660 frames, one stereo 48 kHz AAC master,
+correct frame timestamps and exact Scene/Transition boundaries. The canonical
+editor projection rebuilds portrait camera paths while retaining all 48 media
+cards and both exact Living Light cues. Portal, tunnel, arrival and ordinary
+footage were visually inspected in the encoded file. Source inputs are unchanged.
+
+Landscape is qualified by the full managed pilot above. Vertical is qualified
+by this short mixed-cut derivative; it is not a full-song managed release.
+Square, 4K and 60 fps have no encoded qualification here. Readiness belongs to
+the exact artifact, profile, source snapshot and renderer proof. Changing the
+project profile requires a matching graph and new compiler identity; a Landscape
+certificate cannot authorize a Vertical render. Existing release inspection
+checks actual dimensions, cadence and audio against the requested profile.
+Twenty-three focused tests pass, including a new mismatched-profile/stale-proof
+regression. No application runtime code changed, so the preceding build and
+unaffected regression evidence remain applicable.
+
+The first portrait study changed output dimensions but retained Landscape
+camera paths. Its native Living Light scenes rendered correctly, while ordinary
+footage remained a wide band. That harness result is preserved as limited
+evidence. Reusing `projectToEditorGraph` corrected the study; changing protected
+camera behavior would have hidden the harness mistake. Both runs cleaned their
+owned processes. Source cut/Journey/audio were not edited; no mint occurred.
+
+LL-903 remains In Progress pending its original dependency/criteria reconciliation;
+this profile result does not add a new full-song Vertical requirement. Exact
+prepared-audio recipes, full-app modular operations and integrated acceptance
+remain separate unfinished goal work. See the
+[portrait qualification checkpoint](../postmortems/2026-10-15-living-light-portrait-export.md).
+Private evidence: source chat `execution/living-light/portrait-export/reframed/`.

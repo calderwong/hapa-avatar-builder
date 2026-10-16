@@ -35,6 +35,29 @@ test('compiler admits only an exact cut snapshot and retains default export refu
   for(const mutate of [g=>g.song.id='other',g=>g.song.durationSeconds=5,g=>g.livingLight.cues=[]]){const graph=structuredClone(f.graph);mutate(graph);assert.throws(()=>compileHyperFramesShow({...options,showGraph:graph,livingLightSnapshot:f.snapshot}));}
   const altered=structuredClone(f.snapshot);altered.recipes[0].package.journey.title='different';assert.throws(()=>compileHyperFramesShow({...options,livingLightSnapshot:altered}),/digest/);
 });
+
+test('Living Light cut profile changes require a matching graph and distinct compiler proof',async t=>{
+  const {resolveEchoOutputProfile}=await import('../src/domain/echo-output-profile.js');
+  const {preparedSongCardCompilerReady}=await import('../server/song-card-living-light.mjs');
+  const f=await fixture(t),compile=(project,graph)=>compileHyperFramesShow({project,showGraph:graph,telemetry:{fps:10,stems:[]},livingLightSnapshot:f.snapshot});
+  const landscape=compile(f.project,f.graph),profile=resolveEchoOutputProfile('vertical');
+  const project={...f.project,output_profile:profile};
+  assert.throws(()=>compile(project,f.graph),{code:'echo_output_profile_mismatch'});
+  const graph={...f.graph,outputProfile:profile,directorV2:{...f.graph.directorV2,outputProfile:profile}};
+  const vertical=compile(project,graph);
+  assert.deepEqual(vertical.outputProfile,profile);
+  assert.deepEqual(vertical.livingLight.cues,landscape.livingLight.cues);
+  assert.equal(vertical.livingLight.snapshotDigest,landscape.livingLight.snapshotDigest);
+  assert.notEqual(vertical.showHash,landscape.showHash);
+  const validation={...Object.fromEntries(['lint','inspect','cueCoverage','mediaPreflight','mediaOffline','visualizerPreflight','visualizerOffline','shaderFidelity'].map(k=>[k,'pass'])),preparedCapture:'requires-hapa-prepared-electron-v1'};
+  const report={ok:true,showHash:landscape.showHash,validation};
+  assert.equal(preparedSongCardCompilerReady(report,vertical,f.snapshot),false);
+  assert.equal(preparedSongCardCompilerReady({...report,showHash:vertical.showHash},vertical,f.snapshot),true);
+  const plan=encoding.encodingPlan({...vertical,packaging:{audio:{uri:'assets/audio/full_mix.mp3',sha256:'sha256:'+'a'.repeat(64)}}},'/package','/output');
+  assert.deepEqual([plan.width,plan.height,plan.fps],[1080,1920,30]);
+  assert.equal(f.project.output_profile,undefined);
+  assert.equal(f.graph.outputProfile,undefined);
+});
 test('packaging builds the native owner and emits UTF-8-safe exact metadata',async t=>{
   const f=await fixture(t),output=path.join(f.root,'output');let config;
   await packageHyperFramesLivingLight({snapshot:f.snapshot,packageRoot:f.root,output,root:'/owner',buildRuntime:async value=>{config=value;}});
