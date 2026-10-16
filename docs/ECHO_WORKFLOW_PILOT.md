@@ -1025,3 +1025,14 @@ This reuses the existing compiler/prepared capture owner at 8001d6d. It does not
 replace the earlier full-song master or establish full-song, portrait, complete
 lifecycle or human acceptance. No task closes. See the
 [encoded proof and limits](postmortems/2026-10-16-living-light-native-visuals.md#restored-visual-stack-encoded-pilot-excerpt-verified).
+
+
+## October 16 — native lifecycle stress follow-up
+
+Twenty full-app switches and ten leave/return cycles pass on the saved pilot.
+Ten isolated Workspace unmounts release every tracked native allocation; saved
+authoring reopens and nine graphics/preview regressions pass. Forced recovery at
+7.5 seconds/High was observed, with a separately labeled tool-output transcription.
+The test fixture now avoids duplicate React roots during development reevaluation.
+No production source changed and no requirement closes. See the
+[lifecycle evidence and its limits](postmortems/2026-10-16-living-light-first-entry.md#native-lifecycle-follow-up).

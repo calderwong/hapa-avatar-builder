@@ -72,3 +72,49 @@ Lesson candidate: treat effective registry identity and actually selected signal
 inputs as graphics lifecycle inputs. Metadata freshness and unused measurements
 must not imply a new graphics generation. Controlled isolation was useful;
 repeated broad source scans without a discriminating experiment were not.
+
+
+## Native lifecycle follow-up
+
+The built full app passed 20 quality/family/Location switches and ten Tracks →
+Living Light return cycles on the saved pilot. Each return showed one canvas,
+119–120 live native objects and zero pending paused frames. The six continuous
+families and eight Location studies were included in the switch sequence. These
+are bounded checks, not complete catalog or browser-memory acceptance.
+
+The existing isolated Workspace fixture now observes actual native GL creation
+and deletion beneath the production graphics lease. Ten component unmounts
+released every tracked object; all 11 retained diagnostic contexts had zero live
+resources after final leave. The observer deliberately retains context references
+for comparison and does not measure browser heap or total GPU memory. A deliberate
+isolated shader-constructor failure left no graphics lease; the saved fixture
+recipe reopened after remount. Nine focused graphics/preview regressions pass.
+
+Forced loss/restore was observed in the UI at paused time 7.5 seconds and High
+quality: generation 1 advanced once to 2, the resource count returned to 102, and
+paused pending frames remained zero. The authoring title remained intact. The
+full diagnostic rows for this operation were lost when the inspection helper was
+replaced; the tool-output transcription is labeled separately and is not claimed
+as an independently replayed file assertion. Complete saved-Journey recovery
+qualification remains open.
+
+The new observer exposed a harness defect before acceptance: development entry
+reevaluation called createRoot twice and abandoned a preview. The fixture now
+reuses its own root and allocation observer. A clean reload had one context. The
+initial contaminated result is retained as failed diagnostic evidence. This does
+not establish a production application leak. Another diagnostic initially selected
+the shader-fault JSON instead of runtime JSON; subsequent reads require the
+actual top-level prepared/generation fields. No acceptance uses that bad row.
+
+Evidence in the source chat workspace: native-switch-stress.json,
+native-entry-exit-stress.json, native-recovery-proof.json,
+native-recovery-final-resources.json, native-context-recovery-observation.json
+and native-lifecycle-verification.json under audio-bound-pilot. The isolated
+owner exited normally after a termination request, released its ports and
+temporary files, and returned to the process baseline. No production source or
+source media changed; no task closes. LL-010/011 and broader lifecycle, framing,
+source and human gates remain open.
+
+Lesson candidate: count actual create/delete calls beneath the resource adapter
+and check the test host's own lifecycle before attributing growth to the product.
+Keep observer limitations and incomplete evidence explicit.
