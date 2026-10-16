@@ -2870,5 +2870,22 @@
     "applicationCodeChanged": false,
     "buildEvidence": "reused-9109d05",
     "postmortem": "docs/postmortems/2026-10-15-living-light-modular-editor.md"
+  },
+  "livingLightHandRoundtrip20261015": {
+    "state": "integration-progress",
+    "ownerRepairCommit": "661c9dd",
+    "packageChecks": 106,
+    "consumerChecks": 7,
+    "build": "passed-local-candidate",
+    "permanentPackageAdoption": "pending",
+    "distinctVideoSwap": true,
+    "savedCueRevisionsIndependent": true,
+    "persistentHandRoundTrip": true,
+    "oldCutsUnchanged": 40,
+    "oldRevisionRowsUnchanged": 8,
+    "oldHandUnchanged": true,
+    "humanAcceptance": "pending",
+    "taskClosure": [],
+    "postmortem": "docs/postmortems/2026-10-15-living-light-hand-roundtrip.md"
   }
 }

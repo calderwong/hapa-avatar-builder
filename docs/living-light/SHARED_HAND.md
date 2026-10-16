@@ -29,3 +29,26 @@ The initial test Hand used revision 0, and a preset revision omitted required an
 Reusable Lesson/Decision candidate: owner identity and revision must survive the whole custody → placement → return path, and a helper test cannot establish native selection behavior. Inspect the existing Header ledger ID before adding a consumer; distinguish source birth, placement and publication truth. The original user chat remains the attributed source; this derived lesson is not a fabricated raw Turn or creative acceptance.
 
 Next acceptance work: actual full-App Echo → Preview/Tarot → Hand return, final catalog/parent criteria and dependency closure; separately, applied album stem timing and synchronized painting, Desktop delivery, later immersive work and Calder's creative review.
+
+
+## Full-app persistent Journey round trip — October 15
+
+The actual 11:23 pilot now completes Add to Hand → reload → Header pickup →
+Open held Living Light Card → exact native inspector → saved recipe study.
+Journey revision ending f08f7bd4 retains verified custody and the new portal
+video; the other two Director cues remain on revision4bce3258. All40 prior
+cuts and eight prior revision payloads are unchanged. The old shared journal
+prefix and local-operator Hand remain unchanged. No mint or publication.
+
+The test exposed a canonical bootstrap defect: the Header displayed another
+operator's Hand but Builder had no eligible active Hand, and the manager hid
+Create Personal Hand while any Hand existed. Overcard661c9dd exposes existing
+creation for the current operator without merging identities or changing
+other collections.106 package checks and7 consumer checks pass. A local
+consumer candidate built the tested UI; the original installed package and
+release locks were restored. Permanent package adoption remains open, so this
+is not a promoted release. See the [evidence, limits and recovery](../postmortems/2026-10-15-living-light-hand-roundtrip.md).
+
+The created Calder Hand uses the unchanged shared schema and remains readable
+by the old package. Keep full-App/Tarot/nonzero bookmark and remaining LL-917
+criteria separate from this verified same-Echo persisted return.

@@ -1,0 +1,11 @@
+{
+  "contract": "hapa.protocol-index/v1",
+  "owner": "hapa-avatar-builder",
+  "documents": [
+    {
+      "slug": "hapa-living-light-shared-hand-v1",
+      "title": "Living Light exact Card pickup and shared Hand round trip",
+      "path": "docs/living-light/SHARED_HAND.md"
+    }
+  ]
+}

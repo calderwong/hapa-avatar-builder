@@ -864,3 +864,17 @@ unchanged application/build evidence reused. The portal action rebinds the same
 video through another cut, so a different-video swap and Hand round trip remain
 LL-917 work. Human acceptance and broader goal remain open. See the
 [acceptance and learning](postmortems/2026-10-15-living-light-modular-editor.md).
+
+
+## October 15 — different-video swap and persistent Hand return
+
+The real pilot saves a distinct portal video in a new Journey revision and
+selects it for only the first Scene; two other cues retain their prior revision.
+All40 prior cuts/eight revision payloads remain unchanged. Apply/Undo/Redo and
+actual native painted output pass. Canonical Hand bootstrap repair661c9dd
+lets Builder create Calder's Hand while preserving the older owner collection.
+Add/reload/pickup/open returns the exact Journey with verified custody.106
+package and7 consumer checks pass, plus the Builder build. Local candidate
+delivery is verified; permanent package adoption remains open and release
+locks are unchanged. LL-917/broader goal/human creative review remain open.
+See [results and recovery](postmortems/2026-10-15-living-light-hand-roundtrip.md).
