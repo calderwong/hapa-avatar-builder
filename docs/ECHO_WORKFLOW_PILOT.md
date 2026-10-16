@@ -850,3 +850,17 @@ Locations with ready clips. Back/Home/Return retain the original cut and paused
 bookmark, one song audio and one native canvas.38 original cuts, child and
 Journey payload unchanged; no saved mutation or API restart. LL-916 and broader
 integration remain open. See [repair and learning](postmortems/2026-10-15-living-light-navigation-seek.md).
+
+
+## October 15 — full-app modular Director editing accepted
+
+LL-912 now satisfies its original editing/proposal criteria. Actual Journey
+revision, independent Location/tunnel changes, locks, incompatible mapping
+refusal, move/trim/remove, reviewed two-operation apply and atomic Undo/Redo
+were exercised in the full app. Save as new cut and fresh-page reopen preserve
+three exact cues;39 prior cuts and the prior Journey payload remain unchanged.
+Both painted clips resolve from closed source cuts.23 focused checks pass;
+unchanged application/build evidence reused. The portal action rebinds the same
+video through another cut, so a different-video swap and Hand round trip remain
+LL-917 work. Human acceptance and broader goal remain open. See the
+[acceptance and learning](postmortems/2026-10-15-living-light-modular-editor.md).

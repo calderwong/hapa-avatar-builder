@@ -848,3 +848,21 @@ current source/tests, native evidence, actual saved pilot and encoded artifacts,
 including their limits.58 focused checks pass and both master hashes match.
 No runtime change or new full render was needed. Other integration requirements,
 full-app modular/Hand acceptance and human creative review remain open.
+
+
+## Full-app modular Director acceptance — October 15
+
+LL-912 is technically accepted against its original criteria. The real pilot
+now has a separate saved child with Scene3–10s, Transition12–20s and Scene22–24s,
+all pinned to the explicitly selected modular Journey revision. Actual UI
+move/trim/swap/remove/insert, independent locks, invalid passage refusal,
+reviewed proposal and one-step Undo/Redo pass; fresh-page reopen retains the
+exact three cues.39 prior cuts and the old Journey payload are byte-identical.
+Twenty-three current focused checks pass, with unchanged build/component
+evidence reused. Both painted clips resolve from closed source cuts.
+
+The portal edit rebound the same video through a different saved cut; distinct
+video swapping and the Hand/Card round trip remain LL-917 work. Catalog and
+picker wording must not be confused with saved playback readiness. No new
+render or human acceptance is claimed. See the
+[criterion audit and recovery](../postmortems/2026-10-15-living-light-modular-editor.md).
