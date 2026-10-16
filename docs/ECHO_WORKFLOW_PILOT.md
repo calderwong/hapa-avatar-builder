@@ -1013,3 +1013,15 @@ binding were inspected afterward. All 39 focused checks and the build pass;
 removed. The low-level browser termination cause remains unproven. Full lifecycle
 acceptance and new encoded proof remain open; no requirement closes. See the
 [diagnosis, repair and bounded proof](postmortems/2026-10-16-living-light-first-entry.md).
+
+
+## October 16 — restored native visuals pass a short encoded pilot
+
+A fresh 25-second excerpt from the saved pilot's frozen inputs passes full decode,
+750 frames at 1080p/30, all three cue windows and source preservation. Encoded
+Tidal portal, Fractal Loom wall paint and Tidal reprise frames were inspected.
+Audio correlation is 0.9985697445 at zero offset; process and native cleanup pass.
+This reuses the existing compiler/prepared capture owner at 8001d6d. It does not
+replace the earlier full-song master or establish full-song, portrait, complete
+lifecycle or human acceptance. No task closes. See the
+[encoded proof and limits](postmortems/2026-10-16-living-light-native-visuals.md#restored-visual-stack-encoded-pilot-excerpt-verified).

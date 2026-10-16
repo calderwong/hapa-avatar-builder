@@ -128,3 +128,45 @@ full-song export remains attributed to its original renderer revision.
 Lesson candidate: retain both failed and successful entry sequences, and record
 which owners and protected data each comparison actually exercised. A working
 isolated fixture or warm path must not erase a failing first-entry path.
+
+## Restored visual stack: encoded pilot excerpt verified
+
+After the first-entry repair in `8001d6d`, the existing compiler and prepared
+Electron capture owner produced a fresh 25-second excerpt from the successful
+pilot's frozen inputs. No alternate renderer, certificate mutation or replacement
+of the earlier full-song master was needed. The exact three cues and two Journey
+revisions remain pinned to snapshot
+`fe716294139afb5ef93069a5c74bbf357c95d36a08db731fc62504a3aed18884`.
+The compiler's existing duration option bounds the output while preserving the
+full source snapshot and audio identity.
+
+The encoded file has 750 actual frames at 1920×1080/30 fps, with 25-second video
+and stereo AAC audio streams. Full decode, frame cadence and all three active
+cue windows pass: frames 90–299, 360–599 and 660–719 (510 Living Light frames).
+Decoded audio has 0.9985697445 zero-offset correlation with the original master.
+Every frozen source input hash is unchanged; the owner-store check also preserves
+41 prior cuts and all prior Journey payloads. Capture and inspection return to
+their process baselines; native disposal leaves no retained recipes, feature
+leases, audio contexts or animation loops. No browser errors were reported.
+
+Extracted encoded frames at 5, 16 and 23 seconds were visually inspected: the
+Tidal Observatory retains water, sculptural vessels and portal video; Fractal
+Loom retains its tunnel geometry, ribbons and painted wall video; the reprise
+returns to the Tidal environment and its separately pinned media. This is actual
+encoded-picture evidence, not merely a nonblank canvas or a compile receipt.
+It does not establish exact preview-pixel parity, all passage semantics, portrait
+output, full-song acceptance of the restored stack or human creative approval.
+
+Private evidence is under `audio-bound-pilot/restored-excerpt/` in the source chat
+workspace: `provenance.json`, `render/render-result.json`,
+`render/capture-owner-result.json`, `inspection/acceptance.json` and extracted
+frames. Sibling compile/render/inspection logs include bounded-process receipts.
+The new excerpt SHA-256 is
+`b6947618e2187a702a8b0631a2a580120e5c0fdf415ca81b111af8d60cef622c`.
+No requirement closes; the original 49-task goal and human review remain open.
+
+Lesson candidate: reuse the compiler's existing bounded-duration path to verify
+a changed native renderer against real pinned cues before a full-song encode.
+Keep the new evidence tied to its renderer revision and output duration. Routine
+local checks and render retries continue under Calder's existing authorization;
+an unchanged authorization should not be repeatedly presented for confirmation.
