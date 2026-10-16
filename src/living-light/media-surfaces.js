@@ -36,7 +36,7 @@ export function installLivingLightMedia({renderer:r,native,journey,sources=[],on
     clearTimeout(entry.timer);entry.status='ready';entry.message='Muted clip follows the recipe clock';entry.dirty=true;notify();
    }catch(e){error(e.message);}
   });
-  listen('seeked',()=>{if(disposed||entry.status!=='ready')return;if(entry.desired!==null&&Math.abs(video.currentTime-entry.desired)>.04){error('Clip could not reach the selected time. Check that its source supports seeking.');return;}clearTimeout(entry.seekTimer);entry.settled=entry.desired;entry.dirty=true;notify();});
+  listen('seeked',()=>{if(disposed||entry.status!=='ready'||!entry.pendingSeek)return;if(entry.desired!==null&&Math.abs(video.currentTime-entry.desired)>.04){error('Clip could not reach the selected time. Check that its source supports seeking.');return;}clearTimeout(entry.seekTimer);entry.pendingSeek=false;entry.settled=entry.desired;entry.dirty=true;notify();});
   entry.fail=error;
   entry.timer=setTimeout(()=>error('Clip loading timed out. Study the recipe again to retry.'),15000);
   video.src=source.uri;video.load();
@@ -47,10 +47,13 @@ export function installLivingLightMedia({renderer:r,native,journey,sources=[],on
   const discontinuity=entry.lastClockUs!==undefined&&(clockUs<entry.lastClockUs||Math.abs(clockUs-entry.lastClockUs)>250000);
   entry.lastClockUs=clockUs;entry.target=target;
   const terminal=livingLightMediaTime({...entry.slot,loopPolicy:'hold'},entry.row,Number.MAX_SAFE_INTEGER,video.duration),holding=moving&&entry.slot.loopPolicy==='hold'&&target>=terminal;
-  const needSeek=!video.seeking&&(moving&&!holding?(discontinuity||Math.abs(video.currentTime-target)>.12||video.currentTime<entry.slot.trim.inUs/1e6||video.currentTime>terminal):(entry.settled!==target&&Math.abs(video.currentTime-target)>.001));
-  if(needSeek){entry.desired=target;entry.dirty=false;clearTimeout(entry.seekTimer);entry.seekTimer=setTimeout(()=>entry.fail('Clip seek timed out. Study the recipe again to retry.'),5000);try{video.currentTime=target;}catch{entry.fail('Clip could not seek to the requested frame.');return false;}}
+  const needSeek=!entry.pendingSeek&&!video.seeking&&(moving&&!holding?(discontinuity||Math.abs(video.currentTime-target)>.12||video.currentTime<entry.slot.trim.inUs/1e6||video.currentTime>terminal):(entry.settled!==target&&Math.abs(video.currentTime-target)>.001));
+  if(needSeek){video.pause();entry.pendingSeek=true;entry.desired=target;entry.dirty=false;clearTimeout(entry.seekTimer);entry.seekTimer=setTimeout(()=>entry.fail('Clip seek timed out. Study the recipe again to retry.'),5000);try{video.currentTime=target;}catch{entry.fail('Clip could not seek to the requested frame.');return false;}}
+  // Keep the decoder still until seeked certifies the requested picture.
+  // Playback can otherwise advance before that queued event is delivered.
+  if(entry.pendingSeek||video.seeking)return false;
   if(holding)video.pause();
-  else if(moving&&video.paused&&!entry.playPending&&!entry.playDenied){entry.playPending=true;Promise.resolve(video.play()).catch(()=>{if(!disposed){entry.playDenied=true;entry.message='Clip playback was denied; pause and play again.';notify();}}).finally(()=>{entry.playPending=false;});}
+  else if(moving&&video.paused&&!entry.playPending&&!entry.playDenied){entry.playPending=true;Promise.resolve(video.play()).catch(error=>{if(!disposed&&error?.name!=='AbortError'){entry.playDenied=true;entry.message='Clip playback was denied; pause and play again.';notify();}}).finally(()=>{entry.playPending=false;});}
   else if(!moving){if(!video.paused)video.pause();entry.playDenied=false;}
   if(video.seeking||needSeek||video.readyState<2)return false;
   gl.bindTexture(gl.TEXTURE_2D,entry.texture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);

@@ -838,3 +838,15 @@ Dependency order is LL-901 and LL-913, then LL-903; no waiver or criterion chang
 The other46tasks remain in their existing states. Full-app modular editing,
 Hand/navigation, prepared audio and integrated delivery remain goal work.
 Human creative acceptance stays pending; no mint/publication.
+
+
+## October 15 — painted navigation seek repair
+
+The full-app saved tour exposed playback advancing during a pending video seek.
+The existing adapter now pauses until the exact completion event, retaining
+wrong-frame refusal and recovering intentional play interruption.41 distinct
+affected checks/build pass; the real pilot traverses both tunnels and three
+Locations with ready clips. Back/Home/Return retain the original cut and paused
+bookmark, one song audio and one native canvas.38 original cuts, child and
+Journey payload unchanged; no saved mutation or API restart. LL-916 and broader
+integration remain open. See [repair and learning](postmortems/2026-10-15-living-light-navigation-seek.md).

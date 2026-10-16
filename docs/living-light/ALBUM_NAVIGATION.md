@@ -1,7 +1,8 @@
 # Living Light album destinations and Explore
 
-Status: first-pass source/component checkpoint, October 14, 2026. The complete
-album navigation and Director/export integration goal remains active.
+Status: prototype; saved real-album route and moving painted decoder verified
+October 15, 2026. Persistent Hand and full modular acceptance remain open.
+Dated checkpoints below preserve the earlier evidence and limitations.
 
 ## Operator flow
 
@@ -237,3 +238,37 @@ mixed encoded output (LL-903) is next. General final export and preview recordin
 still explicitly refuse Living Light cues. Prepared-signal recovery, persistent
 Hand placement, proposal parity, broad visual/comfort acceptance and human
 creative review remain open; the full integration goal stays active.
+
+
+## Moving painted clips during Explore — October 15 repair
+
+A full-app pass found a moving-decoder race during Media Weave travel. The
+video continued playing while seeking, so its clock could advance beyond the
+requested picture before the queued `seeked` event validated the 40 ms bound.
+The existing media adapter now pauses before each seek and waits for its exact
+completion event before resuming against the current Journey clock. A cleared
+`video.seeking` flag alone cannot restart playback or paint. An intentionally
+interrupted play promise can resume; an actual playback denial remains explicit.
+The wrong-time/clamped-source guard and five-second seek timeout are retained.
+
+41 distinct affected checks and the production build pass. The new moving-seek
+regression fails on the preceding implementation. Canonical full-app verification
+reopened the saved pilot and traversed Solar Reliquary → Media Weave → Tidal
+Observatory → Silken Current → Resonance Vault with both painted clips ready.
+Back returned to Tidal, Home to Solar, and Return to song restored the original
+cut at paused 0 seconds. One audio element and one native canvas were present;
+38 original cuts, the pilot child and exact Journey payload remain unchanged.
+The served bundle matches the rebuilt entry; no API restart or source-store
+mutation was needed for this client-only repair.
+
+The first earlier inspection tab crashed; one replacement run recovered, and
+the repair verification had no crash. The crash's cause remains unknown.
+Native screenshots and readbacks are in the source chat's
+`execution/living-light/navigation-seek/`. This is scoped route/decoder evidence,
+not persistent Hand roundtrip or complete modular editing acceptance. LL-916
+and the full goal remain open; human creative acceptance is pending. Existing
+encoded evidence remains applicable to the separate unchanged export adapter.
+
+Lesson candidate: validate a seek while the decoder is stationary; tolerate
+ordinary interrupted playback without weakening rejection of a wrong picture.
+Source: Codex /root, chat `01a137cc-de1d-7511-ab65-227c92d5bca0`.

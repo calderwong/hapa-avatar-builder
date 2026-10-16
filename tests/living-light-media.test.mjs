@@ -86,3 +86,37 @@ test('painted framing uses its own material, exact crop uniforms and owned progr
 test('a seek event that clamps to another time cannot certify a painted frame',()=>{
  const h=harness();try{h.events.loadeddata();h.frame(2000000);h.video._time=0;h.settle();h.frame(2000000);assert.equal(h.draws.length,0);assert.equal(h.adapter.diagnostics()[0].status,'error');assert.match(h.adapter.diagnostics()[0].message,/supports seeking/);}finally{h.adapter.dispose();}
 });
+
+test('moving tunnel seeks hold playback until the exact seek event, then resume at the current clock',async()=>{
+ const h=harness();try{
+  h.events.loadeddata();h.frame(0);h.settle();h.frame(0,true);await Promise.resolve();await Promise.resolve();
+  assert.equal(h.video.paused,false);
+  h.frame(2000000,true);const painted=h.draws.length;
+  assert.equal(h.video.paused,true,'a playing decoder must stop before seeking');
+  // A browser may clear seeking before dispatching seeked. A render tick in
+  // that gap must not restart playback or upload an uncertified picture.
+  h.video.seeking=false;h.frame(2010000,true);
+  assert.equal(h.video.paused,true);assert.equal(h.draws.length,painted);
+  h.settle();h.frame(2020000,true);
+  assert.equal(h.adapter.diagnostics()[0].status,'ready');assert.equal(h.video.paused,false);
+  assert.equal(h.draws.length,painted+3);
+  // A natural clip loop must obey the same boundary as a route jump.
+  h.video._time=3.94;h.frame(3000000,true);
+  assert.equal(h.video.paused,true);h.settle();h.frame(3000000,true);
+  assert.equal(h.adapter.diagnostics()[0].status,'ready');
+ }finally{h.adapter.dispose();}
+});
+
+test('seek-interrupted play can resume while an actual playback denial stays explicit',async()=>{
+ for(const name of ['AbortError','NotAllowedError']){
+  const h=harness();try{
+   h.events.loadeddata();h.frame(0);h.settle();let rejectPlay;
+   h.video.play=()=>{h.video.paused=false;return new Promise((_resolve,reject)=>{rejectPlay=reject;});};
+   h.frame(0,true);h.frame(2000000,true);
+   rejectPlay(Object.assign(new Error('play rejected'),{name}));await Promise.resolve();await Promise.resolve();
+   h.settle();h.frame(2000000,true);
+   assert.equal(h.video.paused,name==='NotAllowedError');
+   assert.equal(h.adapter.diagnostics()[0].message.includes('denied'),name==='NotAllowedError');
+  }finally{h.adapter.dispose();}
+ }
+});
