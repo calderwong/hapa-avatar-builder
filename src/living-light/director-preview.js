@@ -54,7 +54,7 @@ export function createEchoLivingLightPreview({canvas,cues,songId,durationUs,reso
   if(disposed||suspended||!runtime||packet?.directorCueId!==activeCue?.cueId)return false;
   try{
    const painted=runtime.render(packet),diagnostic=runtime.diagnostics(),media=diagnostic.media||[];
-   const waiting=media.filter(row=>row.status!=='ready'||!row.paintReady);
+   const waiting=media.filter(row=>row.required!==false&&(row.status!=='ready'||!row.paintReady));
    publish({state:painted?'ready':'unavailable',cueId:activeCue.cueId,role:activeCue.role,message:!painted?'Selected audio choices are unavailable.':waiting.length?'Journey active · painted clips: '+waiting.map(row=>row.message).join(' · '):diagnostic.features==='unavailable'?'Journey active · authored motion':'Journey active · prepared song response',mediaReady:waiting.length===0});
    if(painted){const entry=entries.get(key(activeCue));onFrame({cue:activeCue,journey:entry.journey,registry:entry.registry,visualUs:packet.visualUs,songUs:packet.directorSongUs});}
    return painted;
@@ -67,7 +67,7 @@ export function createEchoLivingLightPreview({canvas,cues,songId,durationUs,reso
    const state=JSON.parse(lastState||'{}'),failed=state.state==='unavailable'||disposed||suspended;
    throw Object.assign(Error('Living Light frame is unavailable. '+(failed&&state.message?state.message:'Wait for the exact Journey before recording.')),{code:failed?'living_light_capture_failed':'living_light_capture_waiting'});
   }
-  if((runtime.diagnostics().media||[]).some(row=>row.status!=='ready'||!row.paintReady))throw Object.assign(Error('A painted Living Light clip is not ready at this song time.'),{code:(runtime.diagnostics().media||[]).some(row=>['error','unresolved'].includes(row.status))?'living_light_capture_failed':'living_light_capture_waiting'});
+  if((runtime.diagnostics().media||[]).some(row=>row.required!==false&&(row.status!=='ready'||!row.paintReady)))throw Object.assign(Error('A painted Living Light clip is not ready at this song time.'),{code:(runtime.diagnostics().media||[]).some(row=>row.required!==false&&['error','unresolved'].includes(row.status))?'living_light_capture_failed':'living_light_capture_waiting'});
   // WebGL buffers may clear after presentation. Copy synchronously after render.
   paint(canvas);
   return {cueId:hit.cue.cueId,journeyRef:structuredClone(hit.cue.journeyRef),songUs:packet.directorSongUs,visualUs:packet.visualUs};

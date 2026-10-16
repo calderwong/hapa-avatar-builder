@@ -98,7 +98,7 @@ export function createLivingLightRuntime({canvas,registry=createLivingLightRegis
  function resize({width,height}){assertLive();if(!Number.isFinite(width)||!Number.isFinite(height)||width<1||height<1||width>3840||height>3840)throw Error('Invalid viewport');lastPaint=null;renderer?.resize(width,height);}
  function captureStill(){
   assertLive();if(!renderer||suspended||!lastPaint||lastPaint.generation!==generation)throw Error('Paint a current available frame before capturing.');
-  if(media?.diagnostics().some(entry=>entry.status!=='ready'||!entry.paintReady))throw Error('Wait for every painted clip to resolve and decode at this time before capturing.');
+  if(media?.diagnostics().some(entry=>entry.required!==false&&(entry.status!=='ready'||!entry.paintReady)))throw Error('Wait for every painted clip to resolve and decode at this time before capturing.');
   const output=stillCanvasFactory();output.width=320;output.height=180;
   try{
    const context=output.getContext('2d');if(!context)throw Error('Still capture is unavailable.');
@@ -116,5 +116,5 @@ export function createLivingLightRuntime({canvas,registry=createLivingLightRegis
  function restore(){assertLive();if(!prepared)throw Error('Nothing to restore');dropRenderer();generation++;suspended=false;try{makeRenderer();}catch(error){drop();prepared=null;throw error;}return diagnostics();}
  function diagnostics(){return {prepared:!!renderer,disposed,suspended,generation,canvasCount:renderer?1:0,ownedAudioContexts:0,ownedAnimationLoops:0,media:media?.diagnostics()||[],features:signalRouter?'exact-asset-port-response':featureLease?'exact-assets-master-response':masterBank?'basic-master-rms':'unavailable',featureEvidence:featureLease?.identity||masterBank?.identity||null,assetEvidence:featureLease?.assets()||null,signalRouting:signalRouter?.evaluate(heldVisualUs??lastSourceUs,heldSignalUs??lastSignalUs)||null,tourEvidence:prepared?.tourEvidence||null,environment:renderer?.environment||null,graphicsLease:graphicsLease?.diagnostics()||null,resources:renderer?{programs:Object.keys(renderer.programs).length,buffers:renderer.buffers.length,vaos:renderer.vaos.length,targets:renderer.targets.length}:null,route:renderer?.routeTelemetry||null};}
  function dispose(){if(disposed)return;drop();state=null;cache=null;prepared=null;disposed=true;}
- return {idle(){media?.suspend();},resetMotion(){heldVisualUs=null;heldSignalUs=null;hasEvaluated=false;lastPaint=null;},prepare,evaluate,render,resize,captureStill,captureReferenceStill,suspend,restore,dispose,diagnostics};
+ return {idle(){lastPaint=null;if(media?.idle)media.idle();else media?.suspend();},resetMotion(){heldVisualUs=null;heldSignalUs=null;hasEvaluated=false;lastPaint=null;},prepare,evaluate,render,resize,captureStill,captureReferenceStill,suspend,restore,dispose,diagnostics};
 }

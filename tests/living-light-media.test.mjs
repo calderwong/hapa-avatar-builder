@@ -56,6 +56,7 @@ function harness(supplied=sources,patch={}){
  const gl=new Proxy({createShader:()=>({}),getShaderParameter:()=>true,createProgram:()=>({id:'painted-program'}),getProgramParameter:(_p,key)=>key==='LINK_STATUS'?true:0,deleteProgram:p=>programsDeleted.push(p),createTexture:()=>({id:'texture'}),deleteTexture:t=>deleted.push(t),texImage2D:()=>uploads.push(video.currentTime),drawArrays:()=>draws.push(1)}, {get:(o,k)=>k in o?o[k]:(/^[A-Z_0-9]+$/.test(k)?k:()=>{})});
  const renderer={gl,state:{_journey:true},scene:{},programs:{media:{p:{}}},quadVAO:{},drawCalls:0,drawScene:()=>({cam:{eye:[0,0,0],pv:[]},values:{}}),bind(){},texture(){}};
  const native=createNativeNamespace();const adapter=installLivingLightMedia({renderer,journey:d,sources:supplied,native:{...native,HapaRenderer:{safeShader:native.HapaRenderer.safeShader,uniforms:(_gl,_program,data)=>uniforms.push(data)},HapaMath:{model:()=>[]}},videoFactory:()=>video});
+ adapter.sync({visualUs:0,playing:false});
  return {adapter,video,events,deleted,uploads,draws,uniforms,programsDeleted,renderer,get plays(){return plays;},get pauses(){return pauses;},settle(){video.seeking=false;events.seeked?.();},frame(t,playing=false,reducedMotion=false){adapter.sync({visualUs:t,playing,reducedMotion});renderer.drawScene(t/1e6);}};
 }
 test('decoder follows paused seeks and reverse playback; stale frames never paint; suspension/disposal release owners',async()=>{

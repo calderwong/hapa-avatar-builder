@@ -5,6 +5,20 @@ import {createEchoLivingLightCue} from '../src/domain/echo-living-light-editor.j
 const recipe=(id='one')=>({journeyId:'journey:'+id,revisionId:'revision:1',songId:'song:1',sourceBindingRef:null,schedule:[{instanceId:'a',startUs:0,endUs:2e6}],instances:[],mediaSlots:[]});
 const cue=(id,startUs=1e6)=>createEchoLivingLightCue({journey:recipe(id),cueId:'cue:'+id,startUs});
 const flush=async()=>{for(let i=0;i<10;i++)await Promise.resolve();};
+test('capture waits only for required painted surfaces; visible failures still refuse',async()=>{
+ let media=[{required:false,status:'idle',paintReady:false},{required:false,status:'error',paintReady:false}];
+ const f=fixture(undefined,{runtimeFactory:()=>({prepare(){},evaluate:p=>({...p,visualUs:p.timelineUs}),render:()=>true,diagnostics:()=>({media}),dispose(){}})});
+ try{
+  f.host.evaluate({timelineUs:1e6});await flush();let copied=0;
+  assert(f.host.capture({timelineUs:1e6},()=>copied++));assert.equal(copied,1);
+  media=[{required:true,status:'loading',paintReady:false}];
+  assert.throws(()=>f.host.capture({timelineUs:1e6},()=>assert.fail()),{code:'living_light_capture_waiting'});
+  media=[{required:true,status:'error',paintReady:false}];
+  assert.throws(()=>f.host.capture({timelineUs:1e6},()=>assert.fail()),{code:'living_light_capture_failed'});
+  media=[{required:true,status:'ready',paintReady:true}];
+  assert(f.host.capture({timelineUs:1e6},()=>copied++));assert.equal(copied,2);
+ }finally{f.host.dispose();}
+});
 function fixture(cues=[cue('one')],extra={}){
  const states=[],prepared=[],frames=[],dead=[],live=new Set(),requests=[];let invalidations=0;
  const host=createEchoLivingLightPreview({canvas:{},cues,songId:'song:1',durationUs:10e6,resolveJourney:async ref=>{requests.push(ref);return recipe(ref.journeyId.split(':')[1]);},resolveRegistry:async()=>({}),onState:s=>states.push(s),onInvalidate:()=>invalidations++,runtimeFactory:()=>{const id=live.size;live.add(id);return {prepare:p=>prepared.push(p),evaluate:p=>({...p,visualUs:p.timelineUs,generation:1}),render:p=>{frames.push(p);return true;},diagnostics:()=>({generation:2,features:'unavailable',media:[]}),suspend(){},restore(){},dispose(){dead.push(id);live.delete(id);}};},...extra});

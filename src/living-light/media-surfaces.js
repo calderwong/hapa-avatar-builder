@@ -6,6 +6,8 @@ import {livingLightMediaKey,livingLightMediaTime,livingLightMediaFrameRects} fro
 export function installLivingLightMedia({renderer:r,native,journey,sources=[],onChange=()=>{},videoFactory=()=>document.createElement('video')}){
  const gl=r.gl,entries=[],previousDraw=r.drawScene.bind(r);let disposed=false,clockUs=0,playing=false,paintProgram=null;
  const notify=()=>{if(!disposed)onChange();};
+ let notificationQueued=false;
+ const notifyLater=()=>{if(notificationQueued||disposed)return;notificationQueued=true;queueMicrotask(()=>{notificationQueued=false;notify();});};
  const activeRow=()=>journey.schedule.find(row=>clockUs>=row.startUs&&clockUs<row.endUs)||journey.schedule.at(-1);
  function visibleInstance(){
   const row=activeRow();
@@ -17,18 +19,27 @@ export function installLivingLightMedia({renderer:r,native,journey,sources=[],on
   clearTimeout(entry.timer);clearTimeout(entry.seekTimer);const video=entry.video;
   if(video){for(const [type,fn]of entry.listeners)video.removeEventListener(type,fn);video.pause();video.removeAttribute('src');video.load();video.remove();}
   if(entry.texture)gl.deleteTexture(entry.texture);
+  entry.video=null;entry.texture=null;entry.listeners=[];entry.paintReady=false;
+  entry.pendingSeek=false;entry.playPending=false;entry.playDenied=false;entry.desired=null;entry.settled=null;
+  entry.lastClockUs=undefined;entry.target=null;
+  if(!['error','unresolved'].includes(entry.status)){entry.status='idle';entry.message='Clip waits for its Location or tunnel.';}
  }
- try{for(const slot of journey.mediaSlots.filter(s=>s.enabled)){
+ for(const slot of journey.mediaSlots.filter(s=>s.enabled)){
   const source=sources.find(s=>livingLightMediaKey(s.ref)===livingLightMediaKey(slot.mediaRef));
   const row=journey.schedule.find(row=>row.instanceId===slot.surfaceRef.instanceId);
-  const entry={slot,row,status:source?'loading':'unresolved',message:source?'Loading clip…':'Open the exact source cut, or explicitly replace this clip.',listeners:[],video:null,texture:null,desired:null,settled:null,dirty:false};entries.push(entry);
-  if(!source)continue;
+  entries.push({slot,row,source,status:source?'idle':'unresolved',message:source?'Clip waits for its Location or tunnel.':'Open the exact source cut, or explicitly replace this clip.',listeners:[],video:null,texture:null,desired:null,settled:null,dirty:false,required:false});
+ }
+ function start(entry){
+  if(entry.video||!entry.source||entry.status==='error')return;
+  entry.status='loading';entry.message='Loading clip…';
+  const {slot,row}=entry;
   const video=videoFactory();entry.video=video;video.muted=true;video.defaultMuted=true;video.volume=0;video.playsInline=true;video.preload='auto';video.crossOrigin='anonymous';video.loop=false;
   const listen=(type,fn)=>{entry.listeners.push([type,fn]);video.addEventListener(type,fn);};
-  const error=message=>{if(disposed)return;clearTimeout(entry.timer);clearTimeout(entry.seekTimer);video.pause();entry.paintReady=false;entry.status='error';entry.message=message;notify();};
+  const live=()=>!disposed&&entry.video===video;
+  const error=message=>{if(!live())return;clearTimeout(entry.timer);clearTimeout(entry.seekTimer);video.pause();entry.paintReady=false;entry.status='error';entry.message=message;notify();};
   listen('error',()=>error('Clip could not decode. Placement retained; choose another source.'));
   listen('loadeddata',()=>{
-   if(disposed||entry.status!=='loading')return;
+   if(!live()||entry.status!=='loading')return;
    try{livingLightMediaTime(slot,row,row.startUs,video.duration);if(!(video.videoWidth>0&&video.videoHeight>0))throw Error('Clip has no decoded picture.');
     entry.texture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,entry.texture);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
@@ -36,13 +47,36 @@ export function installLivingLightMedia({renderer:r,native,journey,sources=[],on
     clearTimeout(entry.timer);entry.status='ready';entry.message='Muted clip follows the recipe clock';entry.dirty=true;notify();
    }catch(e){error(e.message);}
   });
-  listen('seeked',()=>{if(disposed||entry.status!=='ready'||!entry.pendingSeek)return;if(entry.desired!==null&&Math.abs(video.currentTime-entry.desired)>.04){error('Clip could not reach the selected time. Check that its source supports seeking.');return;}clearTimeout(entry.seekTimer);entry.pendingSeek=false;entry.settled=entry.desired;entry.dirty=true;notify();});
+  listen('seeked',()=>{if(!live()||entry.status!=='ready'||!entry.pendingSeek)return;if(entry.desired!==null&&Math.abs(video.currentTime-entry.desired)>.04){error('Clip could not reach the selected time. Check that its source supports seeking.');return;}clearTimeout(entry.seekTimer);entry.pendingSeek=false;entry.settled=entry.desired;entry.dirty=true;notify();});
   entry.fail=error;
   entry.timer=setTimeout(()=>error('Clip loading timed out. Study the recipe again to retry.'),15000);
-  video.src=source.uri;video.load();
- }}catch(error){for(const entry of entries)destroy(entry);throw error;}
+  video.src=entry.source.uri;video.load();
+ }
+ function reconcile(packet){
+  const before=entries.map(e=>[e.required,!!e.video,e.status]);
+  const row=activeRow(),required=new Set([row.instanceId]),resident=new Set(required);
+  if(row.fromInstanceId){
+   const phase=packet?.frame;
+   // Match the native renderer's outgoing/tunnel and tunnel/incoming passes.
+   // Without phase evidence retain both endpoints conservatively.
+   if(phase?.quiet){required.clear();resident.clear();required.add(row.fromInstanceId);required.add(row.toInstanceId);}
+   else if(phase?.active&&Number.isFinite(phase.u)&&Number.isFinite(phase.entry)){
+    required.add(phase.u<phase.entry?row.fromInstanceId:row.toInstanceId);
+   }else{required.add(row.fromInstanceId);required.add(row.toInstanceId);}
+   for(const id of required)resident.add(id);
+  }else{
+   const next=journey.schedule[journey.schedule.indexOf(row)+1];
+   if(next)resident.add(next.instanceId);
+  }
+  // Release before acquiring, including direct jumps and reverse seeks.
+  for(const entry of entries){entry.required=required.has(entry.slot.surfaceRef.instanceId);if(!resident.has(entry.slot.surfaceRef.instanceId))destroy(entry);}
+  try{for(const entry of entries)if(resident.has(entry.slot.surfaceRef.instanceId))start(entry);}
+  catch(error){for(const entry of entries)destroy(entry);throw error;}
+  if(entries.some((e,i)=>e.required!==before[i][0]||!!e.video!==before[i][1]||e.status!==before[i][2]))notifyLater();
+ }
+ // Source time is not known during preparation. The first frame owns acquisition.
  function sync(entry){
-  const video=entry.video;if(entry.status!=='ready')return false;
+  const video=entry.video;if(!video||entry.status!=='ready')return false;
   const target=livingLightMediaTime(entry.slot,entry.row,clockUs,video.duration),moving=playing&&clockUs>=entry.row.startUs&&clockUs<entry.row.endUs;
   const discontinuity=entry.lastClockUs!==undefined&&(clockUs<entry.lastClockUs||Math.abs(clockUs-entry.lastClockUs)>250000);
   entry.lastClockUs=clockUs;entry.target=target;
@@ -53,7 +87,7 @@ export function installLivingLightMedia({renderer:r,native,journey,sources=[],on
   // Playback can otherwise advance before that queued event is delivered.
   if(entry.pendingSeek||video.seeking)return false;
   if(holding)video.pause();
-  else if(moving&&video.paused&&!entry.playPending&&!entry.playDenied){entry.playPending=true;Promise.resolve(video.play()).catch(error=>{if(!disposed&&error?.name!=='AbortError'){entry.playDenied=true;entry.message='Clip playback was denied; pause and play again.';notify();}}).finally(()=>{entry.playPending=false;});}
+  else if(moving&&video.paused&&!entry.playPending&&!entry.playDenied){entry.playPending=true;Promise.resolve(video.play()).catch(error=>{if(!disposed&&entry.video===video&&error?.name!=='AbortError'){entry.playDenied=true;entry.message='Clip playback was denied; pause and play again.';notify();}}).finally(()=>{if(entry.video===video)entry.playPending=false;});}
   else if(!moving){if(!video.paused)video.pause();entry.playDenied=false;}
   if(video.seeking||needSeek||video.readyState<2)return false;
   gl.bindTexture(gl.TEXTURE_2D,entry.texture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
@@ -74,9 +108,10 @@ export function installLivingLightMedia({renderer:r,native,journey,sources=[],on
  // the original generic drawMedia hook. The final optical pass remains native.
  r.drawScene=function(time){const frame=previousDraw(time),id=visibleInstance();for(const entry of entries)if(entry.slot.surfaceRef.instanceId===id&&entry.paintReady)paint(frame,entry);return frame;};
  return {
-  sync(packet){clockUs=packet.visualUs;playing=packet.playing&&!packet.reducedMotion;for(const entry of entries)entry.paintReady=sync(entry);},
+  sync(packet){clockUs=packet.visualUs;playing=packet.playing&&!packet.reducedMotion;reconcile(packet);for(const entry of entries)entry.paintReady=sync(entry);},
   suspend(){playing=false;for(const e of entries)e.video?.pause();},
-  diagnostics:()=>entries.map(e=>({surface:e.slot.surfaceRef,mediaRef:e.slot.mediaRef,status:e.status,message:e.message,paintReady:!!e.paintReady,targetSeconds:e.target??null,decodedSeconds:e.video?.currentTime??null,muted:e.video?.muted??true,paused:e.video?.paused??true})),
+  idle(){playing=false;const changed=entries.some(e=>e.required||e.video);for(const e of entries){e.required=false;destroy(e);}if(changed)notifyLater();},
+  diagnostics:()=>entries.map(e=>({surface:e.slot.surfaceRef,mediaRef:e.slot.mediaRef,status:e.status,required:e.required,resident:!!e.video,message:e.message,paintReady:!!e.paintReady,targetSeconds:e.target??null,decodedSeconds:e.video?.currentTime??null,muted:e.video?.muted??true,paused:e.video?.paused??true})),
   dispose(){if(disposed)return;disposed=true;r.drawScene=previousDraw;for(const entry of entries)destroy(entry);if(paintProgram){gl.deleteProgram(paintProgram.p);paintProgram=null;}}
  };
 }
