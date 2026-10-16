@@ -796,3 +796,17 @@ inventory assertion remains failing and is recorded, not waived or repaired here
 other profiles/bound sources and human acceptance remain open. See
 [protocol](living-light/DIRECTOR_CUES.md#lossless-prepared-video-sources--october-14)
 and [checkpoint](postmortems/2026-10-14-living-light-lossless-export.md).
+
+
+## October 15 — full managed Living Light pilot verified
+
+The existing saved pilot completed managed export and release QA. Its bound
+1920×1080/30 fps master contains 4,910 frames, lasts 163.666667 seconds and has
+one stereo AAC track. Source/output audio correlation is 0.995645 at zero lag;
+cadence, full decode, composition and poster checks pass. Six encoded frames,
+including portal/tunnel and prior failures, were inspected. Master/poster hashes,
+38 old cuts, child, Journey and source audio verified; process baseline restored.
+Candidate remains ready-for-mint-review, edition 1 unchanged. No mint or human
+acceptance. LL-903 stays open for original remaining criteria, including explicit
+profile qualification. No application code changed, broad tests or render repeated.
+See [evidence and next batch](postmortems/2026-10-15-living-light-final-pilot.md).

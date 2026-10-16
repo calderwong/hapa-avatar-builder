@@ -775,3 +775,27 @@ exact Journey remain unchanged. Full managed encoded release, additional
 profiles/bound-source qualification and human creative acceptance remain open.
 Evidence: source chat `execution/living-light/lossless-export/`; see the
 [decoder checkpoint](../postmortems/2026-10-14-living-light-lossless-export.md).
+
+
+## Full managed landscape pilot — October 15
+
+The saved “11:23 Meant to Meet, Thu?” neutral Journey pilot completed the managed
+Builder export on October 14 and was independently inspected on October 15.
+The bound artifact is H.264 1920×1080 at 30 fps, 4,910 encoded frames and
+163.666667 seconds, with one stereo 48 kHz AAC master track. The 4,911 capture
+requests are distinct from final encoded-frame count; the final duration is
+13.333 ms shorter than the source, within existing release tolerance. Release
+QA passes full decode, cadence, source audio lineage (0.995645 correlation,
+zero best lag), composition and poster checks. No black/frozen spans detected.
+
+Exact owner status is `ready-for-mint-review`; edition 1 remains unchanged.
+Master/poster hashes were verified, and six actual encoded frames cover painted
+portal/tunnel scenes, prior failure positions and the tail. Original 38 cuts,
+saved child, exact Journey and master audio are unchanged. This qualifies this
+landscape artifact, not every profile, bound-source recipe or creative choice.
+LL-903 and the full goal remain open for their original remaining criteria.
+No application code changed in this evidence checkpoint; prior affected checks
+and build are reused. No additional render or mint was started.
+
+See the [final pilot evidence and learning](../postmortems/2026-10-15-living-light-final-pilot.md).
+Private evidence: source chat `execution/living-light/final-pilot/`.

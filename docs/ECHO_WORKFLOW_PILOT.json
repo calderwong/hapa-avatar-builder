@@ -2749,5 +2749,33 @@
     "humanAcceptance": "pending",
     "activeImplementationMinutes": null,
     "activeVerificationMinutes": null
+  },
+  "livingLightManagedLandscapePilot20261015": {
+    "status": "landscape_artifact_verified_remaining_criteria_open",
+    "tasks": [
+      "LL-903"
+    ],
+    "encodedFrames": 4910,
+    "captureFrameRequests": 4911,
+    "durationSeconds": 163.666667,
+    "outputProfile": "landscape",
+    "releaseQaPassed": true,
+    "audioBestLagSeconds": 0,
+    "audioCorrelation": 0.9956453745223401,
+    "inspectedEncodedFrames": [
+      120,
+      450,
+      3774,
+      4380,
+      4587,
+      4908
+    ],
+    "sourceCutsUnchanged": 38,
+    "sourceAudioUnchanged": true,
+    "processBaselineRestored": true,
+    "minted": false,
+    "humanAcceptance": "pending",
+    "activeImplementationMinutes": null,
+    "activeVerificationMinutes": null
   }
 }
