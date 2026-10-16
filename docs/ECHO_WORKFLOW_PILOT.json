@@ -1,4 +1,34 @@
 {
+  "livingLightNativeWarmProof20261016": {
+    "status": "in_progress",
+    "sourceCommit": "91a81d1",
+    "requirements": [
+      "LL-011",
+      "LL-012",
+      "LL-916"
+    ],
+    "verified": [
+      "saved pilot warm entry",
+      "Tidal portal paint",
+      "Fractal wall clip during travel",
+      "decoder release on arrival",
+      "Silken corridor visual",
+      "Follow Director prepared scene at 9.467513s"
+    ],
+    "remaining": [
+      "initial-entry crash root cause and repair",
+      "short encoded restored-visual proof",
+      "complete compatibility and lifecycle acceptance"
+    ],
+    "sourcePreservation": {
+      "priorCutsUnchanged": 41,
+      "allPriorJourneyPayloadsUnchanged": true
+    },
+    "applicationSourceChanged": false,
+    "requirementsClosed": [],
+    "humanAcceptance": "pending",
+    "postmortem": "docs/postmortems/2026-10-16-living-light-native-visuals.md"
+  },
   "livingLightNativeVisualRepair20261016": {
     "state": "prepared-pilot-passed-native-visual-repair-verified",
     "taskIds": [

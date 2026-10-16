@@ -86,3 +86,45 @@ crash page. No real painted-Journey acceptance of this new visual stack is
 claimed. The saved-cut/Journey preservation check still passes. Next work must
 resolve this integrated transition and qualify new encoded output; isolated
 catalog success cannot close those gates.
+
+## Full-app follow-up: warm entry works; first entry remains unresolved
+
+Later inspection narrows the preceding failure report. A fresh built-app pilot
+entry failed again, but opening Living Light on the adjacent song and then
+selecting the pilot succeeded. This is evidence for the already-mounted path,
+not a fix or acceptance of first entry. No application source changes were made
+during this diagnostic pass.
+
+On the actual saved pilot, Study this recipe showed the restored Tidal
+Observatory water/wind/stage layers and the selected clip painted in its portal.
+One canvas and all 14 visual installers were present. Fractal Loom travel played
+its muted wall clip while retaining the outgoing portal frame. Arrival released
+both decoders and left zero pending preview frames. Silken Current visibly
+rendered its ribbon corridor toward Resonance Vault. Return to song restored the
+paused bookmark, and Follow Director displayed the prepared-response scene at
+9.467513 seconds. These are bounded observations of the saved route, not all
+passages, all transitions or long-duration resource acceptance.
+
+Evidence in the source chat workspace: `restored-full-app-study.json/.png`,
+`restored-full-app-moving.json`, `restored-full-app-arrival.json`,
+`restored-full-app-silken.png`, and `restored-full-app-director.json/.png`.
+The preservation check again confirms 41 prior cuts and all prior Journey
+payloads unchanged, including the other two cues and painted-media route.
+
+The synthetic Workspace also worked in development and minified production.
+A temporary same-origin Workspace with the actual draft, three cues, 45 media
+choices and source metadata loaded successfully. An alternate-port full-app
+probe could not read protected audio because of the existing origin boundary;
+it is not full-app acceptance. Temporary fixtures, probe output and the bounded
+debug server were removed after inspection. No origin/security settings changed.
+
+Root cause remains unproven. The difference between initial entry and an already
+mounted Workspace is the next diagnostic target; a parent lifecycle or loading
+race is a hypothesis. Generic minification failure is not supported by these
+comparisons. Short encoded proof with the restored visuals, first-entry repair,
+figure loading and the remaining compatibility criteria stay open. The earlier
+full-song export remains attributed to its original renderer revision.
+
+Lesson candidate: retain both failed and successful entry sequences, and record
+which owners and protected data each comparison actually exercised. A working
+isolated fixture or warm path must not erase a failing first-entry path.

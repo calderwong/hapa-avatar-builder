@@ -988,3 +988,16 @@ Light crashed before native Journey inspection. Similar Workspace failure was
 seen earlier; cause remains unresolved. Saved sources still verify unchanged.
 This new visual stack has isolated catalog evidence only, not full-app painted
 Journey or encoded acceptance.
+
+
+## October 16 — restored visuals verified through the full-app warm path
+
+The saved pilot now has full-app evidence for Tidal portal paint, Fractal Loom
+wall playback, decoder release at arrival, the Silken Current corridor, and a
+prepared-response Director scene at 9.467513 seconds. Opening Living Light on the
+adjacent song before switching to the pilot succeeds. First entry still failed;
+this is a narrowed diagnosis, not a crash repair. Temporary isolated probes and
+their bounded server were removed. No application source changed in this pass.
+The 41 prior cuts and all prior Journey payloads remain unchanged. First-entry
+repair, new encoded proof and complete compatibility/lifecycle acceptance remain
+open; no task closes. See the [follow-up and evidence limits](postmortems/2026-10-16-living-light-native-visuals.md#full-app-follow-up-warm-entry-works-first-entry-remains-unresolved).
