@@ -913,3 +913,16 @@ records keep ownership and rights, with no grant inferred from a reference.
 General media-library browsing remains separate. This documentation-only audit
 changes no renderer or saved input; the current audio-bound encode continues.
 Full integration and human creative acceptance remain open.
+
+
+## October 16 — certificate refresh preserves the saved cut identity
+
+Reopening the actual prepared pilot superseded its running candidate because
+only the derived certification receipt had changed. That attempt was stopped
+with owned cleanup and retained as failed evidence. The existing identity
+canonicalizer now excludes the derived receipt while retaining it in plan input;
+actual scene/media/renderer changes still invalidate identity. Forty focused
+checks, exact real-plan replay, build and supervised API delivery pass. The
+fresh full-song retry and Workspace crash/navigation acceptance remain open;
+no requirement closes and no edition is minted. See the
+[incident and repair](../postmortems/2026-10-16-living-light-certificate-reopen.md).

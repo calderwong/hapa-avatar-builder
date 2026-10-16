@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { SongCardMintController } from "../server/song-card-mint-controller.mjs";
 import { SongCardMintLedger } from "../server/song-card-mint-ledger.mjs";
+import { createSongCardRemintStore } from "../server/song-card-remint-store.mjs";
 
 const PROBE = { durationSeconds: 10, hasVideo: true, hasAudio: true, decodeOk: true, videoCodec: "h264", audioCodec: "aac", width: 1280, height: 720 };
 const truth = { ok: true, allStatesVisible: true, silentDefaultCount: 0, cueReceiptCount: 1 };
@@ -34,6 +35,48 @@ function graph(mediaId = "media-a") {
     directorV2: { treatmentId: "treatment:one", variantId: "variant:one", variantHash: mediaId },
   };
 }
+
+test("reopening a certified saved cut preserves its plan and active render candidate", async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-certificate-reopen-"));
+  try {
+    const controller = new SongCardMintController({ root: base });
+    const store = createSongCardRemintStore({ root: base, controller });
+    const input = {
+      project: {
+        song_id: "dear-papa", duration: 10,
+        living_light_cues: [{ cueId: "cue:one", journeyRef: { journeyId: "journey:one", revisionId: "revision:one" } }],
+        director_show_graph_receipt: { currentRendererBuildSha256: "old-build", executionGraph: { pointer: { artifactId: "old-artifact" } } },
+      },
+      showGraph: graph(),
+    };
+    const first = await controller.plan("dear-papa", input);
+    const candidate = await store.proposeFromPlan("dear-papa", await controller.getPlan(first.planId));
+    await store.approve(candidate.id, { approvedBy: "test-operator" });
+    await store.mutate(queue => ({ ...queue, candidates: queue.candidates.map(row => ({ ...row, status: "rendering" })) }));
+    const before = await store.currentCandidateForSong("dear-papa");
+    const reopened = structuredClone(input);
+    reopened.project.director_show_graph_receipt = { currentRendererBuildSha256: "current-build", executionGraph: { pointer: { artifactId: "new-artifact" } } };
+    const refreshed = await controller.plan("dear-papa", reopened);
+    assert.equal(refreshed.planId, first.planId);
+    assert.equal(refreshed.sourceRevision, first.sourceRevision);
+    assert.equal(refreshed.semanticFingerprint, first.semanticFingerprint);
+    const stored = await controller.getPlan(refreshed.planId);
+    assert.deepEqual(stored.input.project.director_show_graph_receipt, reopened.project.director_show_graph_receipt, "retain current certification evidence in the source input");
+    await store.proposeFromPlan("dear-papa", stored);
+    assert.deepEqual(await store.currentCandidateForSong("dear-papa"), before, "reopen must not supersede, revoke approval or lose the running candidate");
+    assert.equal((await store.view()).candidates.length, 1);
+    for (const change of [
+      value => { value.project.living_light_cues[0].journeyRef.revisionId = "revision:two"; },
+      value => { value.showGraph.tracks[0].cards[0].media.contentHash = "changed-media"; },
+      value => { value.showGraph.directorV2.rendererSupport = { renderer: "changed-renderer" }; },
+    ]) {
+      const changed = structuredClone(reopened); change(changed);
+      const plan = await controller.plan("dear-papa", changed, { persist: false });
+      assert.notEqual(plan.planId, first.planId, "actual scene, media and renderer changes remain material");
+    }
+    assert.equal((await controller.getSongCard("dear-papa")).latestEdition, 0);
+  } finally { await removeFixture(base); }
+});
 
 test("mint planning reconciles a supplied Landscape graph to a Vertical project", async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-orientation-plan-"));

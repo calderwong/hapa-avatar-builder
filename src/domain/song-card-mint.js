@@ -20,6 +20,9 @@ const NON_MATERIAL_KEYS = new Set([
   "updatedAt", "updated_at", "createdAt", "created_at", "lastOpenedAt", "lastPlayedAt",
   "currentTime", "current_time", "playbackTelemetry", "telemetry", "hovered", "selected",
   "uiState", "ui_state", "notice", "progress", "requestId", "correlationId", "reused", "cacheHit", "cached",
+  // Delivery certification can refresh while the same saved cut is rendering.
+  // The graph and renderer remain material; this derived receipt is not an edit.
+  "director_show_graph_receipt",
 ]);
 const PRIVATE_PATH_KEYS = new Set(["localPath", "sourcePath", "storagePath", "absolutePath", "cwd"]);
 

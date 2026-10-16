@@ -1,4 +1,17 @@
 {
+  "livingLightCertificateReopen20261016": {
+    "status": "certificate-identity-repaired-retry-pending",
+    "checks": 40,
+    "realPlanReplay": "certificate-only difference; repaired identities agree",
+    "build": "passed",
+    "serviceDelivery": "fresh",
+    "priorAttempt": "superseded; stopped with owned cleanup",
+    "fullSongAcceptance": "pending",
+    "workspaceCrash": "unresolved",
+    "humanAcceptance": "pending",
+    "goal": "active",
+    "postmortem": "docs/postmortems/2026-10-16-living-light-certificate-reopen.md"
+  },
   "livingLightExactMediaAcceptance20261016": {
     "status": "technically-accepted",
     "task": "LL-914",

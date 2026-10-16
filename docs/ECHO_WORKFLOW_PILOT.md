@@ -922,3 +922,16 @@ new build, duplicate render or source-store mutation. The active audio-bound
 full-song encode remains separate and unaccepted until output verification.
 Full49-task scope and human review remain open. See the
 [criterion audit and learning](living-light/MEDIA_RESOLUTION_ACCEPTANCE.md).
+
+
+## October 16 — certificate refresh preserves the saved cut identity
+
+Reopening the actual prepared pilot superseded its running candidate because
+only the derived certification receipt had changed. That attempt was stopped
+with owned cleanup and retained as failed evidence. The existing identity
+canonicalizer now excludes the derived receipt while retaining it in plan input;
+actual scene/media/renderer changes still invalidate identity. Forty focused
+checks, exact real-plan replay, build and supervised API delivery pass. The
+fresh full-song retry and Workspace crash/navigation acceptance remain open;
+no requirement closes and no edition is minted. See the
+[incident and repair](postmortems/2026-10-16-living-light-certificate-reopen.md).
