@@ -327,6 +327,16 @@ for ownership, scope, API/CLI, conflict handling, and the focused local service.
 
 The Shared Hand is docked inside the persistent Header. Use **Manage** for Hand/Deck/Set and Library management, **Detach** for the cross-view floating widget, and **Dock** to return it. Connection state is intentionally compact; open the adjacent status control for reconnect and pending/conflict recovery. Shared mutations are disabled while offline and are never presented as committed. See `docs/OVERCARD.md` and `docs/API_CLI_UI_PARITY.md`.
 
+## Living Light in Echo Album
+
+Open **Echo Album → Living Light** to work with Journey, Tunnel and Location
+Cards. The [current integration map](docs/living-light/DISCOVERY.md) connects
+painted clips, Director scenes/transitions, spatial album navigation and modular
+Card editing to their owners and evidence. Follow the
+[task board](http://127.0.0.1:5181/?project=hapa-living-light-avatar-builder) and
+[portable requirements](docs/living-light/REQUIREMENTS.md) for acceptance.
+The integration is a prototype in progress; human creative review remains open.
+
 ## Echo Album timing and smooth preview
 
 In the Director, uncheck **Highlight individual words** to show each full lyric

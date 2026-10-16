@@ -407,6 +407,21 @@
       "appliedAlbumMaps": false,
       "creativeAcceptance": false,
       "documentation": "docs/living-light/SHARED_HAND.md"
+    },
+    "discovery": {
+      "updated": "2026-10-16",
+      "documentation": "docs/living-light/DISCOVERY.md",
+      "requirements": "docs/living-light/REQUIREMENTS.md",
+      "acceptance": "docs/living-light/ACCEPTANCE.md",
+      "state": "prototype-integration-in-progress",
+      "taskCount": 49,
+      "historicalStateNote": "Earlier state fields and dated checkpoints describe the foundation; follow discovery and the board for current evidence.",
+      "relatedOwnerBoard": "hapa-app-hapa-avatar-builder",
+      "relatedOwnerTasks": [
+        "atlas-gap-visualizer-scope",
+        "atlas-gap-stem-alignment",
+        "atlas-gap-missing-media"
+      ]
     }
   }
 }

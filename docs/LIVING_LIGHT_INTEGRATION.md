@@ -8,6 +8,14 @@ Portable execution criteria: [requirements](living-light/REQUIREMENTS.md), [cont
 
 The board owns 40 cards and the detailed requirements, contracts, acceptance matrix and Sol 6.1 handoff. Its initial source inventory was revised after Calder supplied the source ZIP. This batch addresses LL-001/002/003/004/033. Source arrival removes the recovery/search step; it does not establish compatible canonical audio.
 
+## Current discovery — October 16, 2026
+
+Start with the [current integration and owner map](living-light/DISCOVERY.md).
+The board now contains 49 tasks, including the later painting, Director/export,
+spatial navigation and modular Card work. The sections below retain dated
+foundation evidence; their pending/reload statements are historical. The complete
+integration and human creative review remain open.
+
 ## Implemented foundation boundary
 
 - `src/living-light/vendor/`: all 97 original named source modules, hash pinned by `resources/living-light-109/manifest.json`.

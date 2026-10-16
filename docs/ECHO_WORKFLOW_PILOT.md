@@ -952,3 +952,14 @@ interactive or human acceptance is inferred. See the
 ## October 16 — retain certified plan bytes on reopen
 
 The saved Living Light pilot completed 4,911 encoded frames and eight spatial comparison samples, then failed the unchanged raw-byte certification gate. Same semantic IDs had hidden a rewritten plan timestamp. The controller now preserves the original snapshot for equivalent replans, using exact comparison except creation time and the derived certificate observation, plus the existing local lock. Twenty-seven focused checks and the production build pass with clean process teardown. Native explicit Retry plan and full reload → Tracks preserve all bytes. Saved-cut readiness passes; a newly certified owner render retry remains pending; no edition or requirement is accepted. See [incident, correction and limits](postmortems/2026-10-16-living-light-plan-snapshot-reuse.md).
+
+
+## October 16 — Living Light discovery registration
+
+LL-033 now has a current [owner map](living-light/DISCOVERY.md), README entry and
+existing-node manifest links to the board, portable criteria and related Atlas
+owners. This is documentation-only; local links/schema, preserved manifest
+identity and scoped indexing/readback are the acceptance checks. Dated history
+and unrelated authoring work are retained. The full integration stays active;
+LL-031 operator acceptance and human creative review remain open. The live
+render's code, build, plan and source media are unchanged by this registration.
