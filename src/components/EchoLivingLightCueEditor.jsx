@@ -60,6 +60,6 @@ export default function EchoLivingLightCueEditor({project,cutKey,currentTime=0,o
   </fieldset>
   <EchoLivingLightProposalReview project={project} cutId={cutKey} client={client} disabled={disabled||busy||!active} onApply={next=>{history.current.commit(cues,next);onChange(next);setHistoryState(history.current.state());setSelected('');}}/>
   {nextOffset!==null&&<button type="button" disabled={busy} onClick={()=>load(nextOffset)}>More saved Journeys</button>}
-  <p role="status">{status}</p><p className="echo-light-cue-note">Native passage timing stays intact. Open Preview to play saved Journey scenes. Record + Play captures these scenes with the song. Final Song Card export is still being connected.</p>
+  <p role="status">{status}</p><p className="echo-light-cue-note">Native passage timing stays intact. Open Preview to play saved Journey scenes. Record + Play captures these scenes with the song. Final Song Card export requires the saved cut’s render checks to pass.</p>
  </section>;
 }

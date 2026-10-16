@@ -106,3 +106,8 @@ two Undo actions restored the original clean saved recipe. No test recipe was
 saved to the album. Native evidence is `recipe-undo-native.txt` and
 `recipe-undo-restored.png` in the album-pass evidence directory. Full modular
 Hand/Card acceptance remains open.
+
+Follow-up: the [modular navigation acceptance audit](MODULAR_NAVIGATION_ACCEPTANCE.md)
+now verifies the full Tarot/Hand return, historical record visit and integrated
+LL-916/917 criteria. The earlier limitation above is retained as checkpoint
+history. Whole-album creative review and final exports remain separate.
