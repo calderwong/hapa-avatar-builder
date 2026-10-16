@@ -1,4 +1,36 @@
 {
+  "livingLightPlanSnapshotReuse20261016": {
+    "state": "persistence-repair-verified-release-pending",
+    "taskIds": [
+      "LL-902",
+      "LL-913",
+      "LL-918"
+    ],
+    "sourceTaskId": "01a137cc-de1d-7511-ab65-227c92d5bca0",
+    "problem": "Same-ID replanning replaced raw certified plan bytes after render start. Full encode completed but release failed.",
+    "repair": "Preserve stored plan for exact input-equivalent requests apart from creation time and derived graph receipt; serialize creation/reuse with existing local lock.",
+    "verification": {
+      "targetedChecksPassed": 27,
+      "build": true,
+      "processBaselineRestored": true,
+      "nativeExplicitReplanBytesPreserved": true,
+      "nativeFullReloadBytesPreserved": true,
+      "sameSavedCutReadinessPassed": true
+    },
+    "render": {
+      "state": "failed-after-encode",
+      "frames": 4911,
+      "encodedSpatialSamplesPassed": 8,
+      "minted": false
+    },
+    "remaining": [
+      "Owner certification and local render retry",
+      "Navigation residency patch prepared, not applied",
+      "Full integration and human acceptance"
+    ],
+    "postmortem": "docs/postmortems/2026-10-16-living-light-plan-snapshot-reuse.md"
+  },
+
   "livingLightNavigationModelAcceptance20261016": {
     "status": "technically-accepted",
     "task": "LL-915",

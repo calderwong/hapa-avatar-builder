@@ -1,0 +1,11 @@
+{
+  "contract": "hapa.protocol-index/v1",
+  "owner": "hapa-avatar-builder",
+  "documents": [
+    {
+      "slug": "hapa-living-light-plan-snapshot-reuse-v1",
+      "title": "Living Light certified plan snapshot reuse and failed encode correction",
+      "path": "docs/postmortems/2026-10-16-living-light-plan-snapshot-reuse.md"
+    }
+  ]
+}

@@ -39,7 +39,8 @@ function graph(mediaId = "media-a") {
 test("reopening a certified saved cut preserves its plan and active render candidate", async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-certificate-reopen-"));
   try {
-    const controller = new SongCardMintController({ root: base });
+    let now = new Date("2026-10-01T00:00:00Z");
+    const controller = new SongCardMintController({ root: base, clock: () => now });
     const store = createSongCardRemintStore({ root: base, controller });
     const input = {
       project: {
@@ -50,18 +51,22 @@ test("reopening a certified saved cut preserves its plan and active render candi
       showGraph: graph(),
     };
     const first = await controller.plan("dear-papa", input);
+    const certifiedBytes = await fsp.readFile(controller.planPath(first.planId));
     const candidate = await store.proposeFromPlan("dear-papa", await controller.getPlan(first.planId));
     await store.approve(candidate.id, { approvedBy: "test-operator" });
     await store.mutate(queue => ({ ...queue, candidates: queue.candidates.map(row => ({ ...row, status: "rendering" })) }));
     const before = await store.currentCandidateForSong("dear-papa");
     const reopened = structuredClone(input);
+    now = new Date("2026-10-02T00:00:00Z");
     reopened.project.director_show_graph_receipt = { currentRendererBuildSha256: "current-build", executionGraph: { pointer: { artifactId: "new-artifact" } } };
     const refreshed = await controller.plan("dear-papa", reopened);
     assert.equal(refreshed.planId, first.planId);
     assert.equal(refreshed.sourceRevision, first.sourceRevision);
     assert.equal(refreshed.semanticFingerprint, first.semanticFingerprint);
     const stored = await controller.getPlan(refreshed.planId);
-    assert.deepEqual(stored.input.project.director_show_graph_receipt, reopened.project.director_show_graph_receipt, "retain current certification evidence in the source input");
+    assert.deepEqual(stored.input.project.director_show_graph_receipt, input.project.director_show_graph_receipt, "retain the original certified input observation");
+    assert.equal(refreshed.createdAt, first.createdAt);
+    assert.deepEqual(await fsp.readFile(controller.planPath(first.planId)), certifiedBytes, "reopen must preserve every certified byte, not only semantic identity");
     await store.proposeFromPlan("dear-papa", stored);
     assert.deepEqual(await store.currentCandidateForSong("dear-papa"), before, "reopen must not supersede, revoke approval or lose the running candidate");
     assert.equal((await store.view()).candidates.length, 1);
@@ -75,6 +80,48 @@ test("reopening a certified saved cut preserves its plan and active render candi
       assert.notEqual(plan.planId, first.planId, "actual scene, media and renderer changes remain material");
     }
     assert.equal((await controller.getSongCard("dear-papa")).latestEdition, 0);
+  } finally { await removeFixture(base); }
+});
+
+test("concurrent equivalent planning retains one complete snapshot across controllers", async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-plan-reuse-"));
+  try {
+    const controllers = [1, 2, 3].map(day => new SongCardMintController({ root: base, clock: () => new Date(`2026-10-0${day}T00:00:00Z`) }));
+    const input = { project: { song_id: "dear-papa", duration: 10 }, showGraph: graph() };
+    const results = await Promise.all(controllers.map(controller => controller.plan("dear-papa", input)));
+    assert.equal(new Set(results.map(row => row.planId)).size, 1);
+    assert.equal(new Set(results.map(row => row.createdAt)).size, 1);
+    const bytes = await fsp.readFile(controllers[0].planPath(results[0].planId));
+    await Promise.all(controllers.map(controller => controller.plan("dear-papa", input)));
+    assert.deepEqual(await fsp.readFile(controllers[0].planPath(results[0].planId)), bytes);
+    assert.equal((await fsp.readdir(controllers[0].paths.plans)).filter(name => name.endsWith(".lock")).length, 0);
+  } finally { await removeFixture(base); }
+});
+
+test("plan reuse does not hide safety, path, or contextual input changes", async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-plan-material-"));
+  try {
+    const controller = new SongCardMintController({ root: base });
+    const input = { project: { song_id: "dear-papa", duration: 10 }, showGraph: graph() };
+    for (const change of [
+      value => { value.safety = { blocked: true, reason: "changed safety" }; },
+      value => { value.context = { privatePath: "/private/changed-input" }; },
+      value => {
+        value.renderMasterPath = path.join(base, "missing-changed-master.mp4");
+        value.posterPath = path.join(base, "missing-changed-poster.jpg");
+      },
+      value => { value.receipts = { sourceApproval: "revoked" }; },
+    ]) {
+      const first = await controller.plan("dear-papa", input);
+      const before = await fsp.readFile(controller.planPath(first.planId));
+      const changed = structuredClone(input); change(changed);
+      const result = await controller.plan("dear-papa", changed);
+      const stored = await controller.getPlan(result.planId);
+      assert.notDeepEqual(await fsp.readFile(controller.planPath(result.planId)), before);
+      for (const key of ["safety", "context", "renderMasterPath", "receipts"]) {
+        if (changed[key] !== undefined) assert.deepEqual(stored.input[key], changed[key]);
+      }
+    }
   } finally { await removeFixture(base); }
 });
 

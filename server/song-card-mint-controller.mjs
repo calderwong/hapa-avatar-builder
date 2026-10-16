@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
+import { withLocalJsonFileLock } from "./local-json-file-lock.mjs";
 import {
   buildSongCardHead,
   buildSongCardMintSnapshot,
@@ -65,6 +66,16 @@ function stableRawValue(value) {
 
 function rawDigest(value) {
   return crypto.createHash("sha256").update(JSON.stringify(stableRawValue(value))).digest("hex");
+}
+
+function reusablePlanDigest(plan) {
+  const comparable = structuredClone(plan);
+  delete comparable.createdAt;
+  // This is a derived certificate observation, not an authored input. Keep the
+  // original observation in the saved snapshot; execution certificates have
+  // their own owner. All other fields (including safety and paths) stay exact.
+  if (comparable.input?.project) delete comparable.input.project.director_show_graph_receipt;
+  return rawDigest(comparable);
 }
 
 function containsPrivateAbsolutePath(value) {
@@ -656,7 +667,21 @@ export class SongCardMintController {
       lineage: lineageFor({ songId, sourceRevision, snapshot, showGraph }),
       ...(body.receipts?.mintPlanCompatibility ? { mintPlanCompatibility: structuredClone(body.receipts.mintPlanCompatibility) } : {}),
     };
-    if (persist) await atomicJson(this.planPath(planId), plan);
+    if (persist) {
+      // Reopening a cut must not invalidate an in-flight raw-byte certificate.
+      // Serialize first creation as well as reuse across controller instances.
+      return withLocalJsonFileLock(`${this.planPath(planId)}.lock`, async () => {
+        const existing = await this.getPlan(planId).catch((error) => {
+          if (error.code === "mint_plan_not_found") return null;
+          throw error;
+        });
+        if (existing && reusablePlanDigest(existing) === reusablePlanDigest(plan)) {
+          return this.publicPlan(existing);
+        }
+        await atomicJson(this.planPath(planId), plan);
+        return this.publicPlan(plan);
+      });
+    }
     return this.publicPlan(plan);
   }
 
