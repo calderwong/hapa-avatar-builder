@@ -1,6 +1,6 @@
 import {createContext,useContext,useEffect,useMemo,useRef,useState} from 'react';
 import {createLivingLightRegistry} from '../living-light/registry.js';
-import {extendLivingLightRegistry} from '../domain/living-light-preset.js';
+import {extendLivingLightRegistry,createLivingLightRegistryMemo} from '../domain/living-light-preset.js';
 import {canonicalJSON} from '../domain/living-light-contracts.js';
 import {createLivingLightClient} from '../domain/living-light-client.js';
 const Context=createContext(null);
@@ -9,7 +9,8 @@ export const useLivingLightRegistry=()=>useContext(Context);
 export default function LivingLightRegistryProvider({children,base}){
  const source=useMemo(()=>base||createLivingLightRegistry(),[base]),client=useMemo(()=>createLivingLightClient(),[]),records=useRef(new Map()),heads=useRef(new Map()),metadata=useRef(new Map()),alive=useRef(true),pageEpoch=useRef(0);
  const [registry,setRegistry]=useState(source),[rows,setRows]=useState({}),[nextOffset,setNextOffset]=useState(null),[busy,setBusy]=useState(false),[status,setStatus]=useState('Loading saved presets…');
- function effectiveRegistry(){return extendLivingLightRegistry(source,[...heads.current.values()],[...records.current.values()],{hiddenThingIds:[...metadata.current.values()].filter(row=>row.visibility?.archived).map(row=>row.thing.thingId)});}
+ const registryMemo=useMemo(()=>createLivingLightRegistryMemo(),[]);
+ function effectiveRegistry(){return registryMemo(source,[...heads.current.values()],[...records.current.values()],{hiddenThingIds:[...metadata.current.values()].filter(row=>row.visibility?.archived).map(row=>row.thing.thingId)});}
  function publish(){if(alive.current){setRegistry(effectiveRegistry());setRows(Object.fromEntries(metadata.current));}}
  async function retain(things){
   const fetched=new Map(),visiting=new Set();let count=0;

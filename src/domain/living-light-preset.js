@@ -41,3 +41,18 @@ export function extendLivingLightRegistry(base,heads=[],revisions=[],{hiddenThin
  const hidden=new Set(hiddenThingIds);
  return Object.freeze({...base,entries:Object.freeze([...base.entries,...nativeHeads.values()].filter(thing=>!hidden.has(thing.thingId))),resolveThing:ref=>byKey.get(ref.thingId+'@'+ref.revisionId)||null});
 }
+
+/** Keep one effective registry across equivalent owner reads. Metadata refreshes
+ * must not rebuild the native renderer; changed defaults, pins or visibility do.
+ * Retain only the last input key and result, never an unbounded revision cache. */
+export function createLivingLightRegistryMemo(){
+ let previousBase,previousKey,previousRegistry;
+ return (base,heads=[],revisions=[],{hiddenThingIds=[]}={})=>{
+  const key=canonicalJSON([heads,revisions,hiddenThingIds]);
+  if(base===previousBase&&key===previousKey)return previousRegistry;
+  const registry=heads.length||revisions.length||hiddenThingIds.length
+   ?extendLivingLightRegistry(base,heads,revisions,{hiddenThingIds}):base;
+  previousBase=base;previousKey=key;previousRegistry=registry;
+  return registry;
+ };
+}

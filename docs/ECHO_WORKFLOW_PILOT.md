@@ -1001,3 +1001,15 @@ their bounded server were removed. No application source changed in this pass.
 The 41 prior cuts and all prior Journey payloads remain unchanged. First-entry
 repair, new encoded proof and complete compatibility/lifecycle acceptance remain
 open; no task closes. See the [follow-up and evidence limits](postmortems/2026-10-16-living-light-native-visuals.md#full-app-follow-up-warm-entry-works-first-entry-remains-unresolved).
+
+
+## October 16 — first-entry renderer lifecycle repaired
+
+Three fresh pilot entries now succeed with one renderer generation. Equivalent
+registry refreshes and unused neutral-study measurements no longer recreate the
+native graphics stack. The saved painted Journey and measured prepared-response
+binding were inspected afterward. All 39 focused checks and the build pass;
+41 prior cuts and Journey history remain unchanged. Diagnostic switches were
+removed. The low-level browser termination cause remains unproven. Full lifecycle
+acceptance and new encoded proof remain open; no requirement closes. See the
+[diagnosis, repair and bounded proof](postmortems/2026-10-16-living-light-first-entry.md).

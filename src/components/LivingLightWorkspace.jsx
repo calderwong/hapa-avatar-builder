@@ -75,6 +75,9 @@ function Workspace({apiBase='',songId,title,duration,audioRef,audioReceipt,prepa
  const journeySaved=useCallback(()=>setJourneyRefreshToken(value=>value+1),[]);
  const acceptPerformance=useCallback(value=>setExactPerformance(value),[]);
  const selectedPerformance=exactPerformance?.songId===songId?exactPerformance:preparedPerformance;
+ // Measurements arriving during a neutral study do not change its native input.
+ // Rebuild only when those measurements actually drive the selected response.
+ const responseFingerprint=signalMode==='basic'&&!exploration?selectedPerformance?.fingerprint:null;
  useEffect(()=>()=>{featureCacheRef.current?.dispose();featureCacheRef.current=null;},[]);
  const reducedRef=useRef(reduced),qualityRef=useRef(quality);reducedRef.current=reduced;qualityRef.current=quality;
  const studyingTour=studyRecipe?.songId===songId&&studyRecipe.mode==='tour';
@@ -102,7 +105,7 @@ function Workspace({apiBase='',songId,title,duration,audioRef,audioReceipt,prepa
    driverRef.current=driver;setDiagnostic({...runtime.diagnostics(),preview:driver.diagnostics()});
   }catch(e){runtime.dispose();setStatus('Native preview unavailable: '+e.message);}
   return ()=>{driver?.dispose();runtime.dispose();if(driverRef.current===driver)driverRef.current=null;if(runtimeRef.current===runtime)runtimeRef.current=null;};
- },[songId,title,duration,audioReceipt?.sourceHash,audioReceipt?.pcmSha256,audioReceipt?.durationSeconds,selectedPerformance?.fingerprint,signalMode,family,studyRecipe,powerMode,registry,audition?.assetId,previewMedia,exploration,previewMode]);
+ },[songId,title,duration,audioReceipt?.sourceHash,audioReceipt?.pcmSha256,audioReceipt?.durationSeconds,responseFingerprint,signalMode,family,studyRecipe,powerMode,registry,audition?.assetId,previewMedia,exploration,previewMode]);
  // Motion preference changes keep the existing canvas; the source-time hold belongs to the runtime.
  // Avoid closing over a stale motion preference in the host's frame callback.
  useEffect(()=>{driverRef.current?.redraw();},[reduced,quality]);

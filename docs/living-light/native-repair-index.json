@@ -3,6 +3,7 @@
   "owner": "hapa-avatar-builder",
   "documents": [
     {"slug": "hapa-living-light-residency-v1", "title": "Living Light prepared pilot completion and bounded painted media", "path": "docs/postmortems/2026-10-16-living-light-residency.md"},
-    {"slug": "hapa-living-light-native-visuals-v1", "title": "Living Light native visual-stack correction", "path": "docs/postmortems/2026-10-16-living-light-native-visuals.md"}
+    {"slug": "hapa-living-light-native-visuals-v1", "title": "Living Light native visual-stack correction", "path": "docs/postmortems/2026-10-16-living-light-native-visuals.md"},
+    {"slug": "hapa-living-light-first-entry-v1", "title": "Living Light first-entry renderer lifecycle repair", "path": "docs/postmortems/2026-10-16-living-light-first-entry.md"}
   ]
 }

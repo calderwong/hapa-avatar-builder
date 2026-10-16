@@ -1,4 +1,29 @@
 {
+  "livingLightFirstEntryRepair20261016": {
+    "status": "in_progress",
+    "requirements": [
+      "LL-012",
+      "LL-916"
+    ],
+    "verified": {
+      "normalFreshPilotEntries": 3,
+      "rendererGenerationsPerEntry": 1,
+      "unchangedPresetRefreshRetainsGeneration": true,
+      "paintedJourney": true,
+      "preparedEnergyBinding": "measured",
+      "focusedChecksPassed": 39
+    },
+    "change": "Retain equivalent effective registries and ignore unused neutral-study measurement fingerprints.",
+    "sourcePreservation": "41 prior cuts and all prior Journey payloads unchanged",
+    "remaining": [
+      "short encoded restored-visual proof",
+      "complete passage and lifecycle criteria",
+      "Celestial figure loading"
+    ],
+    "postmortem": "docs/postmortems/2026-10-16-living-light-first-entry.md",
+    "requirementsClosed": [],
+    "humanAcceptance": "pending"
+  },
   "livingLightNativeWarmProof20261016": {
     "status": "in_progress",
     "sourceCommit": "91a81d1",
