@@ -1,3 +1,4 @@
+import {LIVING_LIGHT_VISUAL_HOOKS} from '../src/living-light/native-visuals.js';
 import {fixture} from './fixtures/living-light-signals.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -73,7 +74,7 @@ test('host adopts a shared source bank, drives measured master offsets and prese
  assert(binding.stems.every(s=>s.timeMap===null&&s.alignmentState==='alignment-unverified'));
  const nativeEvaluate=n.HapaCore.evaluate;
  n.HapaRenderer=class {constructor(canvas,score,cache,state){Object.assign(this,{cache,state,programs:{},buffers:[],vaos:[],targets:[]});}render(t){baseline=nativeEvaluate(this.cache,this.state,t);painted=n.HapaCore.evaluate(this.cache,this.state,t);}resize(){}dispose(){closed++;}};
- n.HapaPassageRenderer=n.HapaGeometryDanceVisuals=n.HapaJourneyVisuals=()=>{};
+ n.HapaRenderer.program=()=>({p:{}});for(const hook of LIVING_LIGHT_VISUAL_HOOKS)n[hook]=()=>{};
  const thing=registry.entries.find(t=>t.variantKind==='continuous-profile'),runtime=createLivingLightRuntime({canvas:{},registry,nativeFactory:()=>n});
  const recipe={schemaVersion:'hapa.living-light.journey.v1',journeyId:'fixture:journey',revisionId:'fixture:r1',parentRevisionId:null,title:'Fixture',songId:input.songId,sourceBindingRef:null,state:'draft-unresolved',mode:'continuous',seed:109,instances:[{instanceId:'use',thingRef:{thingId:thing.thingId,revisionId:thing.revisionId},parameters:{},bindings:{}}],schedule:[{instanceId:'use',startUs:0,endUs:2000000}],actorTreatment:'none',mediaSlots:[]};
  const prepare={journeyRevision:recipe,sourceBinding:{songId:input.songId,durationUs:2000000,sourceHash:input.playbackReceipt.sourceHash},generation:1,featureInput:{...input,sourceBinding:binding,cache:owner,requiredBytes:livingLightFeatureBytes(input.performance)}};

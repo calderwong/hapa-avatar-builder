@@ -963,3 +963,28 @@ identity and scoped indexing/readback are the acceptance checks. Dated history
 and unrelated authoring work are retained. The full integration stays active;
 LL-031 operator acceptance and human creative review remain open. The live
 render's code, build, plan and source media are unchanged by this registration.
+
+
+## October 16 — prepared export verified, media residency and native visuals repaired
+
+The prepared-audio pilot completed release verification: 4,910 actual1080p30
+frames,163.666667seconds, full decode/cadence/audio lineage and source gates pass.
+Edition1 is unchanged; human creative review remains pending. After render
+completion, current/next media residency was applied and verified with35checks,
+build and real saved-route jump/Home/travel/arrival/held-motion proof. Local
+commit f2a3884 records the repair;41 prior cuts and Journey history are preserved.
+See [pilot completion and residency](postmortems/2026-10-16-living-light-residency.md).
+
+Visual catalog review then exposed missing native installers despite50nonblank
+probes. The source visual stack, shared focus shader and private Dynamics export
+are restored.91focused checks/build pass;49definitions now paint and clean up,
+with contact-sheet inspection showing distinct environments. Celestial Reliquary
+refuses explicitly pending its figure loader. The old export belongs to its
+original renderer; short encoded proof of the restored visuals remains open.
+No requirement closes or criteria change. See [native visual correction](postmortems/2026-10-16-living-light-native-visuals.md).
+
+The subsequent built-app transition from the restored working copy into Living
+Light crashed before native Journey inspection. Similar Workspace failure was
+seen earlier; cause remains unresolved. Saved sources still verify unchanged.
+This new visual stack has isolated catalog evidence only, not full-app painted
+Journey or encoded acceptance.

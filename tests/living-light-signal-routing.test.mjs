@@ -1,3 +1,4 @@
+import {LIVING_LIGHT_VISUAL_HOOKS} from '../src/living-light/native-visuals.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -24,7 +25,7 @@ test('native prepared rendering shares the one-sample endpoint rule and never st
  for(const delta of [-21,21,22]){
   const input=fixture(0),before=structuredClone(input),owner=createLivingLightFeatureCache(),n={...createNativeNamespace()};
   n.HapaRenderer=class {constructor(){this.programs={};this.buffers=[];this.vaos=[];this.targets=[];}resize(){}render(){}dispose(){}};
-  n.HapaPassageRenderer=n.HapaGeometryDanceVisuals=n.HapaJourneyVisuals=()=>{};
+  n.HapaRenderer.program=()=>({p:{}});for(const hook of LIVING_LIGHT_VISUAL_HOOKS)n[hook]=()=>{};
   const runtime=createLivingLightRuntime({canvas:{},registry,nativeFactory:()=>n}),draft=recipe();draft.instances[0].bindings.energy=binding([master]);
   const options={journeyRevision:{...draft,journeyId:'fixture:rounding',revisionId:'fixture:r1',parentRevisionId:null},journeyDurationUs:2000000,
    sourceBinding:{songId:input.songId,durationUs:2000000+delta,sourceHash:input.playbackReceipt.sourceHash},generation:1,featureInput:{...input,cache:owner,requiredBytes:livingLightFeatureBytes(input.performance)}};
@@ -68,7 +69,7 @@ test('Location and passage uses switch exact signal choices at half-open native 
  const location=registry.entries.find(t=>t.capabilities.destination),next=registry.entries.filter(t=>t.capabilities.destination)[1],bridge=registry.entries.find(t=>t.capabilities.bridge),ref=t=>({thingId:t.thingId,revisionId:t.revisionId});
  let draft=newJourneyDraft({songId:input.songId,durationUs:20000000,thing:location,mode:'tour'},registry);draft=editJourneyDraft(draft,{type:'add',thingRef:ref(next),bridgeRef:ref(bridge)},registry);
  const ids=draft.schedule.map(row=>row.instanceId);draft.instances.find(i=>i.instanceId===ids[0]).bindings.energy=binding();draft.instances.find(i=>i.instanceId===ids[1]).bindings.energy=binding([stem('exact-asset-0')]);draft.instances.find(i=>i.instanceId===ids[2]).bindings.energy=binding([stem('absent')],{onUnavailable:'master'});
- const owner=createLivingLightFeatureCache(),n={...createNativeNamespace()};n.HapaRenderer=class{constructor(){Object.assign(this,{programs:{},buffers:[],vaos:[],targets:[]});}render(){}resize(){}dispose(){}};n.HapaPassageRenderer=n.HapaGeometryDanceVisuals=n.HapaJourneyVisuals=()=>{};
+ const owner=createLivingLightFeatureCache(),n={...createNativeNamespace()};n.HapaRenderer=class{constructor(){Object.assign(this,{programs:{},buffers:[],vaos:[],targets:[]});}render(){}resize(){}dispose(){}};n.HapaRenderer.program=()=>({p:{}});for(const hook of LIVING_LIGHT_VISUAL_HOOKS)n[hook]=()=>{};
  const runtime=createLivingLightRuntime({canvas:{},registry,nativeFactory:()=>n});try{runtime.prepare({journeyRevision:{...draft,journeyId:'fixture:tour',revisionId:'fixture:r1',parentRevisionId:null},sourceBinding:{songId:input.songId,sourceHash:input.playbackReceipt.sourceHash,durationUs:20000000},generation:1,featureInput:{...input,cache:owner,requiredBytes:livingLightFeatureBytes(input.performance)}});
  const before=runtime.evaluate({timelineUs:5999999}).signalRouting,travel=runtime.evaluate({timelineUs:6000000}).signalRouting,after=runtime.evaluate({timelineUs:14000000}).signalRouting;assert.equal(before.instanceId,ids[0]);assert.equal(before.ports.energy.effectiveValue,.5);assert.equal(travel.instanceId,ids[1]);assert.equal(travel.ports.energy.effectiveValue,.25);assert.equal(after.instanceId,ids[2]);assert.equal(after.ports.energy.state,'explicit-master-fallback');assert.equal(runtime.evaluate({timelineUs:20000000}).signalRouting.instanceId,ids[2]);assert.deepEqual(runtime.evaluate({timelineUs:6000000}).signalRouting,travel);
  }finally{runtime.dispose();owner.dispose();}
@@ -85,7 +86,7 @@ test('protected owner persistence, restart and portable metadata preserve exact 
 });
 test('native host applies selected ports after inherited baselines, blocks unavailable painting and releases one cache lease',()=>{
  const input=fixture(),owner=createLivingLightFeatureCache(),n={...createNativeNamespace()};let painted,baseline,draws=0;const nativeEvaluate=n.HapaCore.evaluate;
- n.HapaRenderer=class {constructor(canvas,score,cache,state){Object.assign(this,{cache,state,programs:{},buffers:[],vaos:[],targets:[]});}render(t){draws++;baseline=nativeEvaluate(this.cache,this.state,t);painted=n.HapaCore.evaluate(this.cache,this.state,t);}resize(){}dispose(){}};n.HapaPassageRenderer=n.HapaGeometryDanceVisuals=n.HapaJourneyVisuals=()=>{};
+ n.HapaRenderer=class {constructor(canvas,score,cache,state){Object.assign(this,{cache,state,programs:{},buffers:[],vaos:[],targets:[]});}render(t){draws++;baseline=nativeEvaluate(this.cache,this.state,t);painted=n.HapaCore.evaluate(this.cache,this.state,t);}resize(){}dispose(){}};n.HapaRenderer.program=()=>({p:{}});for(const hook of LIVING_LIGHT_VISUAL_HOOKS)n[hook]=()=>{};
  const runtime=createLivingLightRuntime({canvas:{},registry,nativeFactory:()=>n}),draft=recipe();draft.instances[0].bindings.energy=binding([stem('exact-asset-0')]);draft.instances[0].bindings.onset=binding([stem('exact-asset-0')],{feature:'onset'});for(const f of input.performance.buses[1].frames)f.onsetEnvelope=.8;
  const journey={...draft,journeyId:'fixture:journey',revisionId:'fixture:r1',parentRevisionId:null},prepare={journeyRevision:journey,sourceBinding:{songId:input.songId,durationUs:2000000,sourceHash:input.playbackReceipt.sourceHash},generation:1,featureInput:{...input,cache:owner,requiredBytes:livingLightFeatureBytes(input.performance)}};
  assert.equal(runtime.prepare(prepare).features,'exact-asset-port-response');const packet=runtime.evaluate({timelineUs:750000});assert.equal(runtime.render(packet),true);assert(Math.abs(painted.values['material.emission']-baseline.values['material.emission']-.2)<1e-9);assert(Math.abs(painted.values['world.impulse']-baseline.values['world.impulse']-.2)<1e-7);
@@ -95,7 +96,7 @@ test('native host applies selected ports after inherited baselines, blocks unava
 test('Director offset samples current song signals while native route and media retain Journey time',()=>{
  const input=fixture(),owner=createLivingLightFeatureCache(),n={...createNativeNamespace()};let painted,baseline;
  const original=n.HapaCore.evaluate;
- n.HapaRenderer=class{constructor(canvas,score,cache,state){Object.assign(this,{cache,state,programs:{},buffers:[],vaos:[],targets:[]});}render(t){baseline=original(this.cache,this.state,t);painted=n.HapaCore.evaluate(this.cache,this.state,t);}resize(){}dispose(){}};n.HapaPassageRenderer=n.HapaGeometryDanceVisuals=n.HapaJourneyVisuals=()=>{};
+ n.HapaRenderer=class{constructor(canvas,score,cache,state){Object.assign(this,{cache,state,programs:{},buffers:[],vaos:[],targets:[]});}render(t){baseline=original(this.cache,this.state,t);painted=n.HapaCore.evaluate(this.cache,this.state,t);}resize(){}dispose(){}};n.HapaRenderer.program=()=>({p:{}});for(const hook of LIVING_LIGHT_VISUAL_HOOKS)n[hook]=()=>{};
  const draft=recipe();draft.schedule[0].endUs=1000000;draft.instances[0].bindings.energy=binding([stem('exact-asset-0')]);
  const runtime=createLivingLightRuntime({canvas:{},registry,nativeFactory:()=>n});
  try{

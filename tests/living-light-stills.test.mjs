@@ -1,3 +1,4 @@
+import {LIVING_LIGHT_VISUAL_HOOKS} from '../src/living-light/native-visuals.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createLivingLightStillCache,livingLightThingStudy,livingLightSavedStudyTarget} from '../src/domain/living-light-stills.js';
@@ -30,7 +31,7 @@ test('session cache bounds serialized images and receipts, evicts oldest revisio
 test('capture requires a current painted frame, rejects hidden/stale frames, preserves held time and releases the CPU canvas',()=>{
  const native={...createNativeNamespace()};let closed=0,copied=0;const outputs=[];
  native.HapaRenderer=class{constructor(){Object.assign(this,{programs:{},buffers:[],vaos:[],targets:[],environment:{backend:'fixture'}});}render(){}resize(){}dispose(){closed++;}};
- native.HapaPassageRenderer=native.HapaGeometryDanceVisuals=native.HapaJourneyVisuals=()=>{};
+ native.HapaRenderer.program=()=>({p:{}});for(const hook of LIVING_LIGHT_VISUAL_HOOKS)native[hook]=()=>{};
  const runtime=createLivingLightRuntime({canvas:{},registry,nativeFactory:()=>native,stillCanvasFactory:()=>{const output={getContext:()=>({drawImage:()=>copied++}),toDataURL:()=>png};outputs.push(output);return output;}}),journey=study(registry.entries.find(t=>t.capabilities.continuous)).journey;
  runtime.prepare({journeyRevision:journey,sourceBinding:{songId:journey.songId,durationUs:20000000},generation:1,neutralStudy:true});assert.throws(()=>runtime.captureStill());
  const frame=runtime.evaluate({timelineUs:3000000});runtime.render(frame);const result=runtime.captureStill();assert.equal(result.receipt.visualUs,3000000);assert.deepEqual(result.receipt.recipe,journey);assert.equal(outputs[0].width,0);assert.equal(outputs[0].height,0);

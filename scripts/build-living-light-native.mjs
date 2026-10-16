@@ -22,6 +22,10 @@ for(const name of manifest.runtimeOrder){
   return `${id}=window.${id}=`;
  });
  output+='\n// BEGIN '+name+'\n'+text+'\n// END '+name+'\n';
+ // This retained UMD module exports through its local `root`, unlike the
+ // window assignments above. Bind that exact export inside this namespace;
+ // classic scripts resolve it globally, private ESM consumers cannot.
+ if(name==='dynamics-kernel.js')output+='\nconst HapaDynamicsKernel=window.HapaDynamicsKernel;\n';
 }
 output+='\nreturn Object.freeze(window);\n}\n';
 const target=path.join(root,'src/living-light/native.generated.js');

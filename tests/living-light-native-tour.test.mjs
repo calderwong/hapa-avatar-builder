@@ -1,3 +1,4 @@
+import {LIVING_LIGHT_VISUAL_HOOKS} from '../src/living-light/native-visuals.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createNativeNamespace} from '../src/living-light/native.generated.js';
@@ -53,7 +54,7 @@ test('locked destination protects adjacent connections and exact times until exp
 test('three Locations and two bridges preserve direct/reverse boundary state through the actual native route evaluator',()=>{
  const n={...createNativeNamespace()};let closed=0,painted;
  n.HapaRenderer=class{constructor(canvas,score,cache,state){Object.assign(this,{cache,state,programs:{},buffers:[],vaos:[],targets:[]});}render(t){painted=n.HapaCurrents.route(this.cache,this.state,t);}resize(){}dispose(){closed++;}};
- n.HapaPassageRenderer=n.HapaGeometryDanceVisuals=n.HapaJourneyVisuals=()=>{};
+ n.HapaRenderer.program=()=>({p:{}});for(const hook of LIVING_LIGHT_VISUAL_HOOKS)n[hook]=()=>{};
  const runtime=createLivingLightRuntime({canvas:{},registry,nativeFactory:()=>n});let generation=0;
  for(const [from,style,to]of [['solar-reliquary','fractal-loom','tidal-observatory'],['solar-reliquary','silken-current','tidal-observatory'],['solar-reliquary','fractal-loom','resonance-vault'],['solar-reliquary','silken-current','resonance-vault'],['tidal-observatory','fractal-loom','solar-reliquary']]){
   runtime.prepare({journeyRevision:route(from,style,to),sourceBinding:{songId:'fixture:song',durationUs:20000000},generation:++generation,neutralStudy:true});

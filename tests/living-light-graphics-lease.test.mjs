@@ -1,3 +1,4 @@
+import {LIVING_LIGHT_VISUAL_HOOKS} from '../src/living-light/native-visuals.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createLivingLightGraphicsLease} from '../src/living-light/graphics-lease.js';
@@ -28,14 +29,14 @@ test('partial shader constructor and post-construction hook failures release nat
  for(const boundary of ['constructor','hook']){
   const f=fixture(),n={...createNativeNamespace()};
   n.HapaRenderer=class {constructor(canvas){const gl=canvas.getContext('webgl2');gl.createShader();gl.createProgram();gl.createBuffer();if(boundary==='constructor')throw Error('Compile fixture failed');Object.assign(this,{programs:{},buffers:[],vaos:[],targets:[]});}dispose(){}resize(){}render(){}};
-  n.HapaPassageRenderer=()=>{throw Error('Hook fixture failed');};n.HapaGeometryDanceVisuals=n.HapaJourneyVisuals=()=>{};
+  n.HapaRenderer.program=()=>({p:{}});for(const hook of LIVING_LIGHT_VISUAL_HOOKS)n[hook]=()=>{};n.HapaPassageRenderer=()=>{throw Error('Hook fixture failed');};
   const runtime=createLivingLightRuntime({canvas:f.canvas,registry,nativeFactory:()=>n});assert.throws(()=>runtime.prepare(prepare),/fixture failed/);assert.equal(f.allocated.size,0);assert.equal(runtime.diagnostics().canvasCount,0);runtime.dispose();runtime.dispose();assert.equal(f.allocated.size,0);
  }
 });
 test('twenty quality/module restore cycles have one live allocation set and zero after leave',()=>{
  const f=fixture(),n={...createNativeNamespace()};let closed=0;
  n.HapaRenderer=class {constructor(canvas){const gl=canvas.getContext('webgl2');gl.createTexture();gl.createFramebuffer();gl.createBuffer();Object.assign(this,{programs:{},buffers:[],vaos:[],targets:[]});}dispose(){closed++;}resize(){}render(){}};
- n.HapaPassageRenderer=n.HapaGeometryDanceVisuals=n.HapaJourneyVisuals=()=>{};
+ n.HapaRenderer.program=()=>({p:{}});for(const hook of LIVING_LIGHT_VISUAL_HOOKS)n[hook]=()=>{};
  const runtime=createLivingLightRuntime({canvas:f.canvas,registry,nativeFactory:()=>n});
  for(let i=0;i<20;i++){
   runtime.prepare({...prepare,generation:i*2+1});assert.equal(f.allocated.size,3);
