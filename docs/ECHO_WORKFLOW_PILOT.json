@@ -1,4 +1,15 @@
 {
+  "livingLightExactMediaAcceptance20261016": {
+    "status": "technically-accepted",
+    "task": "LL-914",
+    "checks": 26,
+    "runtimeChanged": false,
+    "nativeEvidence": "prior-closed-cut-reopen-framing-distinct-video-swap",
+    "boundFullSongRender": "in-progress-separate",
+    "humanAcceptance": "pending",
+    "goal": "active",
+    "audit": "docs/living-light/MEDIA_RESOLUTION_ACCEPTANCE.md"
+  },
   "livingLightAudioBoundPilot20261016": {
     "status": "saved-bound-pilot-rendering",
     "checks": 63,

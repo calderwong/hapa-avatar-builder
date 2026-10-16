@@ -901,3 +901,15 @@ canceled; fresh reopening yielded matching cut/graph identities and3 cues.
 remains pending. Earlier absent-bank/API-pending statements above are historical.
 Permanent Hand bootstrap adoption remains pending after rebuilding the actual
 installed package. See [actual pilot and learning](../postmortems/2026-10-16-living-light-audio-bound-pilot.md).
+
+
+## Exact saved-media acceptance — October 16
+
+LL-914 now has an explicit [original-criteria acceptance map](MEDIA_RESOLUTION_ACCEPTANCE.md).
+26 current checks pass for exact closed-cut resolution, rejected substitutions,
+missing/imported references, framing, immutable save/reopen and bounded decoders.
+Prior actual closed-cut paintings and distinct-video swaps are reused; source
+records keep ownership and rights, with no grant inferred from a reference.
+General media-library browsing remains separate. This documentation-only audit
+changes no renderer or saved input; the current audio-bound encode continues.
+Full integration and human creative acceptance remain open.

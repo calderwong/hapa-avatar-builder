@@ -6,6 +6,11 @@
       "slug": "hapa-living-light-director-cues-v1",
       "title": "Living Light scenes and transitions in Echo Director cuts",
       "path": "docs/living-light/DIRECTOR_CUES.md"
+    },
+    {
+      "slug": "hapa-living-light-exact-media-acceptance-v1",
+      "title": "Living Light exact painted media acceptance",
+      "path": "docs/living-light/MEDIA_RESOLUTION_ACCEPTANCE.md"
     }
   ]
 }

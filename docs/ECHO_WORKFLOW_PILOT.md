@@ -910,3 +910,15 @@ encoded retry acceptance remains pending. Permanent Hand bootstrap-package
 adoption is still open: rebuilding the installed package superseded the earlier
 temporary candidate UI. No task closes or edition is minted. See the
 [checkpoint and corrections](postmortems/2026-10-16-living-light-audio-bound-pilot.md).
+
+
+## October 16 — exact painted media requirement accepted
+
+LL-914's original three criteria are mapped to current26checks and prior native
+closed-cut reopen, framing and distinct-video swap evidence. Saved source pins,
+source-owner rights/lineage and independent placement settings are retained;
+missing, changed or imported unqualified sources refuse. No runtime change,
+new build, duplicate render or source-store mutation. The active audio-bound
+full-song encode remains separate and unaccepted until output verification.
+Full49-task scope and human review remain open. See the
+[criterion audit and learning](living-light/MEDIA_RESOLUTION_ACCEPTANCE.md).
