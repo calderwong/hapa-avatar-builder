@@ -1,4 +1,21 @@
 {
+  "livingLightAudioBoundPilot20261016": {
+    "status": "saved-bound-pilot-rendering",
+    "checks": 63,
+    "priorCutsUnchanged": 41,
+    "priorJourneyPayloadsUnchanged": true,
+    "readablePreparedStems": 12,
+    "stemAlignment": "unverified",
+    "endpointTolerance": "one-PCM-sample-rounded-to-integer-microseconds",
+    "omittedSelectedCueProjection": "refused",
+    "managedPlan": "plan:d61d3ebec4b823726bcd6364807085ac",
+    "encodedAcceptance": "pending",
+    "handBootstrapPermanentAdoption": "pending",
+    "humanAcceptance": "pending",
+    "goal": "active",
+    "postmortem": "docs/postmortems/2026-10-16-living-light-audio-bound-pilot.md",
+    "nativeDurationRule": "shared-with-snapshot-validator"
+  },
   "livingLightPreparedRenderSource20261015": {
     "status": "source-verified-album-bound-render-pending",
     "checks": 54,

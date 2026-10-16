@@ -15,8 +15,28 @@ import {livingLightPreparedBinding} from '../src/domain/living-light-prepared-bi
 import {createEchoLivingLightSnapshotRenderer} from '../src/living-light/director-snapshot.js';
 import {fixture as signals} from './fixtures/living-light-signals.mjs';
 import {readEchoSavedCut,readEchoSavedVariant} from '../server/echo-saved-cut-reader.mjs';
+import {deriveEchoSavedDirectionPlanningProject} from '../src/domain/echo-direction-variants.js';
+import {prepareSongCardLivingLight} from '../server/song-card-living-light.mjs';
+import {prepareEchoReadinessLivingLight} from '../server/echo-readiness-living-light.mjs';
 const registry=createLivingLightRegistry(),actor={mode:'authenticated-api',actor:{actorId:'agent:test',kind:'agent',displayName:'Test'}};
 const seal=s=>{const {snapshotDigest,...body}=s;return {...body,snapshotDigest:livingLightRenderDigest(body)};};
+
+test('readiness and managed rendering refuse selected-cut detail that still carries Legacy fields',async()=>{
+ const f=await setup({painted:false});try{
+  const variant={id:'saved-light',timeline:[],visualizer_timeline:[],project_patch:{living_light_cues:f.project.living_light_cues}};
+  const raw={song_id:f.project.song_id,duration:f.project.duration,timeline:[],visualizer_timeline:[],selected_direction_script_variant_id:variant.id,direction_script_variants:[variant]};
+  const before=structuredClone(raw);
+  for(const prepare of [prepareSongCardLivingLight,prepareEchoReadinessLivingLight]){
+   await assert.rejects(prepare({project:raw,owner:()=>assert.fail('Must refuse before owner work'),ownerFactory:()=>assert.fail('Must refuse before owner work')}),{code:'local_living_light_source_not_ready'});
+   assert.equal(await prepare({project:{...raw,selected_direction_script_variant_id:null}}),null);
+   assert.equal(await prepare({project:{...raw,living_light_cues:[]}}),null);
+  }
+  const projected=deriveEchoSavedDirectionPlanningProject(raw,variant);
+  const packaged=await prepareSongCardLivingLight({project:projected,owner:f.owner,root:f.root,cacheRoot:path.join(f.root,'projected')});
+  assert.deepEqual(packaged.snapshot.cues,variant.project_patch.living_light_cues);
+  assert.deepEqual(raw,before);
+ }finally{await f.close();}
+});
 async function setup({painted=true,bound=false,framing}={}){
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'ll-render-package-')),input=signals(0),songId=input.songId,durationUs=2e6;
  const cut={song_id:songId,active_direction_script_variant:{id:'cut:one'},timeline:[{id:'shot:one',media_id:'clip:one',media_uri:'/media/test.mp4'}]};
@@ -71,6 +91,19 @@ test('managed packaging requests exact prepared input only for bound recipes and
    assert.deepEqual((await fs.readdir(args.cacheRoot)).filter(n=>n.startsWith('.preparing-')),[]);
   }finally{await f.close();}
  }
+});
+test('bound duration admits one PCM sample of endpoint rounding without changing source timing',async()=>{
+ const f=await setup({painted:false,bound:true});try{
+  const snapshot=await f.build({preparedSource:{performance:f.input.performance,playbackReceipt:f.input.playbackReceipt}});
+  const tolerance=Math.ceil(1e6/f.input.playbackReceipt.sampleRate);
+  const rounded=seal({...structuredClone(snapshot),durationUs:snapshot.durationUs+tolerance});
+  const result=validateLivingLightRenderSnapshot(rounded);
+  assert.deepEqual(result.preparedSource,snapshot.preparedSource);
+  assert.deepEqual(result.cues,snapshot.cues);
+  assert.throws(()=>validateLivingLightRenderSnapshot(seal({...rounded,durationUs:snapshot.durationUs+tolerance+1})),/Prepared signals differ/);
+  // A larger mismatch cannot hide behind a lower analysis cadence.
+  assert.throws(()=>validateLivingLightRenderSnapshot(seal({...rounded,durationUs:snapshot.durationUs+1000})),/Prepared signals differ/);
+ }finally{await f.close();}
 });
 test('snapshot renderer pins caller data and resolves only packaged media, recipes and prepared input',async()=>{
  const f=await setup();try{const snapshot=await f.build();let options,dead=0;

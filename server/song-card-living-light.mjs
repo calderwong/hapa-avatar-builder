@@ -7,9 +7,23 @@ import {verifyLivingLightPackageMedia} from '../scripts/lib/hyperframes-living-l
 import encoding from '../scripts/lib/prepared-frame-encoding.cjs';
 const fail=message=>{throw Object.assign(Error(message),{code:'local_living_light_source_not_ready',statusCode:409});};
 
+// Hydrated editor detail can contain a selected cut's ID and full sidecar
+// while its top-level fields still describe Legacy. It is not a render input
+// until the saved-cut projection has applied the editorial patch.
+export function assertLivingLightRenderProjection(project={}) {
+ const body=project.music_video_project||project.project||project;
+ const selected=body.selected_direction_script_variant_id;
+ const variant=body.direction_script_variants?.find(row=>row.id===selected);
+ const declared=(variant?.project_patch||variant?.projectPatch)?.living_light_cues;
+ if(selected&&declared?.length&&body.living_light_cues===undefined) {
+  fail('The selected saved cut contains Living Light scenes, but its render input is still the Legacy projection. Reopen the saved cut and choose Retry plan before rendering.');
+ }
+}
+
 /** Freeze through the saved Journey/media owners, before checkpoint identity.
  * Content-addressed copies are execution inputs; authoring is never changed. */
 export async function prepareSongCardLivingLight({project,owner,root,cacheRoot,readPreparedSource,signal}){
+ assertLivingLightRenderProjection(project);
  if(!echoProjectLivingLightCues(project).length)return null;
  if(typeof owner==='function')owner=owner();
  if(!owner?.exportPackage||!owner?.resolveMedia)fail('The exact Living Light source owner is unavailable.');

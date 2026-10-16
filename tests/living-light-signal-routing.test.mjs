@@ -20,6 +20,24 @@ const registry=createLivingLightRegistry(),thing=registry.entries.find(t=>t.capa
 const master={kind:'master'},stem=id=>({kind:'stem',assetId:id});
 const binding=(sourceRefs=[master],extra={})=>({schemaVersion:LL_SCHEMAS.signalBinding,sourceRefs,feature:'energy',aggregation:'max',onUnavailable:'neutral',...extra});
 const recipe=()=>newJourneyDraft({songId:'fixture-song',durationUs:2000000,thing},registry);
+test('native prepared rendering shares the one-sample endpoint rule and never stretches source time',()=>{
+ for(const delta of [-21,21,22]){
+  const input=fixture(0),before=structuredClone(input),owner=createLivingLightFeatureCache(),n={...createNativeNamespace()};
+  n.HapaRenderer=class {constructor(){this.programs={};this.buffers=[];this.vaos=[];this.targets=[];}resize(){}render(){}dispose(){}};
+  n.HapaPassageRenderer=n.HapaGeometryDanceVisuals=n.HapaJourneyVisuals=()=>{};
+  const runtime=createLivingLightRuntime({canvas:{},registry,nativeFactory:()=>n}),draft=recipe();draft.instances[0].bindings.energy=binding([master]);
+  const options={journeyRevision:{...draft,journeyId:'fixture:rounding',revisionId:'fixture:r1',parentRevisionId:null},journeyDurationUs:2000000,
+   sourceBinding:{songId:input.songId,durationUs:2000000+delta,sourceHash:input.playbackReceipt.sourceHash},generation:1,featureInput:{...input,cache:owner,requiredBytes:livingLightFeatureBytes(input.performance)}};
+  try{
+   if(delta===22){assert.throws(()=>runtime.prepare(options),/differs from selected source timeline/);assert.equal(owner.diagnostics().leases,0);continue;}
+   runtime.prepare(options);
+   const middle=runtime.evaluate({timelineUs:100000,signalTimelineUs:750000});assert.equal(middle.signalUs,750000);assert.equal(middle.visualUs,100000);assert.equal(runtime.render(middle),true);
+   const end=runtime.evaluate({timelineUs:2000000,signalTimelineUs:2000000+delta});assert.equal(end.signalUs,Math.min(2000000,2000000+delta));assert.equal(end.visualUs,2000000);assert.equal(runtime.render(end),true);
+   assert.throws(()=>runtime.evaluate({timelineUs:0,signalTimelineUs:2000001+delta}),/outside selected song/);
+   assert.deepEqual(input,before);
+  }finally{runtime.dispose();assert.equal(owner.diagnostics().leases,0);owner.dispose();}
+ }
+});
 test('typed exact identities distinguish arbitrary stem IDs from master; invalid policies and weights reject',()=>{
  const good=binding([master,stem('master'),stem('Guitar / texture #2')],{aggregation:'weighted-sum',weights:[.2,.3,.5]});assert.equal(validateSignalBinding(good),good);
  for(const value of [binding([]),binding([master,master]),binding([stem('a')],{weights:[1]}),binding([master],{schemaVersion:'future'}),binding([master],{aggregation:'weighted-sum',weights:[1.1]}),binding([master,stem('a')],{aggregation:'weighted-sum',weights:[1]}),binding([master,stem('a')],{aggregation:'weighted-sum',weights:[.6,.5]}),binding([master],{feature:'onset',onUnavailable:'master'}),binding([{kind:'master',assetId:'fake'}]),binding([stem('')]),binding([master],{onUnavailable:'hold'})])assert.throws(()=>validateSignalBinding(value));

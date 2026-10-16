@@ -1,7 +1,7 @@
 import {installLivingLightMedia} from './media-surfaces.js';
 import {createLivingLightGraphicsLease} from './graphics-lease.js';
 import {createLivingLightFeatureBank} from '../domain/living-light-features.js';
-import {livingLightFeatureKey} from '../domain/living-light-prepared-binding.js';
+import {livingLightFeatureKey,livingLightDurationMatches} from '../domain/living-light-prepared-binding.js';
 import {createLivingLightSignalRouter} from '../domain/living-light-signal-routing.js';
 import {createLivingLightBasicMaster} from '../domain/living-light-basic-master.js';
 import {compileLivingLightNativeTour} from '../domain/living-light-native-tour.js';
@@ -59,7 +59,8 @@ export function createLivingLightRuntime({canvas,registry=createLivingLightRegis
   try{
   const nextRouter=hasBindings&&nextLease?createLivingLightSignalRouter({journey:structuredClone(journeyRevision),registry,bank:nextLease}):null;
   const responseIdentity=nextLease?.identity||nextBank?.identity;
-  if(responseIdentity&&(responseIdentity.durationUs!==durationUs||responseIdentity.sourceHash!==sourceBinding.sourceHash))throw Error('Basic master differs from selected source timeline');
+  const responseRate=(featureInput||basicMasterInput)?.playbackReceipt?.sampleRate;
+  if(responseIdentity&&(!livingLightDurationMatches(responseIdentity.durationUs,durationUs,responseRate)||responseIdentity.sourceHash!==sourceBinding.sourceHash))throw Error('Basic master differs from selected source timeline');
   // A fresh namespace/cache never retains prototype songs or frames from another song.
   const score=tour?.score||{id:journeyRevision.songId,title:journeyRevision.title,duration:journeyDurationUs/1e6,fps:30,stems:[],master:'AA==',travel:[],shots:[{id:'neutral-study',label:neutralStudy?'Authored resting study · measured features unavailable':'Explicit basic master RMS response',start:0,end:journeyDurationUs/1e6,rig:'portrait',locks:{},palette:'inherit'}]};
   const nextState=native.HapaCore.initialState(score);Object.assign(nextState,{director:native.HapaDirector.create(score),reliquary:native.HapaReliquary.defaults(),flow:{resonance:true,braid:true,edge:true},showMedia:false,videoWeave:false});native.HapaHorizons.init(nextState);
@@ -82,7 +83,10 @@ export function createLivingLightRuntime({canvas,registry=createLivingLightRegis
   if(!['draft','balanced','high'].includes(quality))throw Error('Unsupported quality');
   if(reducedMotion&&heldVisualUs===null){heldVisualUs=hasEvaluated?lastSourceUs:timelineUs;heldSignalUs=hasEvaluated?lastSignalUs:signalTimelineUs;}
   if(!reducedMotion){heldVisualUs=null;heldSignalUs=null;}
-  const visualUs=heldVisualUs??timelineUs,signalUs=heldSignalUs??signalTimelineUs;lastSourceUs=timelineUs;lastSignalUs=signalTimelineUs;hasEvaluated=true;
+  // Only the already-admitted terminal rounding interval may land beyond the
+  // decoded endpoint. Keep visual time intact and sample the exact source end.
+  const sourceEndUs=(featureLease?.identity||masterBank?.identity)?.durationUs??prepared.sourceBinding.durationUs;
+  const visualUs=heldVisualUs??timelineUs,signalUs=Math.min(heldSignalUs??signalTimelineUs,sourceEndUs);lastSourceUs=timelineUs;lastSignalUs=signalUs;hasEvaluated=true;
   if(viewport)resize(viewport);state.quality=quality;
   // Source implementation's reduced flag freezes at zero. Host holds the exact last visual time instead.
   state.reduced=false;

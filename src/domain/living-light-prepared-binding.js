@@ -2,6 +2,13 @@ import {canonicalLivingLightRole,validateSourceBinding} from './living-light-sou
 import {sha256} from '@noble/hashes/sha2.js';
 import {bytesToHex} from '@noble/hashes/utils.js';
 import {LIVING_LIGHT_FEATURE_VERSION} from './living-light-features.js';
+// Authored decimal seconds and decoded PCM may round across the terminal
+// sample. This admits endpoint precision only, never a rescale or time map.
+export function livingLightDurationMatches(actualUs,authoredUs,sampleRate) {
+ return Number.isSafeInteger(actualUs)&&Number.isSafeInteger(authoredUs)
+  &&Number.isFinite(sampleRate)&&sampleRate>0
+  &&Math.abs(actualUs-authoredUs)<=Math.ceil(1e6/sampleRate);
+}
 /** Hash the complete selected coordinates and binding instead of putting all
  * asset declarations/maps into a cache identifier with a fixed length limit. */
 export function livingLightFeatureKey({songId,performance,playbackReceipt,sourceBinding}){

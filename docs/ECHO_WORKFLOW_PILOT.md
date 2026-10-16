@@ -892,3 +892,21 @@ UI build was required for this server-only change. Actual album bound output
 and running API delivery remain pending: a read-only check confirms the11:23
 pilot master has no prepared Living Light bundle yet. No requirement closes.
 See [source integration and remaining proof](postmortems/2026-10-15-living-light-prepared-render-source.md).
+
+
+## October16 — actual prepared pilot and render-projection repair
+
+The real11:23 master and12 readable stems are prepared. A new saved Journey
+binds its first Location to measured master energy, and a new cut uses that
+revision for only its first Scene. All41 prior cuts and prior Journey payloads
+are preserved. A one-PCM-sample endpoint tolerance resolves the actual21us
+rounding mismatch without changing measured timing or source identity.
+
+An attempted render used Legacy fields under the new cut's label and was
+canceled. Readiness/managed packaging now refuse omitted Living Light cues
+when selected saved-cut detail declares them. Fresh reopen produces the correct
+three-cue plan.63 focused checks, build and supervised API delivery pass;
+encoded retry acceptance remains pending. Permanent Hand bootstrap-package
+adoption is still open: rebuilding the installed package superseded the earlier
+temporary candidate UI. No task closes or edition is minted. See the
+[checkpoint and corrections](postmortems/2026-10-16-living-light-audio-bound-pilot.md).

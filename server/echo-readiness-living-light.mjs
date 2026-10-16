@@ -4,12 +4,13 @@ import crypto from 'node:crypto';
 import {echoProjectLivingLightCues} from '../src/domain/echo-living-light-cues.js';
 import {createLivingLightService} from './living-light-service.mjs';
 import {readEchoSavedCut} from './echo-saved-cut-reader.mjs';
-import {prepareSongCardLivingLight} from './song-card-living-light.mjs';
+import {prepareSongCardLivingLight,assertLivingLightRenderProjection} from './song-card-living-light.mjs';
 import {createLivingLightRenderSourceReader} from './living-light-render-source.mjs';
 
 /** Reuse the managed renderer's package before certifying an exact saved cut.
  * The derived certificate watches metadata and copied bytes; no authoring write. */
 export async function prepareEchoReadinessLivingLight({project,root,variantsRoot,cacheRoot,signal,ownerFactory,masterPath,sourceMasterSha256,resolveOptions,readPreparedSource}={}) {
+ assertLivingLightRenderProjection(project);
  if(!echoProjectLivingLightCues(project).length)return null;
  const owner=ownerFactory?ownerFactory():createLivingLightService({root,storePath:process.env.HAPA_LIVING_LIGHT_AUTHORING_STORE,
   resolveCut:(songId,cutId)=>readEchoSavedCut({root,variantsRoot,songId,cutId})});

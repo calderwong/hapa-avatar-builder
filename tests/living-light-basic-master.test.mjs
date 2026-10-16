@@ -45,5 +45,7 @@ test('native host applies explicit basic offsets, holds and restores the same so
  const restored=runtime.evaluate({timelineUs:1800000,reducedMotion:true});assert.equal(restored.visualUs,500000);assert.equal(restored.basicMasterFrame.value,.25);
  assert.equal(runtime.diagnostics().ownedAudioContexts,0);assert.equal(runtime.diagnostics().ownedAnimationLoops,0);assert.equal(runtime.diagnostics().featureEvidence.bytes,540);
  runtime.prepare({...prepare,generation:3,neutralStudy:true,basicMasterInput:undefined});assert.equal(runtime.diagnostics().features,'unavailable');assert.equal(runtime.diagnostics().featureEvidence,null);
+ runtime.evaluate({timelineUs:1000000});
+ const neutralHeld=runtime.evaluate({timelineUs:500000,reducedMotion:true});assert.equal(neutralHeld.visualUs,1000000);assert.equal(neutralHeld.signalUs,1000000);
  runtime.dispose();runtime.dispose();assert.equal(closed,3);
 });

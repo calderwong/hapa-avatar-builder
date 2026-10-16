@@ -883,3 +883,21 @@ exclude workstation paths and preserve unverified stem alignment.
 identical certification/render snapshots. The actual11:23 pilot bank is absent;
 real-album bound rendering and API delivery remain pending. Prior neutral pilot
 exports do not prove this path. See the [evidence and recovery](../postmortems/2026-10-15-living-light-prepared-render-source.md).
+
+
+## Actual album prepared pilot — October16
+
+The11:23 pilot now has measured master energy in a new saved Journey revision
+and first Director Scene; the other two cues retain their prior revision.
+41 prior cuts and all old Journey payloads are unchanged. The decoded master
+ends21us before the authored duration; validation permits at most one PCM
+sample of integer-microsecond endpoint rounding without shifting features.
+Missing/changed identity and larger duration differences still refuse.
+
+Readiness and managed packaging also reject hydrated selected-cut detail that
+omits the selected variant's Living Light cues. The first such attempt was
+canceled; fresh reopening yielded matching cut/graph identities and3 cues.
+63 affected checks/build/API delivery pass; current encoded retry acceptance
+remains pending. Earlier absent-bank/API-pending statements above are historical.
+Permanent Hand bootstrap adoption remains pending after rebuilding the actual
+installed package. See [actual pilot and learning](../postmortems/2026-10-16-living-light-audio-bound-pilot.md).

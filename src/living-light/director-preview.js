@@ -63,7 +63,10 @@ export function createEchoLivingLightPreview({canvas,cues,songId,durationUs,reso
  function capture(input,paint){
   const hit=echoLivingLightCueAt(ordered,input.timelineUs),packet=evaluate(input);
   if(!hit)return null;
-  if(!packet||!render(packet))throw Object.assign(Error('Living Light frame is unavailable. Wait for the exact Journey before recording.'),{code:JSON.parse(lastState||'{}').state==='unavailable'||disposed||suspended?'living_light_capture_failed':'living_light_capture_waiting'});
+  if(!packet||!render(packet)){
+   const state=JSON.parse(lastState||'{}'),failed=state.state==='unavailable'||disposed||suspended;
+   throw Object.assign(Error('Living Light frame is unavailable. '+(failed&&state.message?state.message:'Wait for the exact Journey before recording.')),{code:failed?'living_light_capture_failed':'living_light_capture_waiting'});
+  }
   if((runtime.diagnostics().media||[]).some(row=>row.status!=='ready'||!row.paintReady))throw Object.assign(Error('A painted Living Light clip is not ready at this song time.'),{code:(runtime.diagnostics().media||[]).some(row=>['error','unresolved'].includes(row.status))?'living_light_capture_failed':'living_light_capture_waiting'});
   // WebGL buffers may clear after presentation. Copy synchronously after render.
   paint(canvas);

@@ -4,7 +4,7 @@ import {canonicalJSON,validateJourney} from './living-light-contracts.js';
 import {validateEchoLivingLightCues,resolveEchoLivingLightCue} from './echo-living-light-cues.js';
 import {extendLivingLightRegistry} from './living-light-preset.js';
 import {livingLightMediaKey} from './living-light-media.js';
-import {livingLightPreparedBinding} from './living-light-prepared-binding.js';
+import {livingLightPreparedBinding,livingLightDurationMatches} from './living-light-prepared-binding.js';
 import {createLivingLightFeatureBank} from './living-light-features.js';
 import {createLivingLightRegistry} from '../living-light/registry.js';
 
@@ -74,7 +74,10 @@ export function validateLivingLightRenderSnapshot(snapshot,{cues,songId,duration
   if(playbackReceipt?.sourceSelection?.kind==='stem')fail('A stem audition cannot replace the song master.');
   const binding=livingLightPreparedBinding({songId:snapshot.songId,performance,playbackReceipt});
   const bank=createLivingLightFeatureBank({songId:snapshot.songId,performance,playbackReceipt,sourceBinding:binding});
-  try{if(bank.identity.durationUs!==snapshot.durationUs)fail('Prepared signals differ from the song timeline.');}finally{bank.dispose();}
+  // Authored decimal seconds and decoded PCM can round opposite sides of the
+  // terminal sample. Admit at most one sample (rounded to integer microseconds),
+  // without stretching the bank or changing its exact source coordinates.
+  try{if(!livingLightDurationMatches(bank.identity.durationUs,snapshot.durationUs,playbackReceipt.sampleRate))fail('Prepared signals differ from the song timeline.');}finally{bank.dispose();}
   for(const {journey}of recipes.values())if(journey.sourceBindingRef&&!same(journey.sourceBindingRef,{bindingId:binding.bindingId,revisionId:binding.revisionId}))fail('A saved audio-binding revision differs from packaged preparation.');
  }
  return {recipes,songId:snapshot.songId,durationUs:snapshot.durationUs,cues:snapshot.cues,preparedSource:snapshot.preparedSource};
