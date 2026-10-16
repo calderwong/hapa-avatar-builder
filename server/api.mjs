@@ -257,6 +257,7 @@ import {
   ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA,
   deriveEchoDirectionVariantProject,
   echoDirectionVariantFingerprint,
+  echoDirectionVariantWithoutExecutionGraph,
   echoDirectionVariantId as domainEchoDirectionVariantId,
   echoDirectionVariantMetadata,
   echoDirectionVariantTitle as domainEchoDirectionVariantTitle,
@@ -11772,15 +11773,11 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
     const repairedVariant = { ...result.variant, source_fingerprint: sourceFingerprint };
     if (!selected) return repairedVariant;
     if (!graphResult.graph) {
-      const blocked = { ...repairedVariant };
-      delete blocked.director_show_graph;
-      delete blocked.directorShowGraph;
+      const blocked = echoDirectionVariantWithoutExecutionGraph(repairedVariant);
       blocked.execution_preview = { status: "preparing", reason: graphResult.receipt?.reason || "certified-execution-graph-unavailable" };
       return blocked;
     }
-    const delivered = { ...repairedVariant };
-    delete delivered.director_show_graph;
-    delete delivered.directorShowGraph;
+    const delivered = echoDirectionVariantWithoutExecutionGraph(repairedVariant);
     return {
       ...delivered,
       execution_preview: {

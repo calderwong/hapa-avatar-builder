@@ -320,6 +320,17 @@ export function echoDirectionVariantSourceFingerprint(variant = {}) {
   return echoDirectionVariantFingerprint(variant);
 }
 
+/** Delivery may omit a saved graph while certification is pending. Keep the
+ * immutable source identity, and hash the actual editing projection separately. */
+export function echoDirectionVariantWithoutExecutionGraph(variant = {}) {
+  const delivered = clone(variant);
+  delivered.source_fingerprint = echoDirectionVariantSourceFingerprint(variant);
+  delete delivered.director_show_graph;
+  delete delivered.directorShowGraph;
+  delivered.fingerprint = echoDirectionVariantFingerprint(delivered);
+  return delivered;
+}
+
 export function validateEchoDirectionVariantProjection({ baseProject = {}, variant = {}, graph = {} } = {}) {
   const reasons = [];
   const variantId = echoDirectionVariantId(variant);

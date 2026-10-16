@@ -4754,6 +4754,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     // local editor template; final rendering remains blocked until the exact
     // child certificate exists on a fresh service.
     if (options.allowEditorFallback === true && variantId && variantId !== "legacy") {
+      const selected = project.direction_script_variants?.find(row => echoDirectionVariantId(row) === variantId);
+      if (selected?.selectionMode === "living-light-album-director") {
+        setEchoOperationNotice("Opening the Living Light album pass for editing and live recording. Final render preparation remains separate.");
+        return detailResult;
+      }
       setEchoOperationNotice("Opening this saved cut as an editable copy while its exact final-render graph certifies in the background…");
       void warmEchoProjectGraphsRequest(
         `${API_BASE}/api/echos/director-project/compile`,

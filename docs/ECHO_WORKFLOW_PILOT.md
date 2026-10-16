@@ -1036,3 +1036,13 @@ authoring reopens and nine graphics/preview regressions pass. Forced recovery at
 The test fixture now avoids duplicate React roots during development reevaluation.
 No production source changed and no requirement closes. See the
 [lifecycle evidence and its limits](postmortems/2026-10-16-living-light-first-entry.md#native-lifecycle-follow-up).
+
+## October 16 — album-wide Living Light Director coverage
+
+Calder prioritized the entire album over renderer polish. All 202 songs now
+have a separate Album Pass, with 1,205 saved Living Light cues and 201 new
+custodied Journeys. The 7,809 previous project/cut files and ten prior Journey/
+Thing revisions are unchanged. Live opening and painted portal/tunnel preview
+pass on Brave Tongues after fixing graph-omission fingerprint delivery. Final
+render certification remains separate. See [coverage, owner workflow and
+remaining review](living-light/ALBUM_DIRECTOR_PASS.md). No integration task closes.
