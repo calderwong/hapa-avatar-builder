@@ -43,7 +43,7 @@ export function createLivingLightMediaPackager({root,projectPath,output,signal})
 
 /** Snapshot through the existing authoring owner and exact media resolver.
  * Files written before a failure remain inert; no valid snapshot is returned. */
-export async function packageLivingLightRender({project,owner,packageMedia,preparedSource=null,signal}){
+export async function packageLivingLightRender({project,owner,packageMedia,preparedSource=null,readPreparedSource,signal}){
  const body=project.music_video_project||project.project||project,cues=structuredClone(echoProjectLivingLightCues(project));
  if(!cues.length)return null;
  const recipes=[],seen=new Set();
@@ -62,6 +62,10 @@ export async function packageLivingLightRender({project,owner,packageMedia,prepa
   }
   recipes.push({package:packet,sources});
  }
+ const bound=recipes.some(({package:{journey}})=>journey.sourceBindingRef||journey.instances.some(instance=>Object.keys(instance.bindings).length));
+ // Resolve once, only for saved audio choices. Neutral recipes must not start
+ // preparation or acquire an incidental source identity.
+ if(bound&&!preparedSource&&readPreparedSource)preparedSource=await readPreparedSource({songId:body.song_id,signal});
  const snapshot={schemaVersion:ECHO_LIVING_LIGHT_RENDER_SCHEMA,songId:body.song_id,durationUs:Math.round(body.duration*1e6),cues,recipes,preparedSource:structuredClone(preparedSource)};
  snapshot.snapshotDigest=livingLightRenderDigest(snapshot);validateLivingLightRenderSnapshot(snapshot,{cues,songId:body.song_id,durationUs:snapshot.durationUs});signal?.throwIfAborted();return snapshot;
 }

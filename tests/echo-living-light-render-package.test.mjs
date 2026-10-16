@@ -60,6 +60,18 @@ test('bound Journey packaging requires matching prepared identity and measured s
   for(const change of [s=>s.preparedSource.playbackReceipt.pcmSha256='d'.repeat(64),s=>s.preparedSource.performance.masterAudioHash='e'.repeat(64),s=>s.preparedSource.playbackReceipt.sourceSelection={kind:'stem'},s=>s.preparedSource.performance.buses[0].frames[0].rawRms=8]){const bad=structuredClone(snapshot);change(bad);assert.throws(()=>validateLivingLightRenderSnapshot(seal(bad)));}
  }finally{await f.close();}
 });
+test('managed packaging requests exact prepared input only for bound recipes and retains revision refusal',async()=>{
+ const {prepareSongCardLivingLight}=await import('../server/song-card-living-light.mjs');
+ for(const bound of [false,true]){
+  const f=await setup({painted:false,bound});try{
+   let reads=0;
+   const args={project:f.project,owner:f.owner,root:f.root,cacheRoot:path.join(f.root,'managed'),readPreparedSource:async({songId})=>{reads++;assert.equal(songId,f.project.song_id);return {performance:f.input.performance,playbackReceipt:f.input.playbackReceipt};}};
+   const result=await prepareSongCardLivingLight(args);assert.equal(reads,bound?1:0);assert.equal(!!result.snapshot.preparedSource,bound);
+   if(bound){f.input.playbackReceipt.pcmSha256='d'.repeat(64);await assert.rejects(prepareSongCardLivingLight(args),/binding revision differs/);}
+   assert.deepEqual((await fs.readdir(args.cacheRoot)).filter(n=>n.startsWith('.preparing-')),[]);
+  }finally{await f.close();}
+ }
+});
 test('snapshot renderer pins caller data and resolves only packaged media, recipes and prepared input',async()=>{
  const f=await setup();try{const snapshot=await f.build();let options,dead=0;
   const canvas=()=>({width:0,height:0,getContext:()=>({clearRect(){},drawImage(){}}),addEventListener(){},removeEventListener(){}});

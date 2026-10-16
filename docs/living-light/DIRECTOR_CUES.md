@@ -866,3 +866,20 @@ video swapping and the Hand/Card round trip remain LL-917 work. Catalog and
 picker wording must not be confused with saved playback readiness. No new
 render or human acceptance is claimed. See the
 [criterion audit and recovery](../postmortems/2026-10-15-living-light-modular-editor.md).
+
+
+## Prepared audio in managed renders — October 15
+
+Readiness certification and managed Song Card jobs now request the existing
+exact-asset measurement bank and playback-owner PCM receipt when a saved Journey
+has audio choices. Neutral recipes remain independent of preparation. Changed
+master, Song, source policy, decoded identity, duration or binding revision
+refuses; missing preparation never becomes neutral output. No analysis or
+alignment is automatically scheduled by this read. Playback preparation uses
+the existing bounded cache owner inside the supervised job. Portable snapshots
+exclude workstation paths and preserve unverified stem alignment.
+
+54 affected checks pass, including a real two-second preparation fixture and
+identical certification/render snapshots. The actual11:23 pilot bank is absent;
+real-album bound rendering and API delivery remain pending. Prior neutral pilot
+exports do not prove this path. See the [evidence and recovery](../postmortems/2026-10-15-living-light-prepared-render-source.md).

@@ -29,6 +29,7 @@ import { createEchoPerformancePreparation } from "./echo-performance-preparation
 import { openEchoPreviewPreparation, echoPreviewSelectionInput } from "./echo-preview-preparation.mjs";
 import { echoPerformanceInputs } from "./echo-performance-inputs.mjs";
 import {createLivingLightPerformancePort} from './living-light-performance-port.mjs';
+import {createLivingLightRenderSourceReader} from './living-light-render-source.mjs';
 import {livingLightPerformanceInputs, LIVING_LIGHT_SOURCE_POLICY} from "./living-light-performance-inputs.mjs";
 import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
 import { createEchoKanbanStore } from "./echo-kanban-store.mjs";
@@ -785,6 +786,14 @@ songCardLocalRenderBridge = createSongCardLocalRenderBridge({
   resolveRegistryMaster: async (songId) => String((await findRegistrySong(songId))?.localPath || "").trim(),
   certifyStart: certifySongCardLocalRenderStart,
   livingLightOwner: () => getLivingLightService(),
+  livingLightPreparedSource: createLivingLightRenderSourceReader({
+    playbackCacheRoot: path.resolve(process.env.HAPA_ECHO_PLAYBACK_CACHE_ROOT || path.join(ROOT,'data/cache/echo-playback-audio')),
+    readPerformance: params => createLivingLightPerformancePort({
+      readSongStore:()=>readJson(HAPA_SONG_STORE_PATH),
+      resolveOptions:{root:ROOT,mediaDir:MEDIA_DIR,songRegistryPath:SONG_REGISTRY_DATA_PATH,songbookPath:DEAR_PAPA_SONGBOOK_PATH,songStorePath:HAPA_SONG_STORE_PATH},
+      preparation:echoPerformancePreparation,preparedStore:echoPreparedPerformanceStore,
+    }).read(params),
+  }),
 });
 const CARD_INPUT_STANDARD_BASE_URL = (process.env.HAPA_CARD_INPUT_STANDARD_URL || "http://127.0.0.1:8896").replace(/\/+$/, "");
 const CARD_INPUT_STANDARD_ENABLED = process.env.HAPA_CARD_INPUT_STANDARD_ENABLED !== "0";

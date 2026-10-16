@@ -1775,6 +1775,8 @@ async function run(options = {}) {
       });
       const livingLight = await prepareEchoReadinessLivingLight({
         project: descriptor.project, root: avatarRoot, variantsRoot,
+        masterPath: master.path, sourceMasterSha256: master.ok ? contentHashForMaster(master.path) : null,
+        resolveOptions: runtimeRouteContext,
         cacheRoot: path.join(avatarRoot, "artifacts/echo-render-readiness/living-light"),
         signal: AbortSignal.timeout(120_000),
       });

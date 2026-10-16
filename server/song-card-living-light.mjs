@@ -9,16 +9,15 @@ const fail=message=>{throw Object.assign(Error(message),{code:'local_living_ligh
 
 /** Freeze through the saved Journey/media owners, before checkpoint identity.
  * Content-addressed copies are execution inputs; authoring is never changed. */
-export async function prepareSongCardLivingLight({project,owner,root,cacheRoot,signal}){
+export async function prepareSongCardLivingLight({project,owner,root,cacheRoot,readPreparedSource,signal}){
  if(!echoProjectLivingLightCues(project).length)return null;
  if(typeof owner==='function')owner=owner();
  if(!owner?.exportPackage||!owner?.resolveMedia)fail('The exact Living Light source owner is unavailable.');
  await fs.mkdir(cacheRoot,{recursive:true,mode:0o700});
  const temporary=await fs.mkdtemp(path.join(cacheRoot,'.preparing-'));
  try{
-  const snapshot=await packageLivingLightRender({project,owner,signal,packageMedia:createLivingLightMediaPackager({root,projectPath:path.join(root,'data/music-video-projects/selected-project.json'),output:temporary,signal})});
-  // Bound-source export stays closed until the real owner bank/clock is qualified.
-  // The snapshot validator refuses missing preparation; never substitute neutral.
+  const snapshot=await packageLivingLightRender({project,owner,signal,readPreparedSource,packageMedia:createLivingLightMediaPackager({root,projectPath:path.join(root,'data/music-video-projects/selected-project.json'),output:temporary,signal})});
+  // The snapshot validator still refuses absent or changed prepared bindings.
   const directory=path.join(cacheRoot,snapshot.snapshotDigest),manifest=path.join(directory,'living-light-render.json');
   await fs.writeFile(path.join(temporary,'living-light-render.json'),JSON.stringify(snapshot),{flag:'wx'});
   try{await fs.rename(temporary,directory);}catch(error){if(!['EEXIST','ENOTEMPTY'].includes(error.code))throw error;}

@@ -5,15 +5,18 @@ import {echoProjectLivingLightCues} from '../src/domain/echo-living-light-cues.j
 import {createLivingLightService} from './living-light-service.mjs';
 import {readEchoSavedCut} from './echo-saved-cut-reader.mjs';
 import {prepareSongCardLivingLight} from './song-card-living-light.mjs';
+import {createLivingLightRenderSourceReader} from './living-light-render-source.mjs';
 
 /** Reuse the managed renderer's package before certifying an exact saved cut.
  * The derived certificate watches metadata and copied bytes; no authoring write. */
-export async function prepareEchoReadinessLivingLight({project,root,variantsRoot,cacheRoot,signal,ownerFactory}={}) {
+export async function prepareEchoReadinessLivingLight({project,root,variantsRoot,cacheRoot,signal,ownerFactory,masterPath,sourceMasterSha256,resolveOptions,readPreparedSource}={}) {
  if(!echoProjectLivingLightCues(project).length)return null;
  const owner=ownerFactory?ownerFactory():createLivingLightService({root,storePath:process.env.HAPA_LIVING_LIGHT_AUTHORING_STORE,
   resolveCut:(songId,cutId)=>readEchoSavedCut({root,variantsRoot,songId,cutId})});
  try {
-  const prepared=await prepareSongCardLivingLight({project,root,owner,cacheRoot,signal});
+  const read=readPreparedSource||createLivingLightRenderSourceReader({root,resolveOptions});
+  const prepared=await prepareSongCardLivingLight({project,root,owner,cacheRoot,signal,
+   readPreparedSource:options=>read({...options,masterPath,sourceMasterSha256,signal})});
   const evidence=[];
   for (const source of prepared.additionalSources) {
    const file=path.resolve(source.path),before=fs.statSync(file),hash=crypto.createHash('sha256');

@@ -878,3 +878,17 @@ package and7 consumer checks pass, plus the Builder build. Local candidate
 delivery is verified; permanent package adoption remains open and release
 locks are unchanged. LL-917/broader goal/human creative review remain open.
 See [results and recovery](postmortems/2026-10-15-living-light-hand-roundtrip.md).
+
+
+## October 15 — prepared audio connected to render certification
+
+Readiness and managed Song Card rendering now resolve the same exact prepared
+Living Light measurements and existing playback-owner PCM receipt for bound
+Journeys. Neutral recipes do no preparation; changed or missing identities
+remain explicit failures.54 distinct affected checks pass, including actual
+two-second owner preparation, identical readiness/render snapshots and managed
+bridge source preservation. All owned processes returned to baseline. No new
+UI build was required for this server-only change. Actual album bound output
+and running API delivery remain pending: a read-only check confirms the11:23
+pilot master has no prepared Living Light bundle yet. No requirement closes.
+See [source integration and remaining proof](postmortems/2026-10-15-living-light-prepared-render-source.md).

@@ -2123,6 +2123,7 @@ test("Song Card renders every output aspect through the matching HyperFrames res
 
 
 test("Living Light bridge freezes exact input before pipeline and refuses changed snapshot persistence", {timeout:20000}, async t=>{
+ for(const bound of [false,true]){
  const {createLivingLightRegistry}=await import('../src/living-light/registry.js');
  const {newJourneyDraft}=await import('../src/domain/living-light-journey.js');
  const {createLivingLightService}=await import('../server/living-light-service.mjs');
@@ -2132,8 +2133,15 @@ test("Living Light bridge freezes exact input before pipeline and refuses change
  const sourceRoot=path.join(root,'source'),mintRoot=path.join(root,'mint');await fsp.mkdir(sourceRoot);
  const master=path.join(sourceRoot,'master.dat');await fsp.writeFile(master,'exact master');
  const editor=exactEditorFixture({videoPath:path.join(sourceRoot,'video.mp4')}),registry=createLivingLightRegistry();
+ const {fixture}=await import('./fixtures/living-light-signals.mjs');
+ const {livingLightPreparedBinding}=await import('../src/domain/living-light-prepared-binding.js');
+ const input=fixture(0),masterHash=createHash('sha256').update('exact master').digest('hex');
+ input.songId=editor.project.song_id;input.performance.songId=input.songId;
+ input.performance.masterAudioHash=masterHash;input.performance.buses[0].audioHash=masterHash;input.playbackReceipt.sourceHash=masterHash;
+ if(bound){editor.project.duration=2;editor.showGraph.song.durationSeconds=2;}
  const owner=createLivingLightService({root,registry,resolveSong:async id=>({id})});t.after(()=>owner.close());
  const journey=newJourneyDraft({songId:editor.project.song_id,durationUs:2e6,thing:registry.entries.find(row=>row.capabilities.continuous)},registry);
+ if(bound){const binding=livingLightPreparedBinding(input);journey.sourceBindingRef={bindingId:binding.bindingId,revisionId:binding.revisionId};}
  const saved=await owner.saveJourney({journey,expectedRevision:null,idempotencyKey:'test:managed-save'},{mode:'authenticated-api',actor:{actorId:'agent:test',kind:'agent',displayName:'Test'}});
  editor.project.living_light_cues=[createEchoLivingLightCue({journey:saved.journey,cueId:'managed:cue',startUs:0,journeyWindow:{startUs:0,endUs:750000}})];
  editor.showGraph.livingLight=compileEchoLivingLightTrack(editor.project);
@@ -2142,9 +2150,11 @@ test("Living Light bridge freezes exact input before pipeline and refuses change
  const controller=new SongCardMintController({root:mintRoot,ledger:new SongCardMintLedger({root:mintRoot,allowedSourceRoots:[sourceRoot,mintRoot]})});
  const store=createSongCardRemintStore({root:mintRoot,controller}),plan=await controller.plan(editor.project.song_id,editor);
  const proposed=await store.proposeFromPlan(editor.project.song_id,await controller.getPlan(plan.planId));await store.approve(proposed.id,{approvedBy:'operator:living-light-fixture'});await store.enqueue();
- let observed=false;
+ let observed=false,sourceReads=0;
  const bridge=createSongCardLocalRenderBridge({root:mintRoot,controller,remintStore:store,resolveRegistryMaster:async()=>master,livingLightOwner:()=>owner,
+ livingLightPreparedSource:async options=>{sourceReads++;assert.equal(options.songId,input.songId);assert.equal(options.masterPath,master);assert.equal(options.sourceMasterSha256,'sha256:'+masterHash);return {performance:input.performance,playbackReceipt:input.playbackReceipt};},
  pipeline:async({livingLight,sourceSnapshotManifest,project,outputDirectory})=>{
+  assert.equal(!!livingLight.snapshot.preparedSource,bound);
   assert.deepEqual(livingLight.snapshot.cues,project.living_light_cues);
   assert(sourceSnapshotManifest.entries.some(e=>e.inputRoles.includes('living-light-snapshot')));
   observed=true;await fsp.appendFile(livingLight.manifest,' ');
@@ -2153,4 +2163,6 @@ test("Living Light bridge freezes exact input before pipeline and refuses change
  await bridge.start(proposed.id);const failed=await waitForCandidate(store,proposed.id,['failed']);await waitForLocalJob(bridge,proposed.id,['failed']);
  assert(observed);assert.equal(failed.renderFailure.code,'local_source_input_changed_during_render');assert.equal(failed.renderFailure.details.inputRole,'living-light-snapshot');
  assert.deepEqual((await controller.getPlan(plan.planId)).input.project.living_light_cues,editor.project.living_light_cues);
+ assert.equal(sourceReads,bound?1:0);
+ }
 });

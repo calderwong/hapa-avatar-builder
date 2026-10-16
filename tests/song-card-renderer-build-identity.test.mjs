@@ -97,6 +97,15 @@ test("strict renderer identity catches launcher retargets and NumPy package drif
     beforeRecipe = edited;
   }
 
+  for(const name of ['living-light-render-source.mjs','living-light-performance-port.mjs','living-light-performance-inputs.mjs','echo-playback-audio.mjs']){
+    const file=path.join(root,'server',name);fs.mkdirSync(path.dirname(file),{recursive:true});
+    fs.writeFileSync(file,'export const revision=1;\n');
+    const added=await inspectSongCardRendererBuildIdentity({root,strict:true});
+    assert.notEqual(added.sha256,beforeRecipe.sha256,name+' must bind render certificates');
+    fs.writeFileSync(file,'export const revision=2;\n');
+    const changed=await inspectSongCardRendererBuildIdentity({root,strict:true});
+    assert.notEqual(changed.sha256,added.sha256,name+' must invalidate warm certificates');beforeRecipe=changed;
+  }
   fs.symlinkSync(path.join(numpyRootB, "core.py"), path.join(numpyRootB, "linked.py"));
   await assert.rejects(
     inspectSongCardRendererBuildIdentity({ root, strict: true }),

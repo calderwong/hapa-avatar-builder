@@ -81,6 +81,33 @@ test('actual owner pipeline publishes exact partial assets and admits only sourc
  const receipt=await prepareEchoPlaybackAudio({sourcePath:master,cacheRoot:path.join(temporary,'playback')});t.after(()=>releaseEchoPlaybackAudio(receipt));
  const sourceBinding={schemaVersion:'hapa.living-light.source-binding.v1',songId:'fixture-owner',bindingId:'fixture-binding',revisionId:'fixture-revision',state:'alignment-unverified',master:{sourceHash:receipt.sourceHash,decoded:{digest:receipt.pcmSha256,sampleRate:receipt.sampleRate,frameCount:Math.round(receipt.durationSeconds*receipt.sampleRate),durationSeconds:receipt.durationSeconds}},stems:prepared.performance.buses.slice(1).map(bus=>({assetId:bus.assetId,sourceHash:bus.audioHash,declaredRole:bus.declaredRole,state:bus.frames.length?'available':'missing',alignmentState:'alignment-unverified',timeMap:null}))};
  const bank=createLivingLightFeatureBank({songId:'fixture-owner',performance:prepared.performance,playbackReceipt:receipt,sourceBinding});assert(bank.sample('master','energy',500000).value>0);assert.equal(bank.sample('first','energy',500000).reason,'alignment-unverified');assert.equal(bank.sample('missing','energy',500000).availability,'missing');bank.dispose();
+ // Follow the same owner read and managed freeze used by the real renderer.
+ const {createLivingLightPerformancePort}=await import('../server/living-light-performance-port.mjs');
+ const {createLivingLightRenderSourceReader}=await import('../server/living-light-render-source.mjs');
+ const {livingLightPreparedBinding}=await import('../src/domain/living-light-prepared-binding.js');
+ const {createLivingLightService}=await import('../server/living-light-service.mjs');
+ const {createLivingLightRegistry}=await import('../src/living-light/registry.js');
+ const {newJourneyDraft}=await import('../src/domain/living-light-journey.js');
+ const {createEchoLivingLightCue}=await import('../src/domain/echo-living-light-editor.js');
+ const {prepareSongCardLivingLight}=await import('../server/song-card-living-light.mjs');
+ const port=createLivingLightPerformancePort({readSongStore:async()=>store,preparation:service,preparedStore:createPreparedEchoPerformanceStore({root:path.join(temporary,'performance')})});
+ const read=createLivingLightRenderSourceReader({readPerformance:params=>port.read(params),playbackCacheRoot:path.join(temporary,'playback')});
+ const binding=livingLightPreparedBinding({songId:'fixture-owner',performance:prepared.performance,playbackReceipt:receipt});
+ const registry=createLivingLightRegistry(),owner=createLivingLightService({root:temporary,registry,resolveSong:async id=>({id})});t.after(()=>owner.close());
+ const draft=newJourneyDraft({songId:'fixture-owner',durationUs:2e6,thing:registry.entries.find(t=>t.capabilities.continuous)},registry);
+ draft.sourceBindingRef={bindingId:binding.bindingId,revisionId:binding.revisionId};
+ const saved=await owner.saveJourney({journey:draft,expectedRevision:null,idempotencyKey:'test:bound-render'},{mode:'authenticated-api',actor:{actorId:'agent:test',kind:'agent',displayName:'Test'}});
+ const project={song_id:'fixture-owner',duration:2,living_light_cues:[createEchoLivingLightCue({journey:saved.journey,cueId:'cue:bound',startUs:0})]};
+ const frozen=await prepareSongCardLivingLight({project,owner,root:temporary,cacheRoot:path.join(temporary,'render-inputs'),readPreparedSource:options=>read({...options,masterPath:master,sourceMasterSha256:'sha256:'+sourceHashes[0]})});
+ const frozenBinding=livingLightPreparedBinding({songId:'fixture-owner',...frozen.snapshot.preparedSource});
+ assert.equal(frozenBinding.revisionId,binding.revisionId);
+ const frozenBank=createLivingLightFeatureBank({songId:'fixture-owner',...frozen.snapshot.preparedSource,sourceBinding:frozenBinding});
+ try{assert(frozenBank.sample('master','energy',500000).value>0);assert.equal(frozenBank.sample('first','energy',500000).reason,'alignment-unverified');}finally{frozenBank.dispose();}
+ assert(!JSON.stringify(frozen.snapshot).includes(temporary));
+ const {prepareEchoReadinessLivingLight}=await import('../server/echo-readiness-living-light.mjs');
+ const certified=await prepareEchoReadinessLivingLight({project,root:temporary,cacheRoot:path.join(temporary,'readiness'),masterPath:master,sourceMasterSha256:'sha256:'+sourceHashes[0],readPreparedSource:read,ownerFactory:()=>({...owner,close(){}})});
+ assert.equal(certified.snapshot.snapshotDigest,frozen.snapshot.snapshotDigest);
+ assert.equal(certified.evidence.length,1);
  assert.deepEqual(await Promise.all([master,first,second].map(async file=>createHash('sha256').update(await fs.readFile(file)).digest('hex'))),sourceHashes);
  await service.close();await releaseEchoPlaybackAudio(receipt);
 });

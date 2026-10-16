@@ -79,6 +79,10 @@ const RENDERER_BUILD_FILES = [
   "server/song-card-living-light.mjs",
   "server/prepared-render-owner.mjs",
   "server/living-light-render-package.mjs",
+  "server/living-light-render-source.mjs",
+  "server/living-light-performance-port.mjs",
+  "server/living-light-performance-inputs.mjs",
+  "server/echo-playback-audio.mjs",
   "scripts/lib/hyperframes-living-light-package.mjs",
   "scripts/lib/hyperframes-prepared-video.mjs",
   "server/echo-playback-proxy.mjs",
@@ -3430,6 +3434,7 @@ export function createSongCardLocalRenderBridge({
   remintStore,
   resolveRegistryMaster = null,
   livingLightOwner = null,
+  livingLightPreparedSource = null,
   certifyStart = null,
   pipeline = defaultPipeline,
   clock = () => new Date(),
@@ -3578,6 +3583,10 @@ export function createSongCardLocalRenderBridge({
       }
       const livingLight = await prepareSongCardLivingLight({project,
         owner: livingLightOwner,
+        readPreparedSource: livingLightPreparedSource ? async options => {
+          publish(candidateId, {status:'rendering',stage:'living-light-inputs',percent:2,message:'Verifying the saved Living Light audio choices against the exact song master.'});
+          return livingLightPreparedSource({...options,masterPath,sourceMasterSha256,signal});
+        } : null,
         root: ROOT, cacheRoot: path.join(renderRoot, 'living-light-inputs'), signal});
       let sourceInputPreflight = null;
       if (pipeline === defaultPipeline) {
