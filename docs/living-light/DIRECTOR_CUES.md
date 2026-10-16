@@ -1,7 +1,10 @@
 # Living Light Director cues
 
-Status: **prototype; authoring, compiler preservation and native Director preview implemented**.
-Board: `hapa-living-light-avatar-builder`, LL-911; LL-912/913/903 remain open.
+Status: **prototype; painted preview, Director playback and bounded encoded output technically accepted**.
+Board: `hapa-living-light-avatar-builder`; LL-901/911/913/903 accepted at the
+scopes in the [current audit](PAINT_PREVIEW_EXPORT_ACCEPTANCE.md). LL-912 and
+the broader modular/navigation integration remain open. Dated sections retain
+the earlier implementation and failed-attempt history.
 Source chat: `01a137cc-de1d-7511-ab65-227c92d5bca0`.
 
 ## Intent and reuse
@@ -834,3 +837,14 @@ prepared-audio recipes, full-app modular operations and integrated acceptance
 remain separate unfinished goal work. See the
 [portrait qualification checkpoint](../postmortems/2026-10-15-living-light-portrait-export.md).
 Private evidence: source chat `execution/living-light/portrait-export/reframed/`.
+
+
+## Painted preview and output acceptance — October 15
+
+LL-901 (painted preview), LL-913 (Director scene/transition playback) and LL-903
+(short mixed encoded output) satisfy their original technical criteria. The
+[criterion-by-criterion audit](PAINT_PREVIEW_EXPORT_ACCEPTANCE.md) identifies
+current source/tests, native evidence, actual saved pilot and encoded artifacts,
+including their limits.58 focused checks pass and both master hashes match.
+No runtime change or new full render was needed. Other integration requirements,
+full-app modular/Hand acceptance and human creative review remain open.

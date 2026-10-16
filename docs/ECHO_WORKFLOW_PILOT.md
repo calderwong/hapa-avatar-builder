@@ -825,3 +825,16 @@ Owned process cleanup passes. No saved cut/Journey edit, mint or full-song
 Vertical release is claimed. LL-903 retains original dependency acceptance;
 no task count or human acceptance changes. See the
 [checkpoint](postmortems/2026-10-15-living-light-portrait-export.md).
+
+
+## October 15 — painted preview, Director playback and output accepted
+
+The original criteria for LL-901, LL-913 and LL-903 now have an explicit
+[acceptance map](living-light/PAINT_PREVIEW_EXPORT_ACCEPTANCE.md). Current58
+focused checks pass; actual native preview, saved pilot, framing and encoded
+Landscape/Vertical evidence are reused at their stated scopes. Both master
+hashes were reverified. No runtime code changed, no redundant build/render.
+Dependency order is LL-901 and LL-913, then LL-903; no waiver or criterion change.
+The other46tasks remain in their existing states. Full-app modular editing,
+Hand/navigation, prepared audio and integrated delivery remain goal work.
+Human creative acceptance stays pending; no mint/publication.

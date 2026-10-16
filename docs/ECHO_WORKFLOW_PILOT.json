@@ -2802,5 +2802,26 @@
     "humanAcceptance": "pending",
     "activeImplementationMinutes": null,
     "activeVerificationMinutes": null
+  },
+  "livingLightPaintPreviewExportAcceptance20261015": {
+    "status": "technical_criteria_accepted",
+    "tasks": [
+      "LL-901",
+      "LL-913",
+      "LL-903"
+    ],
+    "criteriaCounts": {
+      "LL-901": 4,
+      "LL-913": 4,
+      "LL-903": 5
+    },
+    "taskInventoryPreserved": 49,
+    "targetedTests": 58,
+    "masterHashesReverified": true,
+    "runtimeCodeChanged": false,
+    "humanAcceptance": "pending",
+    "minted": false,
+    "activeImplementationMinutes": null,
+    "activeVerificationMinutes": null
   }
 }
