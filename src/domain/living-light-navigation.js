@@ -27,7 +27,9 @@ export function livingLightDestinationAvailability(target,{records=[],media=[],r
  if(!target)return {state:'empty',message:'Choose what belongs at this Location.'};validateLivingLightDestination(target);
  if(target.kind==='record'){
   const record=records.find(row=>livingLightDestinationKey(livingLightRecordDestination(row))===livingLightDestinationKey(target));
-  return record?{state:'available',record,title:record.title}:{state:'unavailable',message:'This exact album declaration is missing or changed. Reload the catalog or choose a replacement.'};
+  if(record)return {state:'available',record,title:record.title};
+  const retained=records.find(row=>row.songId===target.ref.songId&&livingLightRecordDestination(row)?.ref.cutId!==target.ref.cutId);
+  return retained?{state:'pinned-cut-unresolved',record:retained,title:retained.title,message:'A newer cut is listed. Open to verify the exact saved destination; it will not switch to the newer cut.'}:{state:'unavailable',message:'This exact album declaration is missing or changed. Reload the catalog or choose a replacement.'};
  }
  if(target.kind==='media'){
   const source=media.find(row=>livingLightDestinationKey({schemaVersion:LIVING_LIGHT_DESTINATION_SCHEMA,kind:'media',ref:row.ref})===livingLightDestinationKey(target));

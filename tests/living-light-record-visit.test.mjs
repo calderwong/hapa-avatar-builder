@@ -8,6 +8,15 @@ const cut={id:'cut:pinned',timeline:[{id:'shot',start_sec:0,end_sec:10}]};
 const catalog=[{music_video_project:{song_id:'song:destination',song_title:'Destination',updated_at:'revision:1',duration:10,record_preview:{latestCutId:cut.id,cutFingerprint:echoDirectionVariantFingerprint(cut)}}}];
 const target=livingLightRecordDestination(normalizeEchoRecordSummaryRows(catalog)[0]);
 const detail={music_video_project:{song_id:'song:destination',timeline:[],direction_script_variants:[cut,{id:'cut:newer',timeline:[]}]}};
+test('a newer catalog cut does not strand an exact historical destination',async()=>{
+ const newer=[{music_video_project:{...catalog[0].music_video_project,record_preview:{latestCutId:'cut:newer',cutFingerprint:'content-v2:newer'}}}];
+ const calls=[];const result=await loadLivingLightRecordDestination(target,{request:async path=>{calls.push(path);return path.includes('summary=1')?newer:detail;}});
+ assert.equal(result.cutId,cut.id);assert.equal(calls.length,2);assert.ok(calls[1].includes('cut%3Apinned'));
+ for(const changed of [
+  {catalog:newer,detail:{music_video_project:{...detail.music_video_project,direction_script_variants:[{...cut,timeline:[]}]}}},
+  {catalog:[{music_video_project:{...newer[0].music_video_project,updated_at:'revision:changed'}}],detail},
+ ])await assert.rejects(loadLivingLightRecordDestination(target,{request:async path=>path.includes('summary=1')?changed.catalog:changed.detail}),/missing or changed/);
+});
 test('record visit reads exact catalog declaration and pinned cut, without selecting newer or compiling',async()=>{
  const calls=[];const value=await loadLivingLightRecordDestination(target,{request:async path=>{calls.push(path);return path.includes('summary=1')?catalog:detail;}});
  assert.deepEqual(calls,['/director-projects?summary=1','/director-project?songId=song%3Adestination&variantId=cut%3Apinned']);assert.equal(value.cutId,cut.id);assert.equal(value.timeSeconds,0);assert.equal(value.dirty,false);

@@ -1,4 +1,4 @@
-import {validateLivingLightDestination,livingLightDestinationAvailability} from './living-light-navigation.js';
+import {validateLivingLightDestination,livingLightDestinationAvailability,livingLightRecordDestination,livingLightDestinationKey} from './living-light-navigation.js';
 import {normalizeEchoRecordSummaryRows} from './echo-record-garden.js';
 import {echoDirectionVariantId,echoDirectionVariantSourceFingerprint} from './echo-direction-variants.js';
 
@@ -14,7 +14,14 @@ export async function loadLivingLightRecordDestination(target,{request,signal}={
  if(project?.song_id!==target.ref.songId||!Array.isArray(project.timeline))throw Error('The destination returned another song or an incomplete timeline.');
  const cut=target.ref.cutId==='legacy'?project:project.direction_script_variants?.find(row=>echoDirectionVariantId(row)===target.ref.cutId&&Array.isArray(row.timeline));
  if(!cut)throw Error('The exact destination cut is unavailable.');
- const expected=available.record.preview.cutFingerprint;
+ const exactFingerprint=echoDirectionVariantSourceFingerprint(cut);
+ if(available.state==='pinned-cut-unresolved'){
+  // Rebuild only the pinned declaration from current Song metadata and the
+  // exact historical cut. A newer catalog head is not source replacement.
+  const pinned={...available.record,preview:{...available.record.preview,latestCutId:target.ref.cutId,cutFingerprint:exactFingerprint}};
+  if(livingLightDestinationKey(livingLightRecordDestination(pinned))!==livingLightDestinationKey(target))throw Error('This exact album declaration is missing or changed. The saved destination was not replaced.');
+ }
+ const expected=available.state==='pinned-cut-unresolved'?exactFingerprint:available.record.preview.cutFingerprint;
  if(expected&&echoDirectionVariantSourceFingerprint(cut)!==expected)throw Error('The destination cut changed since its catalog declaration. Reload the catalog before choosing a replacement.');
  return {songId:target.ref.songId,cutId:target.ref.cutId,title:available.record.title,detail,workingFork:null,dirty:false,timeSeconds:0};
 }

@@ -64,3 +64,25 @@ Reuse lesson: distinguish saved authoring coverage, usable preview and final
 render acceptance. A healthy direct store read alone did not establish UI
 delivery. No existing integration-board criteria are lowered or closed by this
 album authoring batch.
+
+## Album media and retained destinations
+
+The follow-up read-only audit resolves painted media for **202/202 songs**:
+406 uses across the referenced Journey revisions, backed by **358 distinct
+readable, nonempty local files**, with zero failures. This includes the pilot's
+retained revisions; 402 remains the count of newly authored uses. File-header
+checks do not establish full decoding or creative acceptance. Evidence:
+`execution/living-light/album-director-pass/album-media-audit.json`.
+
+Adding a newer cut previously stranded Locations pinned to an older cut because
+the catalog only advertises the latest variant. Navigation now offers an exact
+saved-cut lookup, then verifies its fingerprint and original Song declaration
+before opening it. Changed metadata, altered content and missing cuts still
+refuse; it never substitutes the newest cut. Unresolved destinations do not
+display the newest cut's media count as though it described the older cut.
+
+All 14 navigation/record-visit checks and the production build pass. A read-only
+check through the running owner API opens the pilot's original 2 A.M. Lights
+performance cut despite the newer Album Pass. Evidence:
+`historical-target-receipt.json` and `navigation-build.log.receipt.json` in the
+same evidence directory. A fresh visual navigation walkthrough is still open.

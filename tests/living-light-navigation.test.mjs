@@ -14,7 +14,8 @@ function route(){let draft=newJourneyDraft({songId:'song:one',title:'Album route
 test('Record Garden declaration pin survives key ordering but rejects changed owner data and title substitutes',()=>{
  assert.equal(livingLightDestinationAvailability(target,{records:[record]}).state,'available');
  const reordered={ref:{sourceRevision:target.ref.sourceRevision,cutId:target.ref.cutId,songId:target.ref.songId},kind:'record',schemaVersion};assert.equal(livingLightDestinationAvailability(reordered,{records:[record]}).state,'available');
- for(const value of [{...record,songId:'other'},{...record,source:{...record.source,revisionId:'new'}},{...record,preview:{...record.preview,latestCutId:'other'}}])assert.equal(livingLightDestinationAvailability(target,{records:[value]}).state,'unavailable');
+ for(const value of [{...record,songId:'other'},{...record,source:{...record.source,revisionId:'new'}}])assert.equal(livingLightDestinationAvailability(target,{records:[value]}).state,'unavailable');
+ assert.equal(livingLightDestinationAvailability(target,{records:[{...record,preview:{...record.preview,latestCutId:'other'}}]}).state,'pinned-cut-unresolved');
  assert.equal(livingLightRecordDestination({...record,source:{},preview:{}}),null);
 });
 test('destination validation rejects URLs, extra fields and use on a tunnel; locked Location rejects target change',()=>{
