@@ -86,3 +86,23 @@ check through the running owner API opens the pilot's original 2 A.M. Lights
 performance cut despite the newer Album Pass. Evidence:
 `historical-target-receipt.json` and `navigation-build.log.receipt.json` in the
 same evidence directory. A fresh visual navigation walkthrough is still open.
+
+## Reversible recipe replacement
+
+Recipe editing now keeps draft content, exact save identity, selected use and
+dirty state together in its bounded 50-step session history. Opening a different
+saved recipe, choosing a new tour or accepting a replacement no longer clears
+Undo. Undo/Redo restores the whole editing session; an old draft cannot inherit
+the replacement recipe's save target. Saving and browser recovery retain their
+existing history boundaries; this is not persistent cross-reload Undo.
+
+Sixteen focused editor/history checks pass, including a real temporary owner
+store proving save-after-Undo appends to the original recipe, preserves the
+replacement and still rejects a stale revision. Production build passes. In the
+running Builder, the saved pilot was selected at Fractal Loom, locked locally,
+replaced by a new tour, then restored with one Undo. Its original title, selected
+passage, lock and Save new revision action returned. Redo reopened the new tour;
+two Undo actions restored the original clean saved recipe. No test recipe was
+saved to the album. Native evidence is `recipe-undo-native.txt` and
+`recipe-undo-restored.png` in the album-pass evidence directory. Full modular
+Hand/Card acceptance remains open.
