@@ -124,3 +124,45 @@ measured inputs and perceptible musical choreography. The earlier milestones
 proved the first two and a bounded measured pilot; they did not prove the fourth
 across the album. Preserve that evidence while making the missing behavior an
 explicit completion gate, rather than calling it optional later polish.
+
+## October 22 — complete saved-album input audit
+
+LL-919 is in progress. The read-only owner audit covers all 202 Album Passes,
+1,205 cues and 203 referenced Journey revisions. **1,204 cues are authored-neutral;
+only one cue carries a source binding.** All 202 selected masters have readable
+audio headers and byte hashes; this is not a full decode or listening check.
+Only Brave Tongues and the 11:23 pilot have source-verified prepared Living Light
+banks. 194 songs have no prepared bank; six more are refused before preparation
+because their declarations exceed the 32-asset limit.
+
+The Living Light declaration adapter retains every non-archive entry. Across
+79 songs its selection differs from the existing one-family/one-role selector
+used by Atlas. Thus increasing the asset limit would preserve the wrong input
+set. The six refused songs are Cross My Eye, Stolen Toe (Roots on Dirt), Save
+Point (Found You in the Code), One More Corner, Quitting the Moon, and I Forgot
+What the Mirror Said Last Time (exact IDs are in the private audit report).
+
+The prepared-binding adapter also assigns every stem `alignment-unverified`
+with no time map. Prepared source bytes alone do not make synchronized stem
+sampling available. Next implementation must connect one coherent stem set and
+owner-qualified timing, preserving previously pinned recipes and their source
+identities. Explicit measured-master fallback remains necessary where stem
+timing cannot yet qualify. Existing native mappings reach only brightness,
+small structural breathing and onset impulses; LL-920 must still prove richer
+visible response.
+
+Repeat the audit with `node scripts/audit-living-light-album-response.mjs
+--out=/absolute/new-report.json`. It reads saved cuts/Journeys through their
+owners, validates current prepared source hashes and reports failures per song.
+It runs sequentially in one foreground process without analysis, decoding,
+workers, network calls or album writes. Reports contain local source locations
+and belong outside Git. A successful audit means complete inspection, not
+musical readiness. The first audit stopped source inspection on six input-limit
+errors; the corrected audit inventories those masters independently without
+passing a reduced source set into preparation.
+
+Evidence: source chat `01a137cc-de1d-7511-ab65-227c92d5bca0`,
+`execution/living-light/music-response/album-audit-complete.json`. All 405 read
+Song-store/project/Album-Pass files and all 203 referenced Journey payloads
+match their initial hashes. No cues, recordings or source audio were changed;
+none of LL-919–922 is accepted by this inventory.
