@@ -428,3 +428,33 @@ All four required P1 tasks LL-919–922 are in progress. Next: refresh the exist
 canonical service, verify actual Director/Record + Play behavior, inspect five
 contrasting songs and retain before/after recordings. Main-renderer polish is
 not the gate for that work; human art-direction acceptance remains separate.
+
+## October 22 — five actual Director recordings
+
+The existing canonical service was refreshed through its registered supervisor;
+health now verifies current delivery. The cold catalog completed on that same
+process. Actual Director playback resolves the exact Music Response Journeys
+and reports prepared song response, replacing the earlier preparation rejection.
+
+Five new Record + Play takes are saved in Builder's existing Recordings owner:
+11:23 Meant to Meet, Thu? (8 s), Brave Tongues (12 s), Dear Papa (13 s), Gladiator
+(12 s), and Aquatic Monkey Favicon (12 s). The first retains painted media;
+the latter four sample transition/scene boundaries. Aquatic Monkey uses the
+declared master mix because no qualified stem roles cover its cues. Each saved
+file verifies its owner hash, one H.264 picture stream and one non-silent AAC
+audio stream. Decoded frames show the native environments; frame differences
+establish a changing picture, not causal musical choreography. Requested 30 fps
+recording produced approximately 27–30 fps averages in this bounded sample.
+
+Backward keyboard seek restored the fallback song's opening cue; subsequent
+81 s and 85 s seeks resolved exact transition/scene IDs `ll-cue:album-2` and
+`ll-cue:album-3`. Actual recording metadata pins the cut, graph and master hash.
+This is delivery evidence, not sample-accurate physical AV synchronization.
+
+Still open: same-time neutral/response recordings, isolated-role and quiet/strong
+comparisons, broader preset coverage, and human art direction. The preview's
+generic “prepared song response” label does not distinguish measured stems from
+master-only response; LL-921 must expose that distinction. The older ordinary
+shader preparation also reports an evicted bank independently of Living Light's
+working coherent bank. No requirement closes. See the
+[recording checkpoint and learning](../postmortems/2026-10-22-living-light-director-recordings.md).

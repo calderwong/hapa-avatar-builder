@@ -1,0 +1,58 @@
+# Living Light actual Director recording checkpoint
+
+Status: partial technical delivery, October 22, 2026. LL-919–922 remain in
+progress. Source: Codex chat `01a137cc-de1d-7511-ab65-227c92d5bca0`.
+
+Objective: carry saved music-response cuts through the actual Director and live
+recording, keeping album coverage ahead of main-renderer work. Reused the native
+Director host, canonical supervised service, coherent prepared banks, existing
+Record + Play compositor and recording store. No substitute player or new
+analysis/render worker was introduced.
+
+The stale service was refreshed once through its existing launchd owner. Health
+reported current source delivery. Its cold catalog read completed without a
+second server or rebuild. The actual UI then resolved native Journey cues and
+five recordings saved with complete capture status and exact cut/audio/graph
+identity. Original cuts and existing recordings were not rewritten.
+
+| Song | Requested song start | Saved duration | Recording ID |
+| --- | ---: | ---: | --- |
+| 11:23 Meant to Meet, Thu? | 5 s | 8.045 s | `9b1b2688-7259-4d3b-8376-488a31f96446` |
+| Brave Tongues | 83 s | 12.001 s | `6e0f0b41-15b9-48d0-978c-fb850425ed44` |
+| Dear Papa | 88.5 s | 13.251 s | `ca7b4f5b-925f-4799-b2cf-0b1a4c9d9d83` |
+| Gladiator | 92.5 s | 11.755 s | `e7e43ae3-d440-43dc-8a89-7981fa56c903` |
+| Aquatic Monkey Favicon | 80 s | 12.389 s | `e74b57fa-d2c8-4337-a0e8-eb3a2cef8a71` |
+
+Read-only file verification matched all five owner SHA-256 hashes and found one
+1920×1080 H.264 stream plus one AAC stream per file. Mean decoded audio levels
+were −21.4, −19.6, −15.8, −16.9 and −12.2 dB respectively. Two decoded picture
+samples per take differed. Visually inspected samples contain the native 3D
+locations; the pilot includes its painted video surface. These facts do not
+establish isolated musical causality, pleasant choreography, or sample-accurate
+physical audio/video alignment. Observed average picture rate was about 27–30
+fps, so the 30 fps recording target is not a measured constant-rate guarantee.
+
+The master-only sample restored its opening cue after backward keyboard seek;
+81 s and 85 s then resolved the expected transition and scene. One native
+accessibility slider assignment did not move its value; keyboard Home did.
+No failed assignment is counted as successful seek evidence.
+
+What helped: using the actual saved-cut UI and inspecting the persisted media,
+not treating a green preparation label as playback proof. What remains weak:
+all five takes are response-on samples; neutral comparisons and qualified-role
+traces still need review. The generic prepared-response label conceals the
+master-only distinction, while the old shader bank warning can be mistaken for
+the separate Living Light bank's status. Keep both findings on LL-921/919.
+
+Private source-chat evidence is in `execution/living-light/music-response/`:
+`service-current.json`, `director-five-recordings.json`, its file-based verifier,
+decoded frame PNGs and `director-fallback-ready.png`. The verifier ran sequential
+ffprobe/ffmpeg children with 30-second bounds and no retries; it exited zero,
+and subsequent process inspection found no matching verifier/decoder children.
+The canonical service remains available. No application source changed, so the
+35 focused checks/build from the saved-cut batch remain the source evidence;
+this checkpoint adds actual playback/file evidence rather than rerunning them.
+
+Reusable Lesson/Flow-explainer candidate: verify three separate layers—saved
+musical intent, native playback delivery, and causal/artistic response. A saved
+recording with audio proves the second layer only within its observed range.

@@ -6,6 +6,11 @@
       "slug": "hapa-living-light-music-response-plan-v1",
       "title": "Required Living Light music and stem response across the album",
       "path": "docs/living-light/MUSIC_RESPONSE_PLAN.md"
+    },
+    {
+      "slug": "hapa-living-light-director-recordings-20261022",
+      "title": "Living Light five actual Director recordings and remaining musical-response gates",
+      "path": "docs/postmortems/2026-10-22-living-light-director-recordings.md"
     }
   ]
 }
