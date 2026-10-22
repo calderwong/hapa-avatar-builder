@@ -101,3 +101,34 @@ Remaining gates are the other matched song/role/quiet-versus-strong comparisons,
 ordinary shader-bank recovery, wider preset coverage and human creative review.
 No task closes. Reusable lesson: inspect readiness before taking a comparison
 frame, and report effective per-frame sources instead of song-wide stem counts.
+
+
+## October 22 — batch-first priority and bounded sample evidence
+
+Calder questioned the song-by-song verification overhead. Shared implementation
+and authoring already cover all 202 songs; manual review is a sample, not the
+album execution method. Resume shared code/protocol improvements and batch
+acceptance. Do not expand manual per-song recording work as the critical path.
+
+Owner reads verify matching scene/media/timing for five before/after recipes.
+Four baselines are authored-neutral; the pilot already has source bindings and
+must not be called neutral. Three additional baseline recordings (Aquatic Monkey,
+Brave Tongues, Dear Papa) now verify owner hashes, the same master as their response
+takes, one video/audio stream and non-silent audio. Together with Gladiator, four
+recorded pairs are available. The pilot baseline recording remains unmade.
+Aquatic's ready native views at 85 seconds show different water/form motion; this
+is master-only response, not separated instruments. Existing bank measurements
+identify quiet/strong candidate passages; their native acceptance is still open.
+
+A Dear Papa capture outlasted the intended sample while context was compacted.
+Builder refused its upload above 128 MiB and reported starting a local download;
+that fallback file is unverified. A short replacement saved and verified. Keep
+capture start/stop within one short bounded work segment, with no lengthy reads
+or checkpoint work while recording. No source was overwritten.
+
+Remaining: isolated-role and quiet/strong response checks, broader preset
+acceptance, ordinary shader-bank recovery and human art direction. LL-919–922
+remain in progress. Private evidence: five-song-comparison-sources.json and
+three-new-baselines.json beside the earlier recording reports. Source code is
+unchanged, so the existing 21 focused checks/build are reused. This documentation
+checkpoint does not establish whole-album playback or export acceptance.
