@@ -14,7 +14,7 @@ and sync safeguards, motion-source intake, CMS collection guidance and dated
 Living Light delivery/acceptance records. Existing owner/domain/route/CLI/upload
 spines are reused; no replacement service, identity, persona or store is created.
 
-Both original working bytes and the17 pre-existing staged file versions were
+Both original working bytes and the16 pre-existing staged file versions were
 privately preserved, along with exact statuses, modes, hashes and logical index
 entries. This documentation-only commit consumes none of that staged work.
 No source store, media, credential, model, queue, private journal, runtime service
