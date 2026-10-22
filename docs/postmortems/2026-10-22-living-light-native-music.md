@@ -36,3 +36,24 @@ The next batch must inspect native pixels and actual-song preparation cost,
 connect event accents, then append the reusable response across the album.
 Original cuts and recordings remain the basis for comparison; no renderer job,
 model generation, service restart or publication was introduced here.
+
+## Follow-up: final preservation caught a cache defect
+
+The completed timing pass covers 202 songs, with 601 qualified stem inputs across
+143 songs. Publication pressure then evicted both old pilot entries while their
+source pointers survived. The earlier successful legacy checks were true at those
+checkpoints; they did not prove retention after the larger batch. The 2 GiB cache
+limit, not a disk-capacity refusal, triggered this behavior.
+
+The publisher now protects live pointer targets and refuses a live set that cannot
+fit before changing its pointer. Both pilots were restored through the owner only
+after matching their exact original content hashes; the saved bindings and cuts
+were not changed. Frozen snapshot/source receipts and independently matched
+historical resource hashes supplied recovery evidence. Initial snapshot ordering
+and regenerated analyzer-version differences were refused and retained as failures.
+
+Sixty-three other missing older targets were observed, with disappearance time
+unproven; broader shared-cache integrity is not claimed. The new guard prevents
+this deletion mechanism, while inventory and scope assessment remain open. The
+verification lesson is to check original source readiness after the maximum
+publication batch, not only after the first successful pilots.

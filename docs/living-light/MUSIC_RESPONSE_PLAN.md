@@ -299,3 +299,36 @@ Evidence: source chat `execution/living-light/music-response/`:
 `choreography-final-tests.log`, `choreography-owner-checks.log` (failed initial
 import), `choreography-owner-repaired.log`, `choreography-motion-recheck.log`,
 `choreography-build.log`. This extends the source checkpoint, not task closure.
+
+## Album timing complete; publication retention repaired
+
+The visual timing run completed 202/202 songs without per-song errors: 601 of
+1,653 selected stem declarations qualify across 143 songs. Forty-six songs have
+master-only banks; thirteen additional songs have stems but no qualifying timing.
+These 59 songs need explicit master response, and partial/unmapped spans on other
+songs retain their fallback policies. All 202 coherent publication pointers resolve.
+This is timing coverage, not completed music-response Director passes.
+
+The final legacy check exposed a cache-retention defect: the 2 GiB publication
+pruner deleted old blobs even while live legacy pointers referenced them. Both
+original pilot banks were affected. Existing sources/cuts were not rewritten.
+Publication now protects referenced entries, evicts superseded blobs and refuses
+an over-budget live set before changing its pointer. A bounded regression verifies
+legacy/coherent survival and refusal without mutation; owner tests also pass.
+
+Recovery preserved exact identity rather than repinning saved cuts. The 11:23
+frozen render snapshot and original source receipt reconstructed its full original
+publication hash. Brave Tongues was rebuilt into an isolated cache; its initial
+hash differed because analyzer implementation metadata and cold/disk property order
+had changed. Restoring historical metadata was admitted only after all 25 original
+resource hashes matched and then the complete historical publication hash matched.
+Both recovered entries were published through the owner and read back at their
+original fingerprints. Failed reconstruction attempts remain in the evidence.
+
+The inspection also found 63 other missing, older publication targets. This pass
+did not establish when each disappeared and does not claim full shared-cache
+integrity. Their original owner receipts remain the recovery route; inventory and
+scope assessment remain open under LL-919. No source recording or cut was edited.
+Evidence: `visual-timing-album-summary.json`, `exact-legacy-restoration.json`,
+`legacy-bank-preservation.json`, and `publication-retention-final.log` in the
+source chat. The sequential preparation and qualification handles are terminal.

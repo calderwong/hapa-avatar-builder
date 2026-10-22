@@ -21,7 +21,7 @@ async function atomic(file, value) {
 }
 
 /** Publication is a disposable cache, never a mutation of a song or saved cut. */
-export async function publishEchoPerformance({ root, bundle, sourceChecks }) {
+export async function publishEchoPerformance({ root, bundle, sourceChecks, maxPublishedEntries=512, maxPublishedBytes=2*1024**3 }) {
   if (!/^[a-f0-9]{64}$/.test(plainHash(bundle?.masterAudioHash))) throw error('echo_performance_master_mismatch', 'Publication needs an exact master hash.');
   const exact = bundle.sourcePolicy === assetPolicy;
   livingLightStemSelection(bundle.stemSelectionPolicy??null);
@@ -36,20 +36,40 @@ export async function publishEchoPerformance({ root, bundle, sourceChecks }) {
   const key = digest(value);
   const directory = path.join(root, 'published');
   await fs.mkdir(directory, { recursive: true });
-  await atomic(path.join(directory, `${key}.json`), value);
-  await atomic(path.join(directory, pointerName(plainHash(bundle.masterAudioHash), bundle.sourcePolicy, bundle.songId,bundle.stemSelectionPolicy)), { key });
-  const entries = [];
-  for (const name of await fs.readdir(directory)) {
-    if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
-    const info = await fs.stat(path.join(directory, name)).catch(() => null);
-    if (info) entries.push({ name, bytes: info.size, modified: info.mtimeMs });
+  if(!Number.isSafeInteger(maxPublishedEntries)||maxPublishedEntries<1||maxPublishedEntries>512||!Number.isSafeInteger(maxPublishedBytes)||maxPublishedBytes<1||maxPublishedBytes>2*1024**3)throw error('echo_performance_budget_invalid','Publication limits must be bounded.');
+  const pointer=pointerName(plainHash(bundle.masterAudioHash),bundle.sourcePolicy,bundle.songId,bundle.stemSelectionPolicy);
+  const referenced=async()=>{
+    const refs=new Map();
+    for(const name of await fs.readdir(directory)){
+      if(!/^(?:assets-|master-).+\.json$/.test(name))continue;
+      const record=await read(path.join(directory,name),1024);
+      if(!/^[a-f0-9]{64}$/.test(record.key||''))throw error('echo_performance_cache_invalid','Publication pointer is invalid.');
+      refs.set(name,record.key);
+    }
+    return refs;
+  };
+  const entries=[];
+  for(const name of await fs.readdir(directory)){
+    if(!/^[a-f0-9]{64}\.json$/.test(name))continue;
+    const info=await fs.stat(path.join(directory,name)).catch(()=>null);
+    if(info)entries.push({name,bytes:info.size,modified:info.mtimeMs});
   }
-  let bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0), count = entries.length;
-  for (const entry of entries.sort((a, b) => a.modified - b.modified)) {
-    if (bytes <= 2 * 1024 ** 3 && count <= 512) break;
-    if (entry.name === `${key}.json`) continue;
-    await fs.rm(path.join(directory, entry.name), { force: true });
-    bytes -= entry.bytes; count--;
+  const refs=await referenced();refs.set(pointer,key);const protectedKeys=new Set(refs.values());
+  const encodedBytes=Buffer.byteLength(JSON.stringify(value)),projected=entries.filter(e=>e.name!==key+'.json').concat({name:key+'.json',bytes:encodedBytes,modified:Date.now()});
+  const pinned=projected.filter(e=>protectedKeys.has(e.name.slice(0,-5)));
+  // Refuse before changing a pointer when the live source sets alone exceed the
+  // budget. Never make a saved source unusable to admit a newer publication.
+  if(pinned.length>maxPublishedEntries||pinned.reduce((n,e)=>n+e.bytes,0)>maxPublishedBytes)throw error('echo_performance_pinned_budget_exceeded','Live prepared source sets exceed the publication cache budget. Existing pointers were preserved.');
+  await atomic(path.join(directory,`${key}.json`),value);
+  await atomic(path.join(directory,pointer),{key});
+  let bytes=projected.reduce((n,e)=>n+e.bytes,0),count=projected.length;
+  for(const entry of projected.sort((a,b)=>a.modified-b.modified)){
+    if(bytes<=maxPublishedBytes&&count<=maxPublishedEntries)break;
+    if(entry.name===key+'.json')continue;
+    // Re-read pointer ownership before each eviction, including publications
+    // made by another owner while this operation was awaiting filesystem I/O.
+    if(new Set((await referenced()).values()).has(entry.name.slice(0,-5)))continue;
+    await fs.rm(path.join(directory,entry.name),{force:true});bytes-=entry.bytes;count--;
   }
   return { key, masterAudioHash: bundle.masterAudioHash };
 }
