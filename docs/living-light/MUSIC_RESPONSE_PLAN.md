@@ -251,3 +251,51 @@ Full-album preparation continues on its original sequential foreground handle.
 Neither this timing checkpoint nor preparation closes LL-919: usable bindings,
 explicit master fallback, native musical movement and new album passes remain.
 See [learning and verification limits](../postmortems/2026-10-22-living-light-visual-timing.md).
+
+## Native musical movement — source checkpoint
+
+The sequential preparation run completed all 202 distinct songs with the original
+Song-store bytes unchanged. 156 have selected stem inputs; 46 have master-only
+banks. These counts describe prepared input coverage, not dancing-scene delivery.
+The original foreground handle exited successfully, and a read-only process check
+found no preparation descendants. `coherent-album-prepared.json` is the completed
+receipt. The existing Atlas visual timing qualification is now running sequentially
+across these banks; its per-song journal and eventual `visual-timing-album.json`
+remain separate evidence from preparation and native motion.
+
+A deeper integration gap was found: Builder supplied an empty native stem score.
+The inherited water, journey and other environment articulation therefore had no
+musical inputs even when the host added basic emission/breath offsets. The host
+now has an explicit per-use `musicResponse` contract with Gentle, Dance and Surge
+presets, bounded intensity and exact source bindings for native movement roles.
+It feeds the existing native causal smoothing/integrated-phase owner on Song time;
+authored route and painted media retain Journey time. No vendor source changed.
+
+The native adapter keeps at most two response banks within a 96 MiB estimate,
+releases them with the host, and identifies every selected or master-fallback
+contribution. Master-only presets explicitly assign the soundtrack to movement
+roles; they do not claim separated instruments. Unknown pan, width and brightness
+are not invented. This checkpoint uses envelope choreography only: discrete event
+accents, additional scene-specific tuning and perceptual smoothing review remain.
+
+The Journey editor exposes presets, intensity and exact movement sources through
+its existing undoable actions. Locks protect these settings; a scene swap keeps
+movement independent, duplicate copies it, and a cross-song fork clears it.
+Existing protected save/read/import/export routes preserve the same contract.
+Director input and export packaging recognize music-bound drafts and select the
+coherent bank; exact saved binding revisions continue to win and cannot silently
+substitute. Existing recipes without musical settings retain their old behavior.
+
+Verification: 39 targeted checks, then 46 owner/Director/export checks pass;
+four final native numerical checks pass after adding a same-visual-time phase
+comparison. The build passes. Actual native water swell and tunnel phase respond
+to different source times in the host, including reverse seeks and held motion.
+GPU rendering is stubbed in those tests: this is not pixel or live-recording
+acceptance. Portable import initially rejected the new field; its allowance was
+repaired and the failure retained. Native UI delivery, onset/event accents,
+real-song response cost, causal pixel A/B and new album passes remain open.
+
+Evidence: source chat `execution/living-light/music-response/`:
+`choreography-final-tests.log`, `choreography-owner-checks.log` (failed initial
+import), `choreography-owner-repaired.log`, `choreography-motion-recheck.log`,
+`choreography-build.log`. This extends the source checkpoint, not task closure.

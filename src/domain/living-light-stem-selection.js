@@ -8,3 +8,9 @@ export function livingLightStemSelection(value=null){
 export function livingLightBindingSelection(bindingRef){
  return bindingRef?.bindingId?.startsWith('prepared-coherent:')?LIVING_LIGHT_COHERENT_STEMS:null;
 }
+
+/** An unsaved musical draft explicitly selects the coherent bank. Saved exact
+ * binding identity always wins, including older legacy bindings. */
+export function livingLightJourneySelection(journey){
+ return journey.sourceBindingRef?livingLightBindingSelection(journey.sourceBindingRef):journey.instances?.some(i=>i.musicResponse)?LIVING_LIGHT_COHERENT_STEMS:null;
+}

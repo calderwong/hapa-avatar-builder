@@ -1,3 +1,4 @@
+import {createNativeMusicResponse} from './music-response.js';
 import {installLivingLightNativeVisuals,LIVING_LIGHT_VISUAL_HOOKS} from './native-visuals.js';
 import {installLivingLightMedia} from './media-surfaces.js';
 import {createLivingLightGraphicsLease} from './graphics-lease.js';
@@ -14,21 +15,23 @@ import {createLivingLightRegistry} from './registry.js';
  * Builder owns the audible element, clock, RAF and view visibility. */
 export function createLivingLightRuntime({canvas,registry=createLivingLightRegistry(),nativeFactory=createNativeNamespace,mediaSources=[],onMediaChange=()=>{},mediaFactory=installLivingLightMedia,stillCanvasFactory=()=>globalThis.document.createElement('canvas')}={}) {
  if(!canvas)throw Error('Living Light needs a host canvas');
- const native=nativeFactory();let renderer=null,graphicsLease=null,state=null,cache=null,disposed=false,suspended=false,generation=-1,heldVisualUs=null,lastSourceUs=0,prepared=null,masterBank=null,featureLease=null,signalRouter=null;
- let lastPaint=null,media=null,renderSignalUs=null,lastSignalUs=0,heldSignalUs=null,hasEvaluated=false;
+ const native=nativeFactory();let renderer=null,graphicsLease=null,state=null,cache=null,disposed=false,suspended=false,generation=-1,heldVisualUs=null,lastSourceUs=0,prepared=null,masterBank=null,featureLease=null,signalRouter=null,musicResponse=null;
+ let lastPaint=null,media=null,renderSignalUs=null,lastSignalUs=0,heldSignalUs=null,hasEvaluated=false,signalOffsetUs=0;
  const assertLive=()=>{if(disposed)throw Error('Living Light runtime disposed');};
  const dropRenderer=()=>{lastPaint=null;try{media?.dispose();media=null;renderer?.dispose();}finally{renderer=null;graphicsLease?.dispose();graphicsLease=null;}};
- const drop=()=>{dropRenderer();masterBank?.dispose();masterBank=null;featureLease?.release();featureLease=null;signalRouter=null;if(cache)native.HapaArticulation.invalidate(cache);};
+ const drop=()=>{dropRenderer();musicResponse?.dispose();musicResponse=null;masterBank?.dispose();masterBank=null;featureLease?.release();featureLease=null;signalRouter=null;if(cache)native.HapaArticulation.invalidate(cache);};
  const makeRenderer=()=>{graphicsLease=createLivingLightGraphicsLease(canvas);try{renderer=new native.HapaRenderer(graphicsLease.canvas,cache.score,cache,state);installLivingLightNativeVisuals(native,renderer);if(prepared?.journeyRevision.mediaSlots.some(slot=>slot.enabled))media=mediaFactory({renderer,native,journey:prepared.journeyRevision,sources:mediaSources,onChange:onMediaChange});}catch(error){dropRenderer();throw error;}};
  const masterFrame=time=>featureLease?.sample('master','energy',time)||masterBank?.sample(time)||null;
  // Apply after inherited Director/articulation evaluation. The Director owns
  // its baselines and otherwise overwrites Core offsets before the GPU sees them.
+ const articulationNative=native.HapaArticulation.evaluate;
+ native.HapaArticulation.evaluate=(activeCache,activeState,time)=>activeCache===cache&&musicResponse?musicResponse.evaluate(activeCache,activeState,time):articulationNative(activeCache,activeState,time);
  const evaluateNative=native.HapaCore.evaluate;
  native.HapaCore.evaluate=(activeCache,activeState,time)=>{
   const frame=evaluateNative(activeCache,activeState,time);
   if(activeCache===cache&&(masterBank||featureLease)){
    const visualUs=Math.round(time*1e6),sourceUs=renderSignalUs??visualUs,measured=masterFrame(sourceUs),routing=signalRouter?.evaluate(visualUs,sourceUs),response={};
-   const offsets={...measured.offsets,...routing?.offsets};
+   const offsets={...(musicResponse?.active(time)?{}:measured.offsets),...routing?.offsets};
    for(const [key,offset]of Object.entries(offsets)){
     const control=native.HapaCore.parameters.find(p=>p.id===key),baseline=frame.values[key];
     const final=Math.max(control.min,Math.min(control.max,baseline+offset));
@@ -48,7 +51,7 @@ export function createLivingLightRuntime({canvas,registry=createLivingLightRegis
   validateJourney(journeyRevision,{resolveThing:registry.resolveThing,durationUs:journeyDurationUs});
   if(journeyRevision.mode==='continuous'&&journeyRevision.instances.length!==1)throw Error('Continuous family schedules await qualification; select one profile');
   if(journeyRevision.actorTreatment!=='none')throw Error('Figure treatment awaits qualification; choose None');
-  const hasBindings=journeyRevision.instances.some(i=>Object.keys(i.bindings).length);
+  const hasBindings=journeyRevision.instances.some(i=>Object.keys(i.bindings).length||i.musicResponse);
   if((neutralStudy?1:0)+(basicMasterInput?1:0)+(featureInput?1:0)>1)throw Error('Choose exactly one signal mode');
   if(!neutralStudy&&!basicMasterInput&&!featureInput)throw Error('Choose a neutral study or exact prepared basic master response');
   if(hasBindings&&!neutralStudy&&!featureInput)throw Error('Exact prepared asset signals are required for per-instance response');
@@ -71,7 +74,8 @@ export function createLivingLightRuntime({canvas,registry=createLivingLightRegis
   nextState.passages=tour?.passages||{enabled:false,baseWorld:'breathline-weave',bridges:[]};
   if(tour)nextState.world=tour.passages.baseWorld;
   const nextCache=new native.HapaCore.FeatureCache(score);
-  drop();masterBank=nextBank;featureLease=nextLease;signalRouter=nextRouter;adopted=true;state=nextState;cache=nextCache;generation=nextGeneration;heldVisualUs=null;heldSignalUs=null;lastSourceUs=0;lastSignalUs=0;renderSignalUs=null;hasEvaluated=false;suspended=false;
+  drop();masterBank=nextBank;featureLease=nextLease;signalRouter=nextRouter;adopted=true;state=nextState;cache=nextCache;generation=nextGeneration;heldVisualUs=null;heldSignalUs=null;lastSourceUs=0;lastSignalUs=0;renderSignalUs=null;signalOffsetUs=0;hasEvaluated=false;suspended=false;
+  if(nextLease&&journeyRevision.instances.some(i=>i.musicResponse)){musicResponse=createNativeMusicResponse({native,evaluateArticulation:articulationNative,bank:nextLease,journey:structuredClone(journeyRevision),songTimeUs:time=>Math.max(0,Math.min(nextLease.identity.durationUs,Math.round(time*1e6)+signalOffsetUs))});const priorGet=cache.get.bind(cache);cache.get=(role,feature,time)=>musicResponse?.get(role,feature,time)||priorGet(role,feature,time);}
   prepared={journeyDurationUs,journeyRevision:structuredClone(journeyRevision),sourceBinding:structuredClone(sourceBinding),neutralStudy:!!neutralStudy,tourEvidence:tour?{version:tour.version,instances:tour.evidence}:null};
   try{makeRenderer();}catch(error){drop();prepared=null;throw error;}
   return {state:neutralStudy?'neutral-study':'basic-master-response',generation,features:signalRouter?'exact-asset-port-response':featureLease?'exact-assets-master-response':masterBank?'basic-master-rms':'unavailable',audibleSourceOwned:false,finalEncoding:'unsupported'};
@@ -92,11 +96,12 @@ export function createLivingLightRuntime({canvas,registry=createLivingLightRegis
   if(viewport)resize(viewport);state.quality=quality;
   // Source implementation's reduced flag freezes at zero. Host holds the exact last visual time instead.
   state.reduced=false;
+  signalOffsetUs=signalUs-visualUs;
   const measured=masterFrame(signalUs);
   const frame=prepared.tourEvidence?native.HapaCurrents.route(cache,state,visualUs/1e6):native.HapaJourney.evaluate(cache,state,visualUs/1e6);
-  return {schemaVersion:'hapa.living-light.frame.v1',generation,timelineUs,visualUs,signalUs,playing,reducedMotion,quality,frame,basicMasterFrame:measured,signalRouting:signalRouter?.evaluate(visualUs,signalUs)||null,signalState:signalRouter?'exact-asset-port-response':featureLease?'exact-assets-master-response':masterBank?'basic-master-rms':'unavailable',motionBasis:'authored-resting-source-time',signalBasis:signalRouter?'explicit exact-source normalized energy/onset offsets; unresolved timing remains unavailable':(masterBank||featureLease)?'source-bound RMS offsets; no stem/event substitution':'neutral'};
+  return {schemaVersion:'hapa.living-light.frame.v1',generation,timelineUs,visualUs,signalUs,playing,reducedMotion,quality,frame,musicResponse:musicResponse?.active(visualUs/1e6)?musicResponse.evaluate(cache,state,visualUs/1e6).musicResponse:null,basicMasterFrame:measured,signalRouting:signalRouter?.evaluate(visualUs,signalUs)||null,signalState:signalRouter?'exact-asset-port-response':featureLease?'exact-assets-master-response':masterBank?'basic-master-rms':'unavailable',motionBasis:musicResponse?'authored-travel-with-source-bound-native-articulation':'authored-resting-source-time',signalBasis:musicResponse?'explicit exact-source envelopes through native scene articulation; master fallbacks identified; event accents unavailable':signalRouter?'explicit exact-source normalized energy/onset offsets; unresolved timing remains unavailable':(masterBank||featureLease)?'source-bound RMS offsets; no stem/event substitution':'neutral'};
  }
- function render(packet){assertLive();lastPaint=null;if(!packet||suspended)return false;if(packet.generation!==generation)throw Error('Stale frame');if(signalRouter?.evaluate(packet.visualUs,packet.signalUs).blocked)return false;masterFrame(packet.signalUs);media?.sync(packet);renderSignalUs=packet.signalUs;try{renderer.render(packet.visualUs/1e6);}finally{renderSignalUs=null;}lastPaint=structuredClone(packet);return true;}
+ function render(packet){assertLive();lastPaint=null;if(!packet||suspended)return false;if(packet.generation!==generation)throw Error('Stale frame');signalOffsetUs=packet.signalUs-packet.visualUs;if(signalRouter?.evaluate(packet.visualUs,packet.signalUs).blocked||musicResponse?.blocked(packet.visualUs/1e6))return false;masterFrame(packet.signalUs);media?.sync(packet);renderSignalUs=packet.signalUs;try{renderer.render(packet.visualUs/1e6);}finally{renderSignalUs=null;}lastPaint=structuredClone(packet);return true;}
  function resize({width,height}){assertLive();if(!Number.isFinite(width)||!Number.isFinite(height)||width<1||height<1||width>3840||height>3840)throw Error('Invalid viewport');lastPaint=null;renderer?.resize(width,height);}
  function captureStill(){
   assertLive();if(!renderer||suspended||!lastPaint||lastPaint.generation!==generation)throw Error('Paint a current available frame before capturing.');
@@ -116,7 +121,7 @@ export function createLivingLightRuntime({canvas,registry=createLivingLightRegis
  }
  function suspend(){assertLive();lastPaint=null;suspended=true;media?.suspend();}
  function restore(){assertLive();if(!prepared)throw Error('Nothing to restore');dropRenderer();generation++;suspended=false;try{makeRenderer();}catch(error){drop();prepared=null;throw error;}return diagnostics();}
- function diagnostics(){return {prepared:!!renderer,disposed,suspended,generation,canvasCount:renderer?1:0,visualModules:renderer?[...LIVING_LIGHT_VISUAL_HOOKS]:[],nativeScene:renderer?.lastFrame?{world:renderer.lastFrame.routeWorld||state.world,cameraKind:renderer.lastFrame.cam?.kind,layers:['realms','water','fire','wind','electricity','dynamics','octave','contour','stage'].filter(key=>renderer.lastFrame[key])}:null,ownedAudioContexts:0,ownedAnimationLoops:0,media:media?.diagnostics()||[],features:signalRouter?'exact-asset-port-response':featureLease?'exact-assets-master-response':masterBank?'basic-master-rms':'unavailable',featureEvidence:featureLease?.identity||masterBank?.identity||null,assetEvidence:featureLease?.assets()||null,signalRouting:signalRouter?.evaluate(heldVisualUs??lastSourceUs,heldSignalUs??lastSignalUs)||null,tourEvidence:prepared?.tourEvidence||null,environment:renderer?.environment||null,graphicsLease:graphicsLease?.diagnostics()||null,resources:renderer?{programs:Object.keys(renderer.programs).length,buffers:renderer.buffers.length,vaos:renderer.vaos.length,targets:renderer.targets.length}:null,route:renderer?.routeTelemetry||null};}
+ function diagnostics(){return {prepared:!!renderer,disposed,suspended,generation,canvasCount:renderer?1:0,visualModules:renderer?[...LIVING_LIGHT_VISUAL_HOOKS]:[],nativeScene:renderer?.lastFrame?{world:renderer.lastFrame.routeWorld||state.world,cameraKind:renderer.lastFrame.cam?.kind,layers:['realms','water','fire','wind','electricity','dynamics','octave','contour','stage'].filter(key=>renderer.lastFrame[key])}:null,ownedAudioContexts:0,ownedAnimationLoops:0,media:media?.diagnostics()||[],features:signalRouter?'exact-asset-port-response':featureLease?'exact-assets-master-response':masterBank?'basic-master-rms':'unavailable',featureEvidence:featureLease?.identity||masterBank?.identity||null,assetEvidence:featureLease?.assets()||null,musicResponse:musicResponse?.diagnostics()||null,signalRouting:signalRouter?.evaluate(heldVisualUs??lastSourceUs,heldSignalUs??lastSignalUs)||null,tourEvidence:prepared?.tourEvidence||null,environment:renderer?.environment||null,graphicsLease:graphicsLease?.diagnostics()||null,resources:renderer?{programs:Object.keys(renderer.programs).length,buffers:renderer.buffers.length,vaos:renderer.vaos.length,targets:renderer.targets.length}:null,route:renderer?.routeTelemetry||null};}
  function dispose(){if(disposed)return;drop();state=null;cache=null;prepared=null;disposed=true;}
  return {idle(){lastPaint=null;if(media?.idle)media.idle();else media?.suspend();},resetMotion(){heldVisualUs=null;heldSignalUs=null;hasEvaluated=false;lastPaint=null;},prepare,evaluate,render,resize,captureStill,captureReferenceStill,suspend,restore,dispose,diagnostics};
 }

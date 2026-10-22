@@ -16,7 +16,7 @@ export function previewJourneyFork(source,options,{resolveThing}={}){
  journey.title=options.title;journey.songId=options.targetSongId;journey.state='draft-unresolved';journey.sourceBindingRef=null;journey.mediaSlots=[];
  if(journey.motion)journey.motion={reduced:journey.motion.reduced,heldVisualUs:0};
  const handles=new Map(journey.instances.map((item,index)=>[item.instanceId,'ll-fork-use:'+String(index+1)]));
- journey.instances.forEach(item=>{item.instanceId=handles.get(item.instanceId);item.bindings={};delete item.locked;});
+ journey.instances.forEach(item=>{item.instanceId=handles.get(item.instanceId);item.bindings={};delete item.musicResponse;delete item.locked;});
  journey.schedule.forEach(row=>{row.instanceId=handles.get(row.instanceId);for(const key of ['fromInstanceId','toInstanceId'])if(row[key])row[key]=handles.get(row[key]);});
  const total=options.durationUs;
  if(options.timingPolicy==='keep-seconds'){
@@ -31,6 +31,6 @@ export function previewJourneyFork(source,options,{resolveThing}={}){
  }
  validateJourney({...journey,journeyId:'ll-journey:fork-preview',revisionId:'ll-journey-r:fork-preview',parentRevisionId:null},{resolveThing,durationUs:total});
  const rows=source.schedule.map((row,index)=>({sourceInstanceId:row.instanceId,instanceId:journey.schedule[index].instanceId,thingRef:structuredClone(source.instances.find(item=>item.instanceId===row.instanceId).thingRef),before:{startUs:row.startUs,endUs:row.endUs},after:{startUs:journey.schedule[index].startUs,endUs:journey.schedule[index].endUs}}));
- return {schemaVersion:'hapa.living-light.fork-preview.v1',source:{journeyId:source.journeyId,revisionId:source.revisionId,songId:source.songId},target:{songId:options.targetSongId,plannedDurationUs:total,timelineVerification:'authored-plan-only'},timingPolicy:options.timingPolicy,journey,conversion:rows,reset:{sourceBinding:source.sourceBindingRef!==null,signalBindings:source.instances.filter(item=>Object.keys(item.bindings).length).length,locks:source.instances.filter(item=>item.locked).length,mediaSlots:source.mediaSlots.length,heldVisualTime:true},notes:{copied:false,sourceJourneyId:source.journeyId,sourceRevisionId:source.revisionId,thingNotes:'retain-original-identity'},previewOnly:true,finalRenderUnsupported:true};
+ return {schemaVersion:'hapa.living-light.fork-preview.v1',source:{journeyId:source.journeyId,revisionId:source.revisionId,songId:source.songId},target:{songId:options.targetSongId,plannedDurationUs:total,timelineVerification:'authored-plan-only'},timingPolicy:options.timingPolicy,journey,conversion:rows,reset:{sourceBinding:source.sourceBindingRef!==null,signalBindings:source.instances.filter(item=>Object.keys(item.bindings).length||item.musicResponse).length,locks:source.instances.filter(item=>item.locked).length,mediaSlots:source.mediaSlots.length,heldVisualTime:true},notes:{copied:false,sourceJourneyId:source.journeyId,sourceRevisionId:source.revisionId,thingNotes:'retain-original-identity'},previewOnly:true,finalRenderUnsupported:true};
 }
 export const forkPreviewContent=value=>canonicalJSON(value);

@@ -1,5 +1,5 @@
 import {livingLightPreparedBinding,livingLightFeatureBytes} from './living-light-prepared-binding.js';
-import {livingLightBindingSelection} from './living-light-stem-selection.js';
+import {livingLightJourneySelection} from './living-light-stem-selection.js';
 const fail=(code,message)=>{throw Object.assign(Error(message),{code});};
 /** A single host lifetime reads each of the two prepared source sets at most once.
  * Resolving a saved source never schedules analysis or substitutes a new binding. */
@@ -18,11 +18,11 @@ export function createLivingLightPreparedInputResolver({songId,playbackReceipt,p
  return async function prepareInput(journey,{signal:entrySignal}={}){
   signal?.throwIfAborted();entrySignal?.throwIfAborted();
   if(journey.songId!==songId)fail('prepared_source_mismatch','The Journey belongs to another song.');
-  const bound=journey.sourceBindingRef||journey.instances.some(instance=>Object.keys(instance.bindings).length);
+  const bound=journey.sourceBindingRef||journey.instances.some(instance=>Object.keys(instance.bindings).length||instance.musicResponse);
   if(!bound)return {neutralStudy:true};
   if(!playbackReceipt?.sourceHash||!playbackReceipt?.pcmSha256||playbackReceipt.sourceSelection?.kind==='stem')fail('prepared_source_unavailable','Wait for the exact song master before playing this bound Journey.');
   let selected;
-  try{selected=await selectedPerformance(livingLightBindingSelection(journey.sourceBindingRef));}catch(error){
+  try{selected=await selectedPerformance(livingLightJourneySelection(journey));}catch(error){
    if(error.code==='echo_performance_not_prepared')throw Object.assign(Error(error.message+' Open Living Light → Song and stem signals to prepare it, then Retry scene.'),{code:error.code});
    throw error;
   }

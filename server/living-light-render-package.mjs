@@ -1,4 +1,4 @@
-import {livingLightBindingSelection} from '../src/domain/living-light-stem-selection.js';
+import {livingLightJourneySelection} from '../src/domain/living-light-stem-selection.js';
 import fs from 'node:fs/promises';
 import {createReadStream,createWriteStream} from 'node:fs';
 import path from 'node:path';
@@ -63,10 +63,10 @@ export async function packageLivingLightRender({project,owner,packageMedia,prepa
   }
   recipes.push({package:packet,sources});
  }
- const bound=recipes.some(({package:{journey}})=>journey.sourceBindingRef||journey.instances.some(instance=>Object.keys(instance.bindings).length));
+ const bound=recipes.some(({package:{journey}})=>journey.sourceBindingRef||journey.instances.some(instance=>Object.keys(instance.bindings).length||instance.musicResponse));
  // Resolve once, only for saved audio choices. Neutral recipes must not start
  // preparation or acquire an incidental source identity.
- const selections=new Set(recipes.filter(({package:{journey}})=>journey.sourceBindingRef||journey.instances.some(i=>Object.keys(i.bindings).length)).map(({package:{journey}})=>livingLightBindingSelection(journey.sourceBindingRef)));
+ const selections=new Set(recipes.filter(({package:{journey}})=>journey.sourceBindingRef||journey.instances.some(i=>Object.keys(i.bindings).length||i.musicResponse)).map(({package:{journey}})=>livingLightJourneySelection(journey)));
  if(selections.size>1)fail('This cut mixes legacy and coherent stem banks. Save its bound cues against one reviewed source set before export.');
  const stemSelectionPolicy=[...selections][0]||null;
  if(bound&&!preparedSource&&readPreparedSource)preparedSource=await readPreparedSource({songId:body.song_id,signal,...(stemSelectionPolicy?{stemSelectionPolicy}:{})});
