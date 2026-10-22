@@ -1,6 +1,7 @@
 import {echoLivingLightCueAt,validateEchoLivingLightCues,resolveEchoLivingLightCue} from '../domain/echo-living-light-cues.js';
 import {createLivingLightRuntime} from './runtime.js';
 import {livingLightTimelineWithinSource} from '../domain/living-light-prepared-binding.js';
+import {livingLightResponseStatus} from '../domain/living-light-response-status.js';
 
 /** One native renderer on Echo's clock. Only current/next exact recipes are
  * retained; prefetch never creates graphics, decoders or another audio clock. */
@@ -58,7 +59,8 @@ export function createEchoLivingLightPreview({canvas,cues,songId,durationUs,reso
   try{
    const painted=runtime.render(packet),diagnostic=runtime.diagnostics(),media=diagnostic.media||[];
    const waiting=media.filter(row=>row.required!==false&&(row.status!=='ready'||!row.paintReady));
-   publish({state:painted?'ready':'unavailable',cueId:activeCue.cueId,role:activeCue.role,message:!painted?'Selected audio choices are unavailable.':waiting.length?'Journey active · painted clips: '+waiting.map(row=>row.message).join(' · '):diagnostic.features==='unavailable'?'Journey active · authored motion':'Journey active · prepared song response',mediaReady:waiting.length===0});
+   const musicResponse=livingLightResponseStatus(packet.musicResponse,diagnostic);
+   publish({state:painted?'ready':'unavailable',cueId:activeCue.cueId,role:activeCue.role,message:!painted?'Selected audio choices are unavailable.':musicResponse.message+(waiting.length?' · painted clips: '+waiting.map(row=>row.message).join(' · '):''),musicResponse,mediaReady:waiting.length===0});
    if(painted){const entry=entries.get(key(activeCue));onFrame({cue:activeCue,journey:entry.journey,registry:entry.registry,visualUs:packet.visualUs,songUs:packet.directorSongUs});}
    return painted;
   }catch(error){failures.set(activeKey,error);drop();publish({state:'unavailable',cueId:activeCue?.cueId,message:error.message});return false;}

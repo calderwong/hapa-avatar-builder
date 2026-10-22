@@ -38,7 +38,7 @@ export function EchoLivingLightPreviewSurface({project,audioRef,clockRef,current
  },[active,cuesKey,songId,durationUs,client,mediaSources,audioReceipt,preparedPerformance,retry,captureRef]);
  useEffect(()=>{driverRef.current?.redraw();},[currentTime,hold]);
  const visible=active&&state.state!=='inactive';
- return <div data-testid="echo-living-light-preview" data-state={active?state.state:'inactive'} data-cue-id={state.cueId||''} style={{position:'absolute',inset:0,zIndex:3,display:visible?'block':'none',background:'#020617',pointerEvents:'none'}}>
+ return <div data-testid="echo-living-light-preview" data-state={active?state.state:'inactive'} data-cue-id={state.cueId||''} data-music-response={state.musicResponse?.state||''} style={{position:'absolute',inset:0,zIndex:3,display:visible?'block':'none',background:'#020617',pointerEvents:'none'}}>
   <canvas ref={canvasRef} aria-label="Living Light Director scene" style={{width:'100%',height:'100%',display:'block',visibility:state.state==='ready'?'visible':'hidden'}}/>
   {(!clean||state.state!=='ready')&&<div role="status" style={{position:'absolute',top:8,left:8,right:8,fontSize:12,color:'#e2e8f0',textShadow:'0 1px 3px #000'}}>{state.message}{state.state==='unavailable'&&<button style={{pointerEvents:'auto',marginLeft:8}} onClick={()=>setRetry(value=>value+1)}>Retry scene</button>}</div>}
   {!clean&&<label style={{position:'absolute',right:8,bottom:8,color:'#fff',fontSize:12,pointerEvents:'auto',background:'#020617b8',padding:4}}><input type="checkbox" checked={hold} onChange={event=>setHold(event.target.checked)}/> Hold motion</label>}

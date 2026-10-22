@@ -12,7 +12,25 @@ import {createLivingLightRuntime} from '../src/living-light/runtime.js';
 import {LIVING_LIGHT_VISUAL_HOOKS} from '../src/living-light/native-visuals.js';
 import {editJourneyDraft,newJourneyDraft} from '../src/domain/living-light-journey.js';
 import {validateMusicResponse} from '../src/domain/living-light-contracts.js';
+import {livingLightResponseStatus} from '../src/domain/living-light-response-status.js';
 const registry=createLivingLightRegistry();
+test('visible source status follows qualified intervals, explicit fallback, direct master and zero-weight choices',()=>{
+ const f=input(),bank=createLivingLightFeatureBank(f),response=structuredClone(f.journey.instances[0].musicResponse);
+ const status=(time=1e6)=>livingLightResponseStatus({...response,roles:Object.fromEntries(Object.keys(response.roles).map(role=>[role,sampleLivingLightMusicRole(bank,response,role,'energy',time)]))});
+ try{
+  assert.equal(status().state,'stem-response');assert.deepEqual(status().stemRoles,['bass']);
+  const terminal=status(2e6);assert.equal(terminal.state,'master-response');assert.deepEqual(terminal.stemRoles,[]);assert.deepEqual(terminal.fallbackRoles,['bass']);
+  response.roles['lead-vocals']={...response.roles.bass,sourceRefs:[{kind:'master'}]};
+  const mixed=status();assert.equal(mixed.state,'mixed-response');assert.deepEqual(mixed.masterRoles,['lead-vocals']);assert.match(mixed.message,/master mix drives: lead vocals/);
+  response.roles.bass={...response.roles.bass,sourceRefs:[{kind:'stem',assetId:'exact-asset-0'},{kind:'master'}],aggregation:'weighted-sum',weights:[0,1]};
+  assert.equal(status().state,'master-response');assert.match(status().message,/measured master mix only/);assert.deepEqual(status().stemRoles,[],'zero-weight stem must not be credited');
+  response.roles.bass={...response.roles['lead-vocals'],sourceRefs:[{kind:'stem',assetId:'missing'}],onUnavailable:'neutral'};
+  assert.deepEqual(status().unavailableRoles,['bass']);
+  delete response.roles['lead-vocals'];assert.equal(status().state,'unavailable');
+  response.intensity=0;assert.equal(status().state,'response-off');
+  assert.equal(livingLightResponseStatus(null,{features:'unavailable'}).state,'authored-motion');
+ }finally{bank.dispose();}
+});
 test('numeric reconstruction sampler agrees with source evidence across maps, gaps, weights and fallbacks',()=>{
  const f=input(),bank=createLivingLightFeatureBank(f);
  try{for(const aggregation of ['max','mean','weighted-sum'])for(const onUnavailable of ['master','neutral','block']){

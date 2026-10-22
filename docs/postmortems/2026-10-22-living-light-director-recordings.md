@@ -56,3 +56,48 @@ this checkpoint adds actual playback/file evidence rather than rerunning them.
 Reusable Lesson/Flow-explainer candidate: verify three separate layers—saved
 musical intent, native playback delivery, and causal/artistic response. A saved
 recording with audio proves the second layer only within its observed range.
+
+## Follow-up: frame-specific status and one matched comparison
+
+The Director now derives its visible music status from effective contributions
+in the rendered packet. Actual timing gaps, zero weights, explicit master
+fallback, direct master assignments, unavailable roles and zero intensity have
+separate truthful states. The status excludes sample values and timestamps so
+stable source classifications do not create a new UI update every frame. Existing
+painted-clip readiness remains visible. Twenty-one focused checks and the build
+pass, including real feature-bank interval/fallback coverage and Director
+publication behavior.
+
+At Gladiator's opening, only guitar was qualified; at 98 seconds the UI reported
+backing vocals, bass, drums, guitar, lead vocals and percussion, with keyboard
+and synth using master fallback. This is why album-level available-role counts
+must not stand in for per-passage truth. The source owner verified the retained
+neutral and responsive recipes have identical instance settings, media, schedule
+and cue clocks except for the response settings/source binding. Actual paused
+Director views at 98 seconds visibly differ in arch curvature, column position
+and electrical forms. This is one causal source-controlled native comparison;
+it does not establish an artistic preference or all-song response strength.
+
+A neutral 15-second take starting at requested Song time 92.5 seconds is saved
+as `04251f6f-8e18-431c-bb57-68e5bfb2c019`, paired with the prior responsive take
+`e7e43ae3-d440-43dc-8a89-7981fa56c903`. Owner hashes and the shared exact master
+verify. Requested start times are not a sample-accurate audio/video alignment
+claim. The first start refused while a painted clip loaded; retry occurred only
+after that explicit terminal failure and readiness. Nothing was overwritten.
+
+Two initial expanded-preview screenshots captured loading and are failed
+evidence. Only the `*-ready-98s.png` frames qualify: they were captured after
+checking `data-state=ready`. A bare unauthenticated HTTP revision read refused;
+the existing authoring owner's read interface supplied the exact recipes without
+weakening authentication or modifying authoring records.
+
+Additional private evidence: `response-status-tests.log`,
+`response-status-build.log`, `status-delivery-health.json`,
+`gladiator-comparison-sources.json`, `gladiator-recording-pair.json`,
+`gladiator-neutral-media.json`, and the two ready comparison frames. The canonical
+service was refreshed through its existing supervisor, with empty staging and
+no active mint plans/media descendants, and health now verifies current source.
+Remaining gates are the other matched song/role/quiet-versus-strong comparisons,
+ordinary shader-bank recovery, wider preset coverage and human creative review.
+No task closes. Reusable lesson: inspect readiness before taking a comparison
+frame, and report effective per-frame sources instead of song-wide stem counts.

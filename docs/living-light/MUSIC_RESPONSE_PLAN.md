@@ -458,3 +458,29 @@ master-only response; LL-921 must expose that distinction. The older ordinary
 shader preparation also reports an evicted bank independently of Living Light's
 working coherent bank. No requirement closes. See the
 [recording checkpoint and learning](../postmortems/2026-10-22-living-light-director-recordings.md).
+
+## October 22 — truthful frame status and a matched Director comparison
+
+Director status now identifies measured stem roles, explicit master fallback,
+master-mix-only response, authored motion and unavailable/off response. It reads
+the current frame's admitted contributions; zero-weight stems are not credited,
+and timing-map gaps change the label to fallback rather than claiming stem
+coverage. The compact classification omits numerical frame values to avoid
+publishing a React state change on every animation frame. Painted-media loading
+warnings remain visible alongside the source status.
+
+Actual UI inspection distinguishes the pilot's mixed response, Gladiator's six
+measured roles at 98 seconds, and Aquatic Monkey's master-only response. The
+original Gladiator Album Pass was verified through the authoring owner to retain
+identical scene instances/parameters, schedule, media and cue clocks with no
+musical bindings. Fully loaded neutral and responsive Director views at 98 s
+show different arch/column/electrical geometry. A matching neutral live take is
+saved as recording `04251f6f-8e18-431c-bb57-68e5bfb2c019`; its master hash agrees
+with the response take. This supplies one bounded actual Director A/B example,
+not the remaining five-song quiet/strong/role-isolation or human-taste gates.
+
+Twenty-one focused musical-source/Director checks and the final build pass.
+The registered canonical service was refreshed after checking that no media
+children, mint plans or staged mint transactions were active; health confirms
+current source delivery. No source cut or Journey was changed for the comparison.
+The ordinary shader preparation warning remains a separate LL-919 issue.

@@ -5,6 +5,19 @@ import {createEchoLivingLightCue} from '../src/domain/echo-living-light-editor.j
 const recipe=(id='one')=>({journeyId:'journey:'+id,revisionId:'revision:1',songId:'song:1',sourceBindingRef:null,schedule:[{instanceId:'a',startUs:0,endUs:2e6}],instances:[],mediaSlots:[]});
 const cue=(id,startUs=1e6)=>createEchoLivingLightCue({journey:recipe(id),cueId:'cue:'+id,startUs});
 const flush=async()=>{for(let i=0;i<10;i++)await Promise.resolve();};
+test('Director publishes frame-specific stem/master status and retains painted-clip warnings',async()=>{
+ const contribution={sourceRef:{kind:'stem',assetId:'bass'},weight:1,value:.4,availability:'present'};
+ let response={intensity:1,roles:{bass:{value:.4,availability:'present',state:'measured',selected:{contributions:[contribution]}}}};
+ const f=fixture(undefined,{runtimeFactory:()=>({prepare(){},evaluate:p=>({...p,musicResponse:response}),render:()=>true,diagnostics:()=>({features:'exact-assets-master-response',media:[{required:true,status:'loading',message:'Loading clip…'}]}),dispose(){}})});
+ try{
+  f.host.evaluate({timelineUs:1e6});await flush();f.host.render(f.host.evaluate({timelineUs:1e6}));
+  assert.equal(f.states.at(-1).musicResponse.state,'stem-response');assert.match(f.states.at(-1).message,/measured stems: bass.*Loading clip/);
+  response={intensity:1,roles:{bass:{value:.3,availability:'present',state:'explicit-master-fallback'}}};
+  f.host.render(f.host.evaluate({timelineUs:2e6}));
+  assert.equal(f.states.at(-1).musicResponse.state,'master-response');assert.match(f.states.at(-1).message,/master mix fallback: bass/);assert.deepEqual(f.states.at(-1).musicResponse.stemRoles,[]);
+  const count=f.states.length;f.host.render(f.host.evaluate({timelineUs:2.1e6}));assert.equal(f.states.length,count,'unchanged classifications do not emit every frame');
+ }finally{f.host.dispose();}
+});
 test('capture waits only for required painted surfaces; visible failures still refuse',async()=>{
  let media=[{required:false,status:'idle',paintReady:false},{required:false,status:'error',paintReady:false}];
  const f=fixture(undefined,{runtimeFactory:()=>({prepare(){},evaluate:p=>({...p,visualUs:p.timelineUs}),render:()=>true,diagnostics:()=>({media}),dispose(){}})});
