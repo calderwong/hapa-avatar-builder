@@ -57,3 +57,42 @@ unproven; broader shared-cache integrity is not claimed. The new guard prevents
 this deletion mechanism, while inventory and scope assessment remain open. The
 verification lesson is to check original source readiness after the maximum
 publication batch, not only after the first successful pilots.
+
+## Follow-up: real native pixels and discrete accents
+
+Extended the existing envelope adapter with bounded display-onset crossings,
+preserving unknown intervals, source identity and Song/Journey clocks. Native
+water rings and elastic strikes now use these events. No semantic beat claim,
+master-onset substitution, vendor rewrite or new analyzer was introduced.
+
+The real 11:23 bank exposed a GPU-only assumption: the renderer accesses
+`state.stems.drums.visual` once an event exists. The earlier numerical renderer
+stub did not execute that line. Initializing participation for the supplied
+native event roles fixes the actual failure. The failed run is retained in the
+source chat; a passing signal test alone would have missed it.
+
+Cold reconstruction then measured 3.2 seconds. Per-sample contribution/provenance
+cloning was unnecessary for numeric filtering. An immutable compiled sampler now
+uses the same exact owner samples and explicit aggregation/fallback decisions,
+while retaining the detailed sampler for evidence. Agreement checks cover maps,
+gaps, weights, missing sources and fallback. Four actual environments take
+0.414–0.577 seconds cold in the retained local samples; warm Glass took 1.8 ms.
+This is a bounded observation, not a general latency guarantee.
+
+Native water, rain court and two tunnel comparisons show geometry/flow changes
+beyond brightness. An eight-second animation and reverse seek preserve the
+comparison statistic. These source-scene diagnostics have no audible soundtrack
+and do not replace Director/live-recording or album-wide acceptance.
+
+Process boundary: one foreground loopback HTTP harness, no child processes,
+no workers, no source writes, ten-minute maximum lifetime, explicit close.
+The sandbox initially denied listening; authorized escalation opened the same
+bounded server. A browser download wait timed out; screenshots and visible JSON
+were instead saved directly from the UI tool. No render or analysis was retried.
+The earlier threshold fixture expected an exact one-third crossing, but
+microsecond quantization put it just below the threshold; the expected next
+30 Hz sample was corrected. Failed checks remain historical evidence.
+
+Learning/Flow candidate: exercise the real scene event consumer early, and keep
+numeric reconstruction free of repeated evidence-object copies. Continue with
+album coverage after the reusable path works; do not polish this pilot indefinitely.

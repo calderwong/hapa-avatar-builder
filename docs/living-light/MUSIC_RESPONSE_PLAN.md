@@ -332,3 +332,38 @@ scope assessment remain open under LL-919. No source recording or cut was edited
 Evidence: `visual-timing-album-summary.json`, `exact-legacy-restoration.json`,
 `legacy-bank-preservation.json`, and `publication-retention-final.log` in the
 source chat. The sequential preparation and qualification handles are terminal.
+
+## Native pixels and measured accents — October 22 checkpoint
+
+LL-920 now connects qualified display-onset crossings to native elastic strikes,
+water impacts and renderer pulses. These are authored accents from the existing
+normalized RMS-delta envelope, not certified beats. Hysteresis and a refractory
+interval bound chatter; unavailable timing disarms the detector. Master-energy
+fallback cannot manufacture onset events. Song-time articulation and Journey-time
+event consumers receive separately mapped scores, clipped to each scheduled use.
+Reverse evaluation and held motion preserve those clocks.
+
+A real-source native comparison used the current coherent 11:23 pilot bank,
+13 verified source hashes and its preserved decoded playback receipt. Windward
+Reach, Rain Court, Weave and Glass visibly differ from neutral at identical times,
+including surface shape/reflections and tunnel geometry/travel. Six saved frame
+reports cover four environments and an eight-second Glass animation followed by
+reverse seek. The repeated Glass comparison statistic is identical. This is a
+bounded visual diagnostic without audible playback, not full Director recording,
+per-role perceptual isolation or human acceptance.
+
+The first actual GPU run found a missing native stem participation field;
+initializing newly supplied roles fixed it. The real-song cold frame also took
+about 3.2 seconds because numerical reconstruction repeatedly cloned provenance
+trees. Compiling immutable choices once reduced observed cold frames to
+0.414–0.577 seconds; warm Glass sampling took 1.8 ms in the retained report.
+The water pixel comparison statistic was unchanged by that optimization.
+These are local samples, not an album-wide performance guarantee.
+
+Twenty-eight focused checks and the production build pass. The scene diagnostic
+has no analysis workers and performs no album writes. Evidence lives in the
+source chat's `execution/living-light/music-response/`: native screenshots,
+`native-optimized-frames.json`, `native-proof-source.json`, `onset-owner-tests.log`
+and `onset-build.log`. The app build alone does not establish live app delivery.
+Next: carry this path into saved Director/live recordings and append the new
+album response cuts. LL-919–922 remain open; existing cuts/recordings are retained.

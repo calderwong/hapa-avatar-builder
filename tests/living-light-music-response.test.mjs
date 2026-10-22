@@ -4,7 +4,7 @@ import {fixture} from './fixtures/living-light-signals.mjs';
 import {createLivingLightFeatureBank} from '../src/domain/living-light-features.js';
 import {createLivingLightFeatureCache} from '../src/domain/living-light-feature-cache.js';
 import {livingLightFeatureBytes} from '../src/domain/living-light-prepared-binding.js';
-import {suggestLivingLightMusicResponse,sampleLivingLightMusicRole} from '../src/domain/living-light-music-response.js';
+import {suggestLivingLightMusicResponse,sampleLivingLightMusicRole,createLivingLightMusicSampler} from '../src/domain/living-light-music-response.js';
 import {createNativeMusicResponse} from '../src/living-light/music-response.js';
 import {createNativeNamespace} from '../src/living-light/native.generated.js';
 import {createLivingLightRegistry} from '../src/living-light/registry.js';
@@ -13,6 +13,53 @@ import {LIVING_LIGHT_VISUAL_HOOKS} from '../src/living-light/native-visuals.js';
 import {editJourneyDraft,newJourneyDraft} from '../src/domain/living-light-journey.js';
 import {validateMusicResponse} from '../src/domain/living-light-contracts.js';
 const registry=createLivingLightRegistry();
+test('numeric reconstruction sampler agrees with source evidence across maps, gaps, weights and fallbacks',()=>{
+ const f=input(),bank=createLivingLightFeatureBank(f);
+ try{for(const aggregation of ['max','mean','weighted-sum'])for(const onUnavailable of ['master','neutral','block']){
+  const response=structuredClone(f.journey.instances[0].musicResponse);
+  response.roles.bass={...response.roles.bass,sourceRefs:[{kind:'stem',assetId:'exact-asset-0'},{kind:'master'}],aggregation,onUnavailable,...(aggregation==='weighted-sum'?{weights:[.6,.4]}:{})};
+  for(const unknown of [false,true]){
+   if(unknown)response.roles.bass.sourceRefs[0].assetId='missing';
+   const fast=createLivingLightMusicSampler(bank,response);
+   for(const t of [0,150000,1000000,1999999,2000000])for(const feature of ['energy','onset','low','mid','high','pan']){
+    const detailed=sampleLivingLightMusicRole(bank,response,'bass',feature,t),value=fast('bass',feature,t);
+    assert.equal(value.value,detailed.value);assert.equal(['present','silent'].includes(value.availability),['present','silent'].includes(detailed.availability));
+   }
+  }
+ }}finally{bank.dispose();}
+});
+import {musicOnsetEvents} from '../src/living-light/music-onsets.js';
+test('display accents require measured crossings, settle on silence and do not invent events at timing gaps',()=>{
+ const events=musicOnsetEvents(t=>({availability:t>=.5&&t<.8?'unknown':'present',value:t<.1||t>=1.1?0:.9}),1.5);
+ assert.equal(events.length,1);assert.equal(events[0].time,.1);
+ assert.deepEqual(musicOnsetEvents(()=>({availability:'unavailable',value:null}),2),[]);
+ assert.deepEqual(musicOnsetEvents(()=>({availability:'present',value:.9}),2),[]);
+});
+test('qualified onset drives native strikes and water rings at the exact shifted Journey time',()=>{
+ const f=input();f.performance.buses[1].declaredRole='Drums';
+ f.performance.buses[1].frames.forEach((row,i)=>row.onsetEnvelope=i===10?.9:0);
+ f.journey.instances[0].musicResponse=suggestLivingLightMusicResponse(f.performance);
+ const n={...createNativeNamespace()};let water,core;
+ n.HapaRenderer=class {constructor(canvas,score,cache,state){Object.assign(this,{cache,state,programs:{},buffers:[],vaos:[],targets:[]});}render(t){core=n.HapaCore.evaluate(this.cache,this.state,t);water=n.HapaWater.evaluate(this.cache,{...this.state,world:'rain-court'},t);}resize(){}dispose(){}};
+ n.HapaRenderer.program=()=>({p:{}});for(const hook of LIVING_LIGHT_VISUAL_HOOKS)n[hook]=()=>{};
+ const owner=createLivingLightFeatureCache(),runtime=createLivingLightRuntime({canvas:{},registry,nativeFactory:()=>n});
+ try{
+  runtime.prepare({journeyRevision:f.journey,sourceBinding:{songId:f.songId,durationUs:2000000,sourceHash:f.playbackReceipt.sourceHash},generation:1,featureInput:{...f,cache:owner,requiredBytes:livingLightFeatureBytes(f.performance)}});
+  const packet=runtime.evaluate({timelineUs:550000,signalTimelineUs:1050000});runtime.render(packet);
+  assert(core.articulation.signals.drums.strike>0);assert.equal(water.events.length,1);
+  assert(Math.abs(water.events[0].time-.4666666667)<1e-7);
+  assert.equal(packet.musicResponse.events.counts.drums,1);const expected=structuredClone(water.events);
+  runtime.evaluate({timelineUs:900000,signalTimelineUs:900000});
+  runtime.render(packet);assert.deepEqual(water.events,expected,'render restores the packet event clock after an intervening evaluation');
+  runtime.evaluate({timelineUs:550000,signalTimelineUs:1050000});
+  runtime.render(runtime.evaluate({timelineUs:1550000,signalTimelineUs:1700000,reducedMotion:true}));
+  assert.deepEqual(water.events,expected);
+ }finally{runtime.dispose();owner.dispose();}
+ const master=structuredClone(f.journey.instances[0].musicResponse);master.roles.drums.sourceRefs=[{kind:'master'}];
+ const bank=createLivingLightFeatureBank(f),native=createNativeNamespace();
+ const adapter=createNativeMusicResponse({native,bank,journey:{...f.journey,instances:[{...f.journey.instances[0],musicResponse:master}]},songTimeUs:t=>Math.round(t*1e6)});
+ try{assert.equal(adapter.eventStems(1)[0].events.length,0,'master energy cannot masquerade as measured onset');}finally{adapter.dispose();bank.dispose();}
+});
 function input(){
  const f=fixture(1);f.performance.stemSelectionPolicy='coherent-stems-v1';f.performance.buses[1].declaredRole='Bass';
  f.sourceBinding.stems[0].timeMap=[{songStartUs:0,songEndUs:2000000,sourceStartUs:0,sourceEndUs:2000000}];f.sourceBinding.stems[0].paddingIntervals=[];

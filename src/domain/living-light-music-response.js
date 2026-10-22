@@ -1,6 +1,35 @@
-import {LL_SCHEMAS,LIVING_LIGHT_MUSIC_ROLES,validateMusicResponse} from './living-light-contracts.js';
+import {LL_SCHEMAS,LIVING_LIGHT_MUSIC_ROLES,validateMusicResponse,canonicalJSON} from './living-light-contracts.js';
 import {canonicalLivingLightRole} from './living-light-source-binding.js';
 export const MUSIC_RESPONSE_VERSION='hapa.living-light.music-response.v1';
+/** Compile immutable source choices once for the native 60 Hz reconstruction.
+ * Keep the detailed sampler below for visible evidence; do not clone provenance
+ * and contribution trees millions of times while building numeric filters. */
+export function createLivingLightMusicSampler(bank,response){
+ validateMusicResponse(response);
+ const known=new Set(bank.assets().map(a=>a.assetId)),gain={gentle:.65,dance:1,surge:1.35}[response.preset]*response.intensity;
+ const roles=Object.fromEntries(Object.entries(response.roles).map(([role,binding])=>[role,{
+  ...structuredClone(binding),sourceId:canonicalJSON(binding.sourceRefs),
+  unavailable:binding.sourceRefs.some((s,i)=>s.kind==='stem'&&!known.has(s.assetId)&&(binding.aggregation!=='weighted-sum'||binding.weights[i]>0))
+ }]));
+ const masterId=canonicalJSON([{kind:'master'}]);
+ return (role,feature,timeUs)=>{
+  const binding=roles[role];if(!binding||!['energy','onset','low','mid','high'].includes(feature))return {value:null,availability:'missing',sourceAssetId:null,confidence:null};
+  let value=0,count=0,silent=true,available=!binding.unavailable;
+  if(available)for(let i=0;i<binding.sourceRefs.length;i++){
+   const weight=binding.aggregation==='weighted-sum'?binding.weights[i]:1;if(!weight)continue;
+   const row=bank.sample(binding.sourceRefs[i],feature,timeUs);
+   if(!['present','silent'].includes(row.availability)){available=false;break;}
+   silent&&=row.availability==='silent';count++;
+   value=binding.aggregation==='max'?Math.max(value,row.value):value+row.value*weight;
+  }
+  if(available&&binding.aggregation==='mean'&&count)value/=count;
+  let sourceAssetId=binding.sourceId;
+  if(!available&&binding.onUnavailable==='master'&&feature==='energy'){
+   const master=bank.sample('master','energy',timeUs);available=['present','silent'].includes(master.availability);value=master.value;silent=master.availability==='silent';sourceAssetId=masterId;
+  }
+  return {value:available?Math.min(1,Math.max(0,value*gain)):null,availability:available?(silent?'silent':'present'):'missing',sourceAssetId:available?sourceAssetId:null,confidence:null};
+ };
+}
 export function suggestLivingLightMusicResponse(performance,{preset='dance',intensity=1}={}){
  if(performance?.stemSelectionPolicy!=='coherent-stems-v1')throw Error('Prepare one coherent stem set before choosing musical movement.');
  const roles={};
