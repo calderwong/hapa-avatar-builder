@@ -11,6 +11,12 @@ export function livingLightDurationMatches(actualUs,authoredUs,sampleRate) {
   &&Number.isFinite(sampleRate)&&sampleRate>0
   &&Math.abs(actualUs-authoredUs)<=Math.ceil(1e6/sampleRate);
 }
+// A cut may end before its exact decoded master. This is containment at 1x,
+// not permission to rescale either clock or extend beyond the source.
+export function livingLightTimelineWithinSource(actualUs,authoredUs,sampleRate) {
+ return Number.isSafeInteger(actualUs)&&actualUs>0&&Number.isSafeInteger(authoredUs)&&authoredUs>0
+  &&Number.isFinite(sampleRate)&&sampleRate>0&&authoredUs<=actualUs+Math.ceil(1e6/sampleRate);
+}
 /** Hash the complete selected coordinates and binding instead of putting all
  * asset declarations/maps into a cache identifier with a fixed length limit. */
 export function livingLightFeatureKey({songId,performance,playbackReceipt,sourceBinding}){

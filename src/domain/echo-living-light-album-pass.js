@@ -4,8 +4,13 @@ import {newJourneyDraft,editJourneyDraft} from './living-light-journey.js';
 import {livingLightCutMedia,livingLightMediaSurfaces} from './living-light-media.js';
 import {validateEchoLivingLightCues,validateEchoLivingLightSavedReferences} from './echo-living-light-cues.js';
 import {pickEchoDirectionVariantProjectPatch,echoDirectionVariantFingerprint,deriveEchoDirectionVariantProject} from './echo-direction-variants.js';
+import {editableJourney} from './living-light-journey.js';
+import {suggestLivingLightMusicResponse} from './living-light-music-response.js';
+import {livingLightPreparedBinding,livingLightTimelineWithinSource} from './living-light-prepared-binding.js';
+import {createLivingLightFeatureBank} from './living-light-features.js';
 
 export const ALBUM_PASS_ID='living-light-album-pass-v1';
+export const MUSIC_PASS_ID='living-light-music-response-v1';
 const hash=value=>bytesToHex(sha256(new TextEncoder().encode(value)));
 const ref=thing=>({thingId:thing.thingId,revisionId:thing.revisionId});
 // Editorial proposals, not inferred beats, emotion scores or measured audio.
@@ -46,14 +51,57 @@ export function planLivingLightAlbumSong(project,registry){
  return {existing:false,journey,windows,editorialBasis:'Existing shot boundaries nearest 32% and 70%; authored 8-second passages; no inferred beats or new analysis',paintedSources:journey.mediaSlots.length};
 }
 
-export function buildLivingLightAlbumVariant({base,parent,project,plan,journey,createdAt}){
- const id=ALBUM_PASS_ID;
+export function buildLivingLightAlbumVariant({base,parent,project,plan,journey,createdAt,musicResponse=false}){
+ const id=musicResponse?MUSIC_PASS_ID:ALBUM_PASS_ID;
  const cues=plan.existing?structuredClone(plan.cues):plan.windows.map((window,i)=>({schemaVersion:'hapa.echo.living-light-cue.v1',cueId:`ll-cue:album-${i+1}`,role:window.role,songId:project.song_id,journeyRef:{journeyId:journey.journeyId,revisionId:journey.revisionId},sourceBindingRef:null,window:{startUs:window.startUs,endUs:window.endUs},journeyWindow:{startUs:window.journeyStartUs,endUs:window.journeyStartUs+window.endUs-window.startUs},clock:'echo-song',mapping:'offset-1x',outputProfile:'project',locks:{timing:false,journey:false}}));
  validateEchoLivingLightCues(cues,{songId:project.song_id,durationUs:Math.round(project.duration*1e6)});
  const patch={...pickEchoDirectionVariantProjectPatch(project),living_light_cues:cues};
  const variant={schemaVersion:'hapa.echo.direction-script-variant.v1',id,title:'Living Light · Album Pass',status:'ready',createdAt,updatedAt:createdAt,selectionMode:'living-light-album-director',variationSet:{id:'living-light-album',label:'Living Light'},cut:{ordinal:1,label:'Album Pass',kind:'agent-director'},timeline:structuredClone(project.timeline),visualizer_timeline:structuredClone(project.visualizer_timeline||[]),project_patch:patch,director_show_graph:structuredClone(project.director_show_graph),parent:{songId:project.song_id,variantId:parent.id,variantFingerprint:echoDirectionVariantFingerprint(parent),immutableParent:true},lineage:{kind:'append-only-living-light-album-pass',parentVariantId:parent.id,nonDestructive:true},sourcePolicy:{...(parent.sourcePolicy||{}),livingLight:{motion:plan.existing?'preserved-existing-cues':'authored-neutral',timingBasis:plan.editorialBasis||'preserved-existing-cues',analysisCalls:0,renderCalls:0}},hyperframe_script:''};
+ if(musicResponse){variant.title='Living Light · Music Response';variant.cut={ordinal:2,label:'Music Response',kind:'agent-director'};variant.lineage.kind='append-only-living-light-music-response';variant.sourcePolicy.livingLight={motion:'exact-source-native-articulation',timingBasis:'qualified visual-envelope maps; explicit master fallback; no certified beats',analysisCalls:0,renderCalls:0,coverage:structuredClone(plan.coverage)};}
  variant.fingerprint=echoDirectionVariantFingerprint(variant);
  const projected=deriveEchoDirectionVariantProject(base,variant);
  if(!plan.existing)validateEchoLivingLightSavedReferences(projected,()=>({journey}));
  return {variant,projected};
+}
+
+/** Preserve placements/media and fork only unlocked recipes. The owning script
+ * saves these drafts and replaces their temporary cue references with exact
+ * returned revisions. Source validation happens before any authoring write. */
+export function planLivingLightMusicResponse({project,registry,resolveJourney,performance,playbackReceipt}){
+ if(!livingLightTimelineWithinSource(Math.round(playbackReceipt?.durationSeconds*1e6),Math.round(project.duration*1e6),playbackReceipt?.sampleRate))throw Error('Director timeline exceeds prepared playback; review the source timeline before authoring.');
+ const songId=project.song_id,sourceBinding=livingLightPreparedBinding({songId,performance,playbackReceipt});
+ const bank=createLivingLightFeatureBank({songId,performance,playbackReceipt,sourceBinding});bank.dispose();
+ const bindingRef={bindingId:sourceBinding.bindingId,revisionId:sourceBinding.revisionId},response=suggestLivingLightMusicResponse(performance);
+ const original=planLivingLightAlbumSong(project,registry),drafts=[],byRef=new Map(),preserved=[];
+ let cues;
+ if(original.existing){
+  validateEchoLivingLightSavedReferences(project,ref=>resolveJourney(ref));
+  cues=structuredClone(original.cues);
+  for(const cue of cues){
+   const key=JSON.stringify(cue.journeyRef),record=resolveJourney(cue.journeyRef),source=record.journey||record;
+   if(cue.locks.journey||source.instances.some(i=>i.locked)){preserved.push(cue.cueId);continue;}
+   if(!byRef.has(key)){const draft=editableJourney(source);draft.title=(draft.title+' · Music Response').slice(0,160);draft.sourceBindingRef=bindingRef;draft.instances.forEach(i=>i.musicResponse=structuredClone(response));const item={key:'response-'+drafts.length,lineage:structuredClone(cue.journeyRef),journey:draft};drafts.push(item);byRef.set(key,item);}
+   const item=byRef.get(key);cue.journeyRef={journeyId:item.key,revisionId:'planned'};cue.sourceBindingRef=bindingRef;
+  }
+ }else{
+  const draft=original.journey;draft.sourceBindingRef=bindingRef;draft.instances.forEach(i=>i.musicResponse=structuredClone(response));
+  drafts.push({key:'response-0',lineage:null,journey:draft});
+  cues=original.windows.map((window,i)=>({schemaVersion:'hapa.echo.living-light-cue.v1',cueId:'ll-cue:music-'+(i+1),role:window.role,songId,journeyRef:{journeyId:'response-0',revisionId:'planned'},sourceBindingRef:bindingRef,window:{startUs:window.startUs,endUs:window.endUs},journeyWindow:{startUs:window.journeyStartUs,endUs:window.journeyStartUs+window.endUs-window.startUs},clock:'echo-song',mapping:'offset-1x',outputProfile:'project',locks:{timing:false,journey:false}}));
+ }
+ validateEchoLivingLightCues(cues,{songId,durationUs:Math.round(project.duration*1e6)});
+ const coverage=cues.map(cue=>{
+  if(preserved.includes(cue.cueId))return {cueId:cue.cueId,status:'preserved-locked-choice',responseVerified:false};
+  const roles=Object.entries(response.roles).map(([role,binding])=>{
+   const stem=sourceBinding.stems.find(s=>s.assetId===binding.sourceRefs[0].assetId),mappedUs=(stem?.timeMap||[]).reduce((n,m)=>n+Math.max(0,Math.min(cue.window.endUs,m.songEndUs)-Math.max(cue.window.startUs,m.songStartUs)),0);
+   return {role,sourceRefs:binding.sourceRefs,qualifiedStemUs:mappedUs,masterResponseUs:cue.window.endUs-cue.window.startUs-mappedUs};
+  });
+  return {cueId:cue.cueId,status:'source-bound-response',preset:response.preset,window:cue.window,journeyWindow:cue.journeyWindow,clock:'echo-song / offset-1x',roles,qualifiedStemRoles:roles.filter(r=>r.qualifiedStemUs>0).map(r=>r.role),masterFallbackExplicit:true};
+ });
+ return {existing:true,cues,drafts,coverage,performanceFingerprint:performance.fingerprint,playbackReceipt:structuredClone(playbackReceipt),bindingRef,editorialBasis:'Preserved existing placements; exact source-bound movement proposal',paintedSources:drafts.reduce((n,d)=>n+d.journey.mediaSlots.filter(s=>s.enabled).length,0)};
+}
+
+export function resolveLivingLightMusicPlan(plan,saved){
+ const result=structuredClone(plan);result.cues=result.cues.map(cue=>{
+  const journey=saved.get(cue.journeyRef.journeyId);return journey?{...cue,journeyRef:{journeyId:journey.journeyId,revisionId:journey.revisionId},sourceBindingRef:structuredClone(journey.sourceBindingRef)}:cue;
+ });return result;
 }

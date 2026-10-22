@@ -100,6 +100,9 @@ test('bound duration admits one PCM sample of endpoint rounding without changing
   const result=validateLivingLightRenderSnapshot(rounded);
   assert.deepEqual(result.preparedSource,snapshot.preparedSource);
   assert.deepEqual(result.cues,snapshot.cues);
+  const shorter=structuredClone(snapshot);shorter.durationUs-=1000;
+  for(const cue of shorter.cues)if(cue.window.endUs>shorter.durationUs){const trim=cue.window.endUs-shorter.durationUs;cue.window.endUs-=trim;cue.journeyWindow.endUs-=trim;}
+  assert.deepEqual(validateLivingLightRenderSnapshot(seal(shorter)).preparedSource,snapshot.preparedSource,'shorter cut preserves exact source identity and original decoded coordinates');
   assert.throws(()=>validateLivingLightRenderSnapshot(seal({...rounded,durationUs:snapshot.durationUs+tolerance+1})),/Prepared signals differ/);
   // A larger mismatch cannot hide behind a lower analysis cadence.
   assert.throws(()=>validateLivingLightRenderSnapshot(seal({...rounded,durationUs:snapshot.durationUs+1000})),/Prepared signals differ/);

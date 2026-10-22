@@ -96,3 +96,37 @@ microsecond quantization put it just below the threshold; the expected next
 Learning/Flow candidate: exercise the real scene event consumer early, and keep
 numeric reconstruction free of repeated evidence-object copies. Continue with
 album coverage after the reusable path works; do not polish this pilot indefinitely.
+
+## Album response authoring and clock containment — October 22
+
+Objective: carry musical response across the entire album before single-song
+polish. Reused the existing album-pass planner, saved-cut reader, Journey store,
+Card custody and bounded PCM playback preparation. New response cuts preserve
+parent sources, cue times, painted media and independent locks. The pilot saved
+three cues; the completed pass saved/reopened 202 cuts and 1,205 bound cues,
+with 143 songs having qualified stem intervals and 59 explicit master responses.
+All 8,014 pre-existing files and 203 original Journey payloads passed integrity.
+No recordings or original audio were changed; no analysis or render jobs ran.
+
+The first full plan refused 43 songs because the old shared duration gate equated
+an authored cut end with exact decoded source length. Their authored ends were
+0.2–1 ms earlier. This was a coordinate-contract mistake, not evidence of bad
+music alignment. Director/offline preparation now retains the decoded source
+extent separately, validates cut containment, keeps 1x coordinates and rejects
+an overlong cut beyond the established terminal-sample allowance. The 159 valid
+prepared entries were reused only after original hashes were reverified.
+
+Thirty-five affected tests and the build pass. The first test rerun failed only
+because a refusal message changed; the preserved message and a new shorter-cut
+snapshot case now pass. Actual UI inspection found all three pilot cues, but the
+running canonical API reports stale delivery and rejects coherent selection;
+ordinary preview timing also reports an evicted entry. No successful live
+recording or five-song acceptance is claimed. Both diagnostic tab and foreground
+processes are closed. LL-919–922 remain required, in progress.
+
+Lesson Card candidate, attributed to source chat
+`01a137cc-de1d-7511-ab65-227c92d5bca0`: distinguish source identity, decoded
+extent, authored cut extent and Journey clock. Equal duration is not source
+identity; containment at 1x can preserve exact music without moving editorial
+choices. Separately distinguish saved coverage, current service delivery and
+observed musical behavior. This checkpoint does not certify the entire goal.

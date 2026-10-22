@@ -1,5 +1,6 @@
 import {echoLivingLightCueAt,validateEchoLivingLightCues,resolveEchoLivingLightCue} from '../domain/echo-living-light-cues.js';
 import {createLivingLightRuntime} from './runtime.js';
+import {livingLightTimelineWithinSource} from '../domain/living-light-prepared-binding.js';
 
 /** One native renderer on Echo's clock. Only current/next exact recipes are
  * retained; prefetch never creates graphics, decoders or another audio clock. */
@@ -42,8 +43,10 @@ export function createEchoLivingLightPreview({canvas,cues,songId,durationUs,reso
    if(activeKey!==useKey)runtime?.resetMotion?.();
    if(!runtime){
     const options=entry.input;
+    const decodedUs=options.sourceBinding?.durationUs,rate=(options.featureInput||options.basicMasterInput)?.playbackReceipt?.sampleRate;
+    if(decodedUs!==undefined&&!livingLightTimelineWithinSource(decodedUs,durationUs,rate))throw Error('Director timeline exceeds the exact song master.');
     runtime=runtimeFactory({canvas,registry:entry.registry,mediaSources:entry.sources,onMediaChange:()=>queueMicrotask(()=>{if(!disposed)onInvalidate();})});
-    runtime.prepare({...options,journeyRevision:journey,journeyDurationUs:journey.schedule.at(-1).endUs,sourceBinding:{...options.sourceBinding,songId,durationUs},generation:++generation});activeRecipeKey=id;
+    runtime.prepare({...options,journeyRevision:journey,journeyDurationUs:journey.schedule.at(-1).endUs,sourceBinding:{...options.sourceBinding,songId,durationUs:Math.max(durationUs,decodedUs??durationUs)},generation:++generation});activeRecipeKey=id;
    }
    activeKey=useKey;
    const packet=runtime.evaluate({...input,timelineUs:journeyUs,signalTimelineUs:songUs});

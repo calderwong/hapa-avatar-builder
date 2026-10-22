@@ -94,3 +94,14 @@ test('native preparation waits for asynchronous exact input and discards it afte
  release({neutralStudy:true,proof:'exact-owner-input'});await flush();assert(f.host.evaluate({timelineUs:1e6}));assert.equal(f.prepared[0].proof,'exact-owner-input');f.host.dispose();assert(signal.aborted);
  let later;const stale=fixture(undefined,{prepareInput:()=>new Promise(r=>later=r)});stale.host.evaluate({timelineUs:1e6});await flush();stale.host.dispose();later({neutralStudy:true});await flush();assert.equal(stale.prepared.length,0);assert.equal(stale.invalidations,0);
 });
+
+test('shorter authored cuts retain exact decoded extent and 1x song time; overlong cuts refuse',async()=>{
+ const sourceBinding={sourceHash:'exact-master',durationUs:10001000},featureInput={playbackReceipt:{sampleRate:48000}};
+ const f=fixture(undefined,{prepareInput:()=>({sourceBinding,featureInput})});
+ f.host.evaluate({timelineUs:1500000});await flush();const packet=f.host.evaluate({timelineUs:1500000});
+ assert.equal(f.prepared[0].sourceBinding.durationUs,10001000);assert.equal(f.prepared[0].journeyDurationUs,2000000);
+ assert.equal(packet.signalTimelineUs,1500000);assert.equal(packet.timelineUs,500000);f.host.dispose();
+ const bad=fixture(undefined,{prepareInput:()=>({sourceBinding:{...sourceBinding,durationUs:9900000},featureInput})});
+ bad.host.evaluate({timelineUs:1500000});await flush();assert.equal(bad.host.evaluate({timelineUs:1500000}),null);
+ assert.match(bad.states.at(-1).message,/timeline exceeds/);assert.equal(bad.prepared.length,0);bad.host.dispose();
+});

@@ -367,3 +367,64 @@ source chat's `execution/living-light/music-response/`: native screenshots,
 and `onset-build.log`. The app build alone does not establish live app delivery.
 Next: carry this path into saved Director/live recordings and append the new
 album response cuts. LL-919–922 remain open; existing cuts/recordings are retained.
+
+## Append-only Music Response authoring
+
+The existing album-pass owner now accepts `--music-response`, creating a separate
+`living-light-music-response-v1` cut titled **Living Light · Music Response**.
+It reuses each latest saved parent, cue windows, painted sources and authored
+Journey schedule. Unlocked recipes fork with exact coherent prepared bindings
+and Dance response settings; locked cues or recipes remain unchanged and are
+reported as preserved choices, never counted as new response coverage.
+
+```bash
+node scripts/append-living-light-album-pass.mjs --music-response --plan=/absolute/new-plan.json
+node scripts/append-living-light-album-pass.mjs --music-response --plan=/absolute/new-plan.json --apply
+```
+
+`--song=EXACT_SONG_ID` scopes a pilot. `--reuse-plan=/absolute/prior-plan.json`
+reuses successful prepared entries only after all original source and Journey
+hashes still match; unresolved entries are prepared anew. Apply requires a
+complete error-free plan, revalidates each source revision, backs up authoring,
+creates Card custody through its owner and reopens the exact saved cut. Existing
+children must match; conflicts refuse. Per-cue coverage distinguishes qualified
+stem intervals from explicit master response. No analysis or render job starts.
+
+Album preparation exposed 43 authored durations that were 0.2–1 millisecond
+shorter than the measured master. A cut's extent is now separate from its exact
+decoded audio extent in Director and offline preparation. Containment preserves
+1x time and original cue windows; it never stretches audio. The runtime still
+requires its exact source identity. A cut extending beyond the master by more
+than the existing one-PCM-sample endpoint allowance refuses.
+
+The first 11:23 Music Response pilot saved/reopened three cues and two new Journey
+revisions with verified custody, preserving 45 pre-existing files. The actual UI
+lists those cues. Its running API reports `server_restart_required` and rejects
+coherent selection with `Unknown preparation field`; regular preview timing also
+reports an evicted entry. These are open LL-921 delivery findings, not a successful
+playback or recording proof. The diagnostic tab was closed without recording.
+
+## October 22 — all 202 Music Response cuts saved
+
+The owner save/readback completed **202/202 songs, 1,205 source-bound cues and
+203 response Journey references** (including the reused pilot). No locked
+exceptions were present. 143 songs have qualified stem intervals in their cues;
+59 use explicit master response throughout those cues. Partial or unqualified
+roles on the other songs also keep their declared master fallback. These counts
+are authored response coverage, not 202 successful native playback checks.
+
+The final integrity check preserved all 8,014 pre-existing Song/project/cut files
+and 203 original referenced Journey payloads. Existing audio and live recordings
+were not rewritten. The foreground processes exited successfully; the subsequent
+process inspection found no matching preparation descendants. The first plan's
+43 duration refusals and the initial test-message mismatch are retained as failed
+evidence. The repaired 35 focused checks and build pass.
+
+Evidence in the source chat: `director-album-plan-v2.report.json`, its adjacent
+`.summary.json`, `director-duration-gaps.json`, `album-clock-repaired.log`,
+`album-clock-build.log`, `director-ui-observation.json` and
+`director-ui-health.json`, under `execution/living-light/music-response/`.
+All four required P1 tasks LL-919–922 are in progress. Next: refresh the existing
+canonical service, verify actual Director/Record + Play behavior, inspect five
+contrasting songs and retain before/after recordings. Main-renderer polish is
+not the gate for that work; human art-direction acceptance remains separate.

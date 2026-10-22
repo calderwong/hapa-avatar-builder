@@ -29,6 +29,6 @@ export function createLivingLightPreparedInputResolver({songId,playbackReceipt,p
   signal?.throwIfAborted();entrySignal?.throwIfAborted();
   const binding=livingLightPreparedBinding({songId,performance:selected,playbackReceipt});
   if(journey.sourceBindingRef&&(journey.sourceBindingRef.bindingId!==binding.bindingId||journey.sourceBindingRef.revisionId!==binding.revisionId))fail('prepared_binding_revision_mismatch','The saved audio binding differs from the available prepared revision. Reopen the Journey and explicitly review its source choices; the saved cue has been retained.');
-  return {sourceBinding:{sourceHash:playbackReceipt.sourceHash},featureInput:{performance:selected,playbackReceipt,sourceBinding:binding,cache,requiredBytes:livingLightFeatureBytes(selected)}};
+  return {sourceBinding:{sourceHash:playbackReceipt.sourceHash,durationUs:Math.round(playbackReceipt.durationSeconds*1e6)},featureInput:{performance:selected,playbackReceipt,sourceBinding:binding,cache,requiredBytes:livingLightFeatureBytes(selected)}};
  };
 }
