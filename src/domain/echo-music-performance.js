@@ -1,4 +1,5 @@
 import { normalizeHyperFramesStemRole } from "./hyperframes-visualizer-runtime.js";
+import {livingLightStemSelection} from "./living-light-stem-selection.js";
 export { sampleEchoPerformanceBus, evaluateEchoMusicPerformance } from "./hyperframes-visualizer-runtime.js";
 
 export const ECHO_MUSIC_PERFORMANCE_SCHEMA = "hapa.echo.music-performance.v1";
@@ -92,6 +93,7 @@ export function buildEchoMusicPerformance({ telemetry = {}, lyricContract = {}, 
   return {
     schemaVersion: ECHO_MUSIC_PERFORMANCE_SCHEMA, version: ECHO_MUSIC_PERFORMANCE_VERSION,
     ...(telemetry.sourcePolicy === "living-light-assets-v1" ? {sourcePolicy: telemetry.sourcePolicy} : {}),
+    ...(livingLightStemSelection(telemetry.stemSelectionPolicy??null)?{stemSelectionPolicy:telemetry.stemSelectionPolicy}:{}),
     sourceSchemaVersion: telemetry.schemaVersion || null, songId: telemetry.songId || null,
     masterAudioHash: masterHash || null, durationSeconds: finite(telemetry.durationSeconds, 0),
     timebase: { unit: "seconds", origin: "selected-master-presentation-zero", eventQuantization: "none", seekingRunsAnalysis: false },

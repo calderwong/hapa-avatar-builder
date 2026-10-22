@@ -57,7 +57,8 @@ export function chooseStemSet(records = [], { songTitle = "", preferDirs = [], r
     const role = norm(roleOf(record));
     const current = byRole.get(role);
     const hasPath = r => Boolean(text(r?.localPath || r?.audioPath));
-    if (!current || (!hasPath(current) && hasPath(record))) byRole.set(role, record);
+    const isWav = r => /\.(wav|wave)$/i.test(text(r?.localPath || r?.audioPath));
+    if (!current || (!hasPath(current) && hasPath(record)) || (hasPath(record) && !isWav(current) && isWav(record))) byRole.set(role, record);
   }
   return [...byRole.values()];
 }

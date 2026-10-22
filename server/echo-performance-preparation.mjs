@@ -68,7 +68,7 @@ export function createEchoPerformancePreparation({ root, runStage = runEchoPrepa
   const publicJob = job => {
     if (!job) return null;
     const value = structuredClone(job.view);
-    if(value.variantId === 'living-light-assets-v1') value.outputTail='';
+    if(value.variantId === 'living-light-assets-v1' || value.variantId === 'living-light-assets-v1:coherent-stems-v1') value.outputTail='';
     if (value.kind === 'playback-audio' && value.result) for (const key of ['path','sourcePath','sourceStamp','outputStamp','leaseId']) delete value.result[key];
     return value;
   };

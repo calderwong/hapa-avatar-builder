@@ -18,13 +18,13 @@ export function createLivingLightRenderSourceReader({root,resolveOptions={},read
   readPerformance=params=>port.read(params);
  }
  playbackCacheRoot ||= process.env.HAPA_ECHO_PLAYBACK_CACHE_ROOT||(root&&path.join(root,'data/cache/echo-playback-audio'));
- return async ({songId,masterPath,sourceMasterSha256,signal})=>{
+ return async ({songId,masterPath,sourceMasterSha256,signal,stemSelectionPolicy=null})=>{
   signal?.throwIfAborted();
   const expected=String(sourceMasterSha256||'').replace(/^sha256:/,'');
   if(!/^[a-f0-9]{64}$/.test(expected))fail('The render master needs an exact content proof.');
-  const result=await readPerformance({songId});
+  const result=await readPerformance({songId,...(stemSelectionPolicy?{stemSelectionPolicy}:{})});
   signal?.throwIfAborted();
-  if(result?.songId!==songId||result.sourcePolicy!=='living-light-assets-v1'
+  if((result?.performance?.stemSelectionPolicy??null)!==stemSelectionPolicy||result?.songId!==songId||result.sourcePolicy!=='living-light-assets-v1'
     ||result.performance?.songId!==songId||result.performance.sourcePolicy!=='living-light-assets-v1'
     ||result.sourceValidation?.analysisExecuted!==false
     ||result.sourceValidation.masterAudioHash!==expected||result.performance.masterAudioHash!==expected){

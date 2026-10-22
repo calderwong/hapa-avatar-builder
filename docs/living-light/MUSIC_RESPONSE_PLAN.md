@@ -166,3 +166,46 @@ Evidence: source chat `01a137cc-de1d-7511-ab65-227c92d5bca0`,
 Song-store/project/Album-Pass files and all 203 referenced Journey payloads
 match their initial hashes. No cues, recordings or source audio were changed;
 none of LL-919–922 is accepted by this inventory.
+
+## Coherent stem preparation — implementation checkpoint
+
+The explicit `coherent-stems-v1` selection now reuses Atlas's one-generation,
+one-role selector, preserves exact asset IDs, strips ordinal role labels and
+prefers WAV over MP3 within a role. All 202 songs pass input selection, including
+the six formerly refused sets. The protected performance read/prepare/status/
+cancel routes accept `stemSelectionPolicy=coherent-stems-v1`; the equivalent
+CLI option is `--stem-selection coherent-stems-v1`. Omitting it preserves the
+original declaration policy for existing saved recipes.
+
+Selection travels through the existing analyzer, prepared performance, cache,
+saved binding and Director resolver. Coherent publications have separate pointers
+and `prepared-coherent:` binding IDs; they never replace legacy pointers. Source
+hash, exact revision, asset identity and playback-clock gates remain unchanged.
+New unbound Workspace studies request the coherent set; a bound saved study
+continues requesting its recorded set. Export requests that set explicitly and
+refuses mixed-bank cuts rather than substituting one source for another.
+
+Verification: the real analyzer/publication/read chain passes on a bounded
+two-second fixture, plus focused selection, cache, CLI/API, Director and export
+regressions. Both real pilot songs now have a separate coherent bank containing
+one master and 12 stems; both original banks retain their exact fingerprints.
+The production build passes. An initial CLI check caught an accidental option
+lookup change; it was repaired and its targeted checks pass. Native UI delivery
+and musical motion acceptance are still pending.
+
+The full album preparation is running sequentially through the existing owner
+queue, reusing cached analysis where available. This prepares measurements only:
+it does not apply Atlas timing proposals, append new cuts or change recordings.
+The foreground execution receipt and per-song results live in the source chat's
+`execution/living-light/music-response/coherent-preparation-results.ndjson`;
+only a completed `coherent-album-prepared.json` establishes full coverage.
+LL-919 remains in progress until timing and usable scene bindings are qualified.
+
+Process review: one foreground orchestrator, one active preparation stage,
+sequential Python/FFmpeg analysis then Node/ffprobe publication. Existing stage
+timeouts, process-group cancellation and cleanup remain the owners. No models,
+render jobs, delegation or services are started. The real fixture returns with
+no matching child process; the first sandboxed process listing was denied and
+the read-only escalated listing verified cleanup. Storage before album work:
+11,991,961,600 strictly free bytes and 1,683,660,890,176 macOS-available bytes;
+the latter includes reclaimable space, not already-free blocks.

@@ -319,6 +319,9 @@ def main() -> int:
     raw_stems = (graph.get("stems") or {}).get("items") or []
     identity_policy = (graph.get("source") or {}).get("identityPolicy", "role")
     exact_assets = identity_policy == "living-light-assets-v1"
+    selection = (graph.get("source") or {}).get("stemSelectionPolicy")
+    if selection not in (None, "coherent-stems-v1") or (selection and not exact_assets):
+        raise ValueError("Unknown stem selection policy")
     canonical, ignored_inputs = canonical_stem_inputs(raw_stems, identity_policy)
     stems = []
     decoded: list[tuple[str, np.ndarray]] = []
@@ -415,7 +418,7 @@ def main() -> int:
     reconstruction = diagnostics["reconstruction"]
     bundle = {
         "schemaVersion": "hapa.stem-telemetry-bundle.v1", "analysisVersion": ANALYSIS_VERSION,
-        **({"sourcePolicy": identity_policy} if exact_assets else {}),
+        **({"sourcePolicy": identity_policy, **({"stemSelectionPolicy": selection} if selection else {})} if exact_assets else {}),
         "truthStatus": "offline-decoded-local-stems", "songId": (graph.get("song") or {}).get("id"), "title": (graph.get("song") or {}).get("title"),
         "fps": args.fps, "sampleRate": args.sample_rate, "durationSeconds": master_duration,
         "canonicalStemCount": len(stems), "usableStemCount": len(usable), "duplicateInputCount": len(raw_stems) - len(ignored_inputs) - len(canonical),

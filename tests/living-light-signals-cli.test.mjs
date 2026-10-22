@@ -21,3 +21,12 @@ test('CLI accepts a multi-MiB signal publication but retains the smaller metadat
  assert.equal((await runLivingLightCLI(['signals','--song','song:exact'],{env,fetcher})).padding.length,4194304);
  await assert.rejects(runLivingLightCLI(['capabilities'],{env,fetcher}),{code:'response_too_large'});
 });
+
+ test('CLI preserves explicit coherent selection on all signal operations',async()=>{
+ const calls=[],env={HAPA_AVATAR_ADMIN_TOKEN:'test-only'},fetcher=async(url)=>{calls.push(new URL(url));return new Response('{"ok":true}');};
+ for(const op of ['signals','prepare-signals','signals-status','cancel-signals']){
+  await runLivingLightCLI([op,'--song','song:exact','--stem-selection','coherent-stems-v1',...(op==='signals'?[]:['--request-id','coherent-request-001'])],{env,fetcher});
+  assert.equal(calls.at(-1).searchParams.get('stemSelectionPolicy'),'coherent-stems-v1');
+ }
+ await assert.rejects(runLivingLightCLI(['signals','--song','song:exact','--stem-selection','wrong'],{env,fetcher}),{code:'invalid_argument'});assert.equal(calls.length,4);
+});

@@ -22,7 +22,7 @@ export async function handleLivingLight({req,res,url,service,authorize,bootstrap
   const thing=suffix.match(/^\/things\/([^/]+)(?:\/revisions\/([^/]+)|\/(materialize|history|revisions|archive|restore|visibility-history))?$/),note=suffix.match(/^\/notes\/([^/]+)\/(history|revisions|retract)$/);
   if(['/performance','/performance/prepare'].includes(suffix)){
    if(!performance)throw Object.assign(Error('Prepared signal owner unavailable'),{code:'signal_owner_unavailable',statusCode:503});
-   const allowed=suffix==='/performance'?['songId']:['songId','requestId','jobId'];
+   const allowed=suffix==='/performance'?['songId','stemSelectionPolicy']:['songId','requestId','jobId','stemSelectionPolicy'];
    for(const key of Object.keys(params))if(!allowed.includes(key))throw Object.assign(Error('Unknown preparation field'),{code:'unknown_field',statusCode:422});
    if(suffix==='/performance'&&req.method==='GET')value=await performance.read(params);
    else if(suffix==='/performance/prepare'&&req.method==='POST'){if(params.jobId)throw Object.assign(Error('Use a fresh request ID to prepare'),{code:'invalid_preparation',statusCode:422});const body=await readBody(req,1024);if(body&&(typeof body!=='object'||Array.isArray(body)||Object.keys(body).length))throw Object.assign(Error('Preparation takes no source paths or body fields'),{code:'unknown_field',statusCode:422});value=await performance.prepare(params);status=202;}

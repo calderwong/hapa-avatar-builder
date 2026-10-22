@@ -1,3 +1,4 @@
+import {livingLightBindingSelection} from '../src/domain/living-light-stem-selection.js';
 import fs from 'node:fs/promises';
 import {createReadStream,createWriteStream} from 'node:fs';
 import path from 'node:path';
@@ -65,7 +66,10 @@ export async function packageLivingLightRender({project,owner,packageMedia,prepa
  const bound=recipes.some(({package:{journey}})=>journey.sourceBindingRef||journey.instances.some(instance=>Object.keys(instance.bindings).length));
  // Resolve once, only for saved audio choices. Neutral recipes must not start
  // preparation or acquire an incidental source identity.
- if(bound&&!preparedSource&&readPreparedSource)preparedSource=await readPreparedSource({songId:body.song_id,signal});
+ const selections=new Set(recipes.filter(({package:{journey}})=>journey.sourceBindingRef||journey.instances.some(i=>Object.keys(i.bindings).length)).map(({package:{journey}})=>livingLightBindingSelection(journey.sourceBindingRef)));
+ if(selections.size>1)fail('This cut mixes legacy and coherent stem banks. Save its bound cues against one reviewed source set before export.');
+ const stemSelectionPolicy=[...selections][0]||null;
+ if(bound&&!preparedSource&&readPreparedSource)preparedSource=await readPreparedSource({songId:body.song_id,signal,...(stemSelectionPolicy?{stemSelectionPolicy}:{})});
  const snapshot={schemaVersion:ECHO_LIVING_LIGHT_RENDER_SCHEMA,songId:body.song_id,durationUs:Math.round(body.duration*1e6),cues,recipes,preparedSource:structuredClone(preparedSource)};
  snapshot.snapshotDigest=livingLightRenderDigest(snapshot);validateLivingLightRenderSnapshot(snapshot,{cues,songId:body.song_id,durationUs:snapshot.durationUs});signal?.throwIfAborted();return snapshot;
 }
