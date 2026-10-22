@@ -1,0 +1,11 @@
+{
+  "contract": "hapa.protocol-index/v1",
+  "owner": "hapa-avatar-builder",
+  "documents": [
+    {
+      "slug": "hapa-living-light-music-response-plan-v1",
+      "title": "Required Living Light music and stem response across the album",
+      "path": "docs/living-light/MUSIC_RESPONSE_PLAN.md"
+    }
+  ]
+}
