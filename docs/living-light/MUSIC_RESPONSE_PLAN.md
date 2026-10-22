@@ -209,3 +209,45 @@ no matching child process; the first sandboxed process listing was denied and
 the read-only escalated listing verified cleanup. Storage before album work:
 11,991,961,600 strictly free bytes and 1,683,660,890,176 macOS-available bytes;
 the latter includes reclaimable space, not already-free blocks.
+
+## Atlas visual timing — bounded implementation checkpoint
+
+The existing Audio Atlas owns measurements and its original affine proposals.
+An explicit consumer qualification now checks exact master/stem hashes, decoded
+durations, timeline identities, at least four non-overlapping measured windows,
+correlation and peak margins, observed source span, constant-offset residual and
+drift. Only bounded constant offsets qualify for display envelopes. Maps end at
+the observed span and source/master intersection; there is no stretching or
+invented padding. Unknown intervals and unqualified stems stay unknown.
+
+This does not apply or approve the Atlas proposal, certify acoustic quality or
+claim semantic beats. The original `alignment_applied` and `quality_qualified`
+fields remain unchanged. The prepared bank pins the owner result hash and exact
+map evidence; changed source bytes, malformed evidence or mismatched saved
+revisions refuse. Legacy bank pointers remain unchanged.
+
+Protected API: empty-body `POST /api/echos/living-light/performance/timing` with
+exact `songId` and `stemSelectionPolicy=coherent-stems-v1`. CLI:
+`node cli/living-light.mjs qualify-signal-timing --song SONG_ID --stem-selection
+coherent-stems-v1`. The native signals panel has **Connect verified stem timing**.
+Callers cannot supply maps or paths. This checks existing Atlas results without
+starting analysis jobs and republishes only the disposable coherent bank. An
+already qualified bank returns its verified stored result; after an unresolved
+transport outcome, inspect `signals` before retrying.
+
+Real owner publications qualify 5/12 stems for Brave Tongues, 6/12 for the
+11:23 Meant to Meet, Thu? pilot, and 4/12 for Dear Papa. The other roles retain
+explicit unqualified reasons. Both original legacy fingerprints still match.
+Fifteen focused tests pass, including exact feature sampling, reverse seek,
+unknown boundaries, stale/malformed evidence refusal, owner publication,
+idempotent readback and protected CLI/API behavior. The build passes. One test
+initially used the wrong API prefix; that fixture was corrected, with failed
+output retained. Current source is not yet delivered or inspected in the live UI.
+
+Evidence in the source chat: `visual-timing-pilot-publications.json`,
+`visual-timing-final.log`, `visual-timing-final-build.log` and
+`legacy-bank-preservation.json` under `execution/living-light/music-response/`.
+Full-album preparation continues on its original sequential foreground handle.
+Neither this timing checkpoint nor preparation closes LL-919: usable bindings,
+explicit master fallback, native musical movement and new album passes remain.
+See [learning and verification limits](../postmortems/2026-10-22-living-light-visual-timing.md).

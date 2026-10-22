@@ -30,3 +30,14 @@ test('CLI accepts a multi-MiB signal publication but retains the smaller metadat
  }
  await assert.rejects(runLivingLightCLI(['signals','--song','song:exact','--stem-selection','wrong'],{env,fetcher}),{code:'invalid_argument'});assert.equal(calls.length,4);
 });
+
+test('visual timing uses protected empty-body owner action and refuses caller maps',async()=>{
+ const calls=[],env={HAPA_AVATAR_ADMIN_TOKEN:'test-only'},performance={qualifyTiming:async params=>{calls.push(params);return {qualified:2,total:12};}};
+ const fetcher=async(url,options)=>{let reply;await handleLivingLight({req:{method:options.method},res:{},url:new URL(url),service:{},authorize:()=>({actor:{kind:'agent'}}),performance,readBody:async()=>JSON.parse(options.body||'{}'),sendJson:(res,status,value)=>{reply=new Response(JSON.stringify(value),{status});}});return reply;};
+ const args=['qualify-signal-timing','--song','song:exact','--stem-selection','coherent-stems-v1'];
+ assert.equal((await runLivingLightCLI(args,{env,fetcher})).qualified,2);
+ assert.deepEqual(calls,[{songId:'song:exact',stemSelectionPolicy:'coherent-stems-v1'}]);
+ for(const extra of [['--dry-run'],['--request-id','retained-request-001'],['--job-id','job']])await assert.rejects(runLivingLightCLI([...args,...extra],{env,fetcher}));
+ const response=await fetcher('http://127.0.0.1/api/echos/living-light/performance/timing?songId=song:exact&stemSelectionPolicy=coherent-stems-v1',{method:'POST',body:JSON.stringify({timeMap:[]})});
+ assert.equal(response.status,422);assert.equal(calls.length,1);
+});

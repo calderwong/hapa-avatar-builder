@@ -20,11 +20,12 @@ export async function handleLivingLight({req,res,url,service,authorize,bootstrap
   let value,status=200;
   const journey=suffix.match(/^\/journeys\/([^/]+)(?:\/(revisions)\/([^/]+)|\/(history|revisions))?$/),fork=suffix.match(/^\/journeys\/([^/]+)\/fork(?:\/(preview))?$/);
   const thing=suffix.match(/^\/things\/([^/]+)(?:\/revisions\/([^/]+)|\/(materialize|history|revisions|archive|restore|visibility-history))?$/),note=suffix.match(/^\/notes\/([^/]+)\/(history|revisions|retract)$/);
-  if(['/performance','/performance/prepare'].includes(suffix)){
+  if(['/performance','/performance/prepare','/performance/timing'].includes(suffix)){
    if(!performance)throw Object.assign(Error('Prepared signal owner unavailable'),{code:'signal_owner_unavailable',statusCode:503});
-   const allowed=suffix==='/performance'?['songId','stemSelectionPolicy']:['songId','requestId','jobId','stemSelectionPolicy'];
+   const allowed=suffix!=='/performance/prepare'?['songId','stemSelectionPolicy']:['songId','requestId','jobId','stemSelectionPolicy'];
    for(const key of Object.keys(params))if(!allowed.includes(key))throw Object.assign(Error('Unknown preparation field'),{code:'unknown_field',statusCode:422});
    if(suffix==='/performance'&&req.method==='GET')value=await performance.read(params);
+   else if(suffix==='/performance/timing'&&req.method==='POST'){const body=await readBody(req,1024);if(body&&(typeof body!=='object'||Array.isArray(body)||Object.keys(body).length))throw Object.assign(Error('Timing uses owner evidence; caller maps are not accepted'),{code:'unknown_field',statusCode:422});value=await performance.qualifyTiming(params);}
    else if(suffix==='/performance/prepare'&&req.method==='POST'){if(params.jobId)throw Object.assign(Error('Use a fresh request ID to prepare'),{code:'invalid_preparation',statusCode:422});const body=await readBody(req,1024);if(body&&(typeof body!=='object'||Array.isArray(body)||Object.keys(body).length))throw Object.assign(Error('Preparation takes no source paths or body fields'),{code:'unknown_field',statusCode:422});value=await performance.prepare(params);status=202;}
    else if(suffix==='/performance/prepare'&&req.method==='GET')value=performance.status(params);
    else if(suffix==='/performance/prepare'&&req.method==='DELETE')value=performance.cancel(params);

@@ -1,5 +1,6 @@
 import {canonicalLivingLightRole,validateSourceBinding} from './living-light-source-binding.js';
 import {livingLightStemSelection} from './living-light-stem-selection.js';
+import {applyAtlasVisualTiming} from './audio-atlas-visual-timing.js';
 import {sha256} from '@noble/hashes/sha2.js';
 import {bytesToHex} from '@noble/hashes/utils.js';
 import {LIVING_LIGHT_FEATURE_VERSION} from './living-light-features.js';
@@ -17,11 +18,12 @@ export function livingLightFeatureKey({songId,performance,playbackReceipt,source
  return 'living-light:'+bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(commitment))));
 }
 /** A transient selected-source binding. Prepared measurements never imply an
- * applied owner alignment map, persisted binding identity or human review. */
+ * applied Atlas proposal or human review. An explicit prepared visual timing
+ * qualification supplies only its bounded constant-offset maps. */
 export function livingLightPreparedBinding({songId,performance,playbackReceipt}){
  if(performance?.songId!==songId||performance.sourcePolicy!=='living-light-assets-v1'||!playbackReceipt)throw Object.assign(Error('Selected prepared source is unavailable'),{code:'prepared_source_unavailable'});
  const binding={schemaVersion:'hapa.living-light.source-binding.v1',songId,bindingId:`${livingLightStemSelection(performance.stemSelectionPolicy??null)?'prepared-coherent':'prepared'}:${songId}`,revisionId:`${performance.fingerprint}:${playbackReceipt.pcmSha256}`,state:'alignment-unverified',master:{sourceHash:playbackReceipt.sourceHash,decoded:{digest:playbackReceipt.pcmSha256,sampleRate:playbackReceipt.sampleRate,frameCount:Math.round(playbackReceipt.durationSeconds*playbackReceipt.sampleRate),durationSeconds:playbackReceipt.durationSeconds}},stems:performance.buses.filter(bus=>bus.id!=='master').map(bus=>({assetId:bus.assetId,sourceHash:bus.audioHash,declaredRole:bus.declaredRole,canonicalRole:canonicalLivingLightRole(bus.declaredRole),state:bus.frames?.length?'available':'missing',alignmentState:'alignment-unverified',timeMap:null}))};
- return validateSourceBinding(binding);
+ return validateSourceBinding(applyAtlasVisualTiming(binding,performance));
 }
 export function livingLightFeatureBytes(performance){
  const master=performance?.buses?.find(bus=>bus.id==='master');
