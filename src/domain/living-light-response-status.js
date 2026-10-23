@@ -13,6 +13,7 @@ export function livingLightResponseStatus(response, diagnostic = {}) {
  }
  if (response.intensity === 0) return result('response-off', 'Journey active · music response off');
  for (const [role, row] of Object.entries(response.roles || {})) {
+  if (row.enabled === false) continue;
   if (!measured(row)) { unavailableRoles.push(role); continue; }
   if (row.state === 'explicit-master-fallback') {
    masterRoles.push(role); fallbackRoles.push(role); continue;

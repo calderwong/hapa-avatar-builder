@@ -41,11 +41,13 @@ export function createNativeMusicResponse({native,bank,journey,songTimeUs,evalua
    return selected.mappedStems;
   },
   evaluate(cache,state,visualTime){if(disposed)throw Error('Released music response');const response=responseAt(visualTime);if(!response)return original(cache,state,visualTime);const selected=entry(response),time=songTimeUs(visualTime)/1e6;
-   const frame=original(selected.cache,{...state,stems:Object.fromEntries(Object.keys(response.roles).map(role=>[role,{visual:true,strength:1}]))},time);
+   // Native element/rest inspections supply a participation mask. Preserve it;
+   // enabling every bound role here defeats isolated-role and resting views.
+   const frame=original(selected.cache,{...state,stems:Object.fromEntries(Object.keys(response.roles).map(role=>[role,{...state.stems?.[role],visual:state.stems?.[role]?.visual!==false}]))},time);
    // The source extractor has no pan/width/brightness measurements. Do not
    // let inherited missing-pan defaults create an apparent stereo position.
    for(const signal of Object.values(frame.signals)){signal.pan=0;signal.width=0;signal.brightness=0;}
-   frame.musicResponse={schemaVersion:response.schemaVersion,preset:response.preset,intensity:response.intensity,songTimeUs:Math.round(time*1e6),roles:Object.fromEntries(Object.keys(response.roles).map(role=>[role,sample(response,role,'energy',time)])),events:{basis:MUSIC_ONSET_BASIS,counts:Object.fromEntries(selected.cache.score.stems.map(s=>[s.id,s.events.length]))}};return frame;
+   frame.musicResponse={schemaVersion:response.schemaVersion,preset:response.preset,intensity:response.intensity,songTimeUs:Math.round(time*1e6),roles:Object.fromEntries(Object.keys(response.roles).map(role=>[role,{...sample(response,role,'energy',time),enabled:frame.signals[role]?.enabled!==false}])),events:{basis:MUSIC_ONSET_BASIS,counts:Object.fromEntries(selected.cache.score.stems.map(s=>[s.id,s.events.length]))}};return frame;
   },
   diagnostics(){return {banks:entries.size,bytes:[...entries.values()].reduce((n,e)=>n+e.bytes,0),limitBytes:maxBytes,events:MUSIC_ONSET_BASIS};},
   dispose(){if(disposed)return;disposed=true;for(const e of entries.values())native.HapaArticulation.invalidate(e.cache);entries.clear();}

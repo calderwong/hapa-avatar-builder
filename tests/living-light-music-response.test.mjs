@@ -100,6 +100,37 @@ test('native articulation consumes exact Song-time envelopes, preserves seeks an
   missing.roles.bass.onUnavailable='block';assert.equal(sampleLivingLightMusicRole(bank,missing,'bass','energy',1000000).state,'blocked');
  }finally{adapter.dispose();bank.dispose();}assert.equal(adapter.diagnostics().bytes,0);
 });
+test('native role isolation and resting comparisons preserve participation through the response adapter',()=>{
+ const f=input(),bank=createLivingLightFeatureBank(f),native=createNativeNamespace();
+ const response=f.journey.instances[0].musicResponse;
+ for(const role of ['lead-vocals','synth','drums'])response.roles[role]=structuredClone(response.roles.bass);
+ const host=new native.HapaCore.FeatureCache({id:f.songId,duration:2,fps:30,stems:[],master:'AA==',travel:[]});
+ host.score.shots=[{id:'test',start:0,end:2,rig:'portrait',locks:{}}];
+ const state=native.HapaCore.initialState(host.score);state.reliquary=native.HapaReliquary.defaults();state.director=native.HapaDirector.create(host.score);
+ const adapter=createNativeMusicResponse({native,bank,journey:f.journey,songTimeUs:t=>Math.round(t*1e6)});
+ const original=native.HapaArticulation.evaluate;
+ native.HapaArticulation.evaluate=(cache,s,t)=>cache===host?adapter.evaluate(cache,s,t):original(cache,s,t);
+ try{
+  const active=adapter.evaluate(host,state,1.3),disabled={...state,stems:Object.fromEntries(Object.keys(response.roles).map(id=>[id,{visual:false}]))};
+  const resting=adapter.evaluate(host,disabled,1.3);
+  assert(active.signals.bass.mass>.5);assert.equal(resting.signals.bass.mass,0);
+  assert.equal(resting.signals['lead-vocals'].sustain,0);assert.equal(resting.signals.synth.phase,0);
+  assert.equal(livingLightResponseStatus(resting.musicResponse).state,'response-off');
+  const bassOnly={...disabled,stems:{...disabled.stems,bass:{visual:true}}};
+  const isolated=adapter.evaluate(host,bassOnly,1.3);
+  assert.equal(isolated.signals.bass.mass,active.signals.bass.mass);assert.equal(isolated.signals['lead-vocals'].mass,0);
+  assert.deepEqual(livingLightResponseStatus(isolated.musicResponse).stemRoles,['bass']);
+  const waterOn=native.HapaWater.evaluate(host,{...bassOnly,world:'rain-court'},1.3),waterOff=native.HapaWater.evaluate(host,{...disabled,world:'rain-court'},1.3);
+  assert(waterOn.swell>waterOff.swell,'bass must change the actual water packet');
+  const geometryOn=native.HapaGeometryDance.evaluate(host,bassOnly,1.3),geometryOff=native.HapaGeometryDance.evaluate(host,disabled,1.3);
+  assert(geometryOn.shape[0]>geometryOff.shape[0],'bass must change radial geometry');
+  const voiceOnly={...disabled,stems:{...disabled.stems,'lead-vocals':{visual:true}}};
+  const voice=native.HapaGeometryDance.evaluate(host,voiceOnly,1.3);
+  assert(voice.shape[2]>geometryOff.shape[2],'vocal sustain must change lateral motion');
+  assert(geometryOn.shape[1]>voice.shape[1],'bass and vocal responses must remain distinct');
+  assert.deepEqual(adapter.evaluate(host,bassOnly,1.3),isolated,'mask changes do not poison cached articulation');
+ }finally{adapter.dispose();bank.dispose();}
+});
 test('musical settings retain independent scene swaps, duplicate, lock protection and exact draft snapshots',()=>{
  const f=input(),id=f.journey.instances[0].instanceId,response=f.journey.instances[0].musicResponse,before=structuredClone(f.journey);
  const other=registry.entries.find(t=>t.source.moduleId==='glass'&&t.capabilities.continuous);

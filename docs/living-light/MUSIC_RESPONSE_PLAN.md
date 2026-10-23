@@ -552,3 +552,30 @@ across native scene families. The prepared signals are changing; repeating
 manual capture per song would not resolve that remaining question. LL-919–922
 stay in progress. Reusable Lesson/Flow candidate: batch source admission before
 reviewing motion, and keep numerical signal coverage distinct from visible dance.
+
+
+## October 23 — preserve native musical participation
+
+The shared response adapter was forcing every bound role on, overriding native
+resting/isolated-role masks. A failing native regression reproduced bass mass
+0.9042 when that role was explicitly disabled. The adapter now preserves explicit
+visual participation, and the effective-source label excludes disabled roles.
+Default participating roles keep their existing source/gain behavior. No saved
+cut, Journey, audio file or recording was rewritten.
+
+The corrected native test verifies all-off resting values, bass-only water swell
+and radial geometry, vocal-only lateral motion, distinct bass/vocal response and
+cache stability after switching masks. Existing percussion tests verify measured
+strikes/rings and shifted cue clocks. All 24 focused checks pass; production build
+passes, and the existing canonical supervisor was refreshed after checking idle
+media/mint state. Health verifies current delivery. Build receipt:
+`sha256:205d272ff7ddadfe283b97aca6ac4141792d1e73b94b9853b63eb4aa31a6ed38`.
+
+Private evidence: role-isolation-before.log, role-isolation-tests.log,
+role-isolation-build.log and role-service-after.json. The new test initially also
+needed an explicit authored shot in its fixture; that setup error was corrected.
+These checks execute native movement calculations, not a new pixel or artistic
+acceptance pass. Full-scene quiet/strong perceptual contrast remains open.
+LL-920/921/922 remain in progress; no parent closes. Reusable lesson: preserve
+the native owner's participation controls before treating role-isolation or
+resting comparisons as evidence.
