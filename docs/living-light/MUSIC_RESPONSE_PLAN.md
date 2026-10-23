@@ -579,3 +579,49 @@ acceptance pass. Full-scene quiet/strong perceptual contrast remains open.
 LL-920/921/922 remain in progress; no parent closes. Reusable lesson: preserve
 the native owner's participation controls before treating role-isolation or
 resting comparisons as evidence.
+
+
+## October 23 — source-controlled native scene batch
+
+Reused the production native runtime, exact prepared pilot source bank and Dance
+response preset in one automated four-family / six-case batch (24 comparisons).
+Windward Reach, Rain Court, Weave and Glass were compared at fixed visual time
+40 seconds. Both sides now use the same prepared bank and role bindings; the
+left response intensity is zero for the response-on and isolated-role cases.
+The right camera copies the exact left native camera at that frame. Quiet/strong
+compares measured Song times 8/15 seconds while both visual clocks remain at 40.
+This is a controlled diagnostic, not a saved Director edit or audible AV proof.
+
+The source bank is fingerprint-bound and 13 source byte identities were checked.
+Bass, lead vocal and synth samples at 40 are qualified measured stems. Drums at 40
+are measured silence, so that case does not qualify active percussion. All four
+scenes produce visible response differences with camera control. Quiet/strong
+changed-pixel fractions are 24.54% / 9.54% / 38.87% / 40.04%, respectively, at
+640×360 and a sum-of-RGB-differences threshold above 12. These are diagnostic
+measurements, not perceptual-quality thresholds or human acceptance. Native
+water and geometry traces accompany the images; water traces are null for the
+tunnels rather than stale values from the preceding water case.
+
+Evidence correction: the first matrix did not hold camera position fixed. The
+next fixed-camera run retained a neutral-study left control and stale water
+trace values on tunnel rows. Both are preserved as earlier evidence; use
+native-response-intensity-control.json and native-response-controlled-summary.json
+for the controlled result. The same-bank intensity-zero run confirms the prior
+pixel differences. Screenshots visibly show water/reflection changes and tunnel
+deformation; a drum-history phase difference is not proof of a current hit.
+
+No saved cut, Journey, source audio or recording was changed. The foreground
+diagnostic server exited cleanly; the user Builder service was left running.
+Application source is unchanged since f6975c1, so its 24 focused checks and build
+remain applicable; no broad suite or rebuild was repeated for this evidence.
+
+LL-919–922 remain in progress. Retain the ordinary shader-cache recovery issue
+on LL-919; the 202 coherent Living Light banks are a separate verified result.
+Remaining native evidence is active measured percussion and temporal movement
+comparisons, plus the final pilot before/after recording and actual Director
+quiet/strong/seek/boundary acceptance. No album-wide manual recording campaign
+is planned. Human art direction remains independent. Reusable Lesson/Flow
+candidate: keep source bank, visual time and camera fixed for causal checks;
+report silence and stale instrumentation rather than crediting any pixel delta
+as musical dance. Source: this chat's mass-code priority and original response
+requirements; this evidence narrows uncertainty without narrowing the goal.

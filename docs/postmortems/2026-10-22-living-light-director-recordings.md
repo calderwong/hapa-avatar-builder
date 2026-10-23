@@ -196,3 +196,27 @@ acceptance pass. Full-scene quiet/strong perceptual contrast remains open.
 LL-920/921/922 remain in progress; no parent closes. Reusable lesson: preserve
 the native owner's participation controls before treating role-isolation or
 resting comparisons as evidence.
+
+
+## October 23 — source-controlled native scene batch
+
+The 24-case native comparison now controls the exact source bank, visual time
+and camera across four scene families. The full conditions and measurements
+are in [the response plan](../living-light/MUSIC_RESPONSE_PLAN.md#october-23--source-controlled-native-scene-batch).
+Qualified bass, vocal and synth response visibly changes water and tunnels;
+quiet/strong inputs also differ. The sampled drums are silent, so active
+percussion remains unproven by this batch.
+
+What helped: one automated matrix across shared native modules. What misled:
+the first comparison allowed camera changes, and the next retained stale water
+traces on tunnel rows. A corrected run uses identical prepared input and
+intensity-zero controls, copies the left camera and clears per-case traces.
+Earlier reports remain available, with their limits identified. No app source,
+authoring or media changed; the prior focused checks/build remain applicable.
+The diagnostic server exited cleanly and its temporary tab closed.
+
+Lesson/Flow candidate: a pixel difference alone cannot establish musical dance;
+control the source, camera and visual clock, identify actual active measurements,
+and keep native evidence separate from human acceptance. Remaining work is
+active percussion/temporal evidence, final Director sample gates and the existing
+ordinary shader-cache recovery issue. All four response tasks remain open.
