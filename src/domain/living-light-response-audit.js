@@ -9,6 +9,22 @@ export function auditLivingLightResponseCue({cue,journey,bank,hz=4}) {
  if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||end<=start||end-start>1800000000)throw Error('Invalid bounded cue window');
  if(cue.mapping!=='offset-1x'||cue.clock!=='echo-song')throw Error('Unsupported cue clock');
  const instances=new Map(journey.instances.map(i=>[i.instanceId,i])),samplers=new Map(),roles={};
+ // Inventory every overlapping use independently of the sampling grid. A short
+ // preset change or gap must not disappear between two 4 Hz observations.
+ const journeyStart=cue.journeyWindow.startUs,journeyEnd=journeyStart+end-start;
+ const responseUses=[],unboundWindows=[];
+ let covered=journeyStart;
+ const window=(a,b)=>({song:{startUs:start+a-journeyStart,endUs:start+b-journeyStart},journey:{startUs:a,endUs:b}});
+ for(const row of [...journey.schedule].sort((a,b)=>a.startUs-b.startUs)){
+  const a=Math.max(journeyStart,row.startUs),b=Math.min(journeyEnd,row.endUs);
+  if(b<=a)continue;
+  if(a>covered)unboundWindows.push(window(covered,a));
+  covered=Math.max(covered,b);
+  const instance=instances.get(row.instanceId),response=instance?.musicResponse;
+  responseUses.push({instanceId:row.instanceId,...window(a,b),response:response?structuredClone(response):null});
+  if(!response)unboundWindows.push(window(a,b));
+ }
+ if(covered<journeyEnd)unboundWindows.push(window(covered,journeyEnd));
  const masterId=canonicalJSON([{kind:'master'}]);
  const counts={samples:0,unbound:0,off:0,blocked:0,unavailable:0,stem:0,masterOnly:0};
  let quiet=null,strong=null;
@@ -37,7 +53,9 @@ export function auditLivingLightResponseCue({cue,journey,bank,hz=4}) {
  for(const r of Object.values(roles))r.range=r.min===null?null:r.max-r.min;
  const issues=[];
  for(const key of ['unbound','off','blocked','unavailable'])if(counts[key])issues.push(key);
+ if(unboundWindows.length&&!issues.includes('unbound'))issues.push('unbound');
+ if(responseUses.some(use=>use.response?.intensity===0)&&!issues.includes('off'))issues.push('off');
  if(Object.keys(roles).length&&Object.values(roles).every(r=>r.range===null||r.range<=1e-5))issues.push('flat-sampled-envelope');
- return {cueId:cue.cueId,window:cue.window,journeyWindow:cue.journeyWindow,hz,counts,roles,quiet,strong,issues,
+ return {cueId:cue.cueId,window:cue.window,journeyWindow:cue.journeyWindow,responseUses,unboundWindows,hz,counts,roles,quiet,strong,issues,
   limits:'Sampled effective display energy only. A varying envelope does not establish visible choreography; silent passages and intentional Off choices require review, not automatic repair.'};
 }

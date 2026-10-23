@@ -56,7 +56,8 @@ try{
  for(const [key,digest]of revisions){const ref=JSON.parse(key);if(sha(JSON.stringify(store.journey(ref.journeyId,ref.revisionId).journey))!==digest)mismatches.push(ref);}
  const cues=report.songs.flatMap(s=>s.cues);
  report.integrity={files:protectedFiles.size,revisions:revisions.size,mismatches};
- report.summary={songs:songs.length,cues:cues.length,errors:report.errors.length,flaggedCues:cues.filter(c=>c.issues.length).length,stemCues:cues.filter(c=>c.counts.stem>0).length,masterOnlyCues:cues.filter(c=>!c.counts.stem&&c.counts.masterOnly>0).length,issues:Object.fromEntries(['unbound','off','blocked','unavailable','flat-sampled-envelope'].map(k=>[k,cues.filter(c=>c.issues.includes(k)).length]))};
+ const uses=cues.flatMap(c=>c.responseUses);
+ report.summary={songs:songs.length,cues:cues.length,responseUses:uses.length,presets:[...new Set(uses.map(u=>u.response?.preset).filter(Boolean))].sort(),errors:report.errors.length,flaggedCues:cues.filter(c=>c.issues.length).length,stemCues:cues.filter(c=>c.counts.stem>0).length,masterOnlyCues:cues.filter(c=>!c.counts.stem&&c.counts.masterOnly>0).length,issues:Object.fromEntries(['unbound','off','blocked','unavailable','flat-sampled-envelope'].map(k=>[k,cues.filter(c=>c.issues.includes(k)).length]))};
  report.ok=!report.errors.length&&!mismatches.length;
  await fs.mkdir(path.dirname(output),{recursive:true});await fs.writeFile(output,JSON.stringify(report,null,2)+'\n',{flag:'wx'});
  console.log(JSON.stringify({ok:report.ok,...report.summary,output}));if(!report.ok)process.exitCode=1;

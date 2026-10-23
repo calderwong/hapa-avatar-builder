@@ -39,3 +39,19 @@ test('audit identifies master fallback, zero-weight sources, flat/off and blocke
   assert.throws(()=>auditLivingLightResponseCue({...f,hz:1000}));
  }finally{f.bank.dispose();}
 });
+test('audit retains short response uses and gaps between envelope samples with exact clock offsets',()=>{
+ const f=input();try{
+  f.journey.instances.push({instanceId:'brief',musicResponse:{...structuredClone(f.response),preset:'gentle',intensity:0}});
+  f.journey.schedule=[{instanceId:'a',startUs:0,endUs:100000},{instanceId:'brief',startUs:100000,endUs:150000},{instanceId:'a',startUs:200000,endUs:1500000}];
+  const before=structuredClone(f.journey),result=auditLivingLightResponseCue(f);
+  assert.equal(result.counts.off,0,'the brief off interval falls between 4 Hz samples');
+  assert.equal(result.counts.unbound,0,'the short gap also falls between samples');
+  assert(result.issues.includes('off'));assert(result.issues.includes('unbound'));
+  const use=result.responseUses[1];assert.equal(use.response.preset,'gentle');
+  assert.deepEqual(use.song,{startUs:600000,endUs:650000});
+  assert.deepEqual(use.journey,{startUs:100000,endUs:150000});
+  assert.deepEqual(use.response.roles,f.response.roles);
+  assert.deepEqual(result.unboundWindows,[{song:{startUs:650000,endUs:700000},journey:{startUs:150000,endUs:200000}}]);
+  use.response.roles.drums.sourceRefs=[];assert.deepEqual(f.journey,before,'report cannot mutate source settings');
+ }finally{f.bank.dispose();}
+});

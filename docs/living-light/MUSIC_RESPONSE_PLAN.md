@@ -625,3 +625,76 @@ candidate: keep source bank, visual time and camera fixed for causal checks;
 report silence and stale instrumentation rather than crediting any pixel delta
 as musical dance. Source: this chat's mass-code priority and original response
 requirements; this evidence narrows uncertainty without narrowing the goal.
+
+
+## October 23 — music-response technical acceptance
+
+This checkpoint accepts the technical criteria of LL-919 through LL-922 against
+the evidence below. Human creative acceptance remains pending. The overall
+integration goal still needs its final original-scope delivery reconciliation;
+this checkpoint does not itself close LL-902 or LL-918.
+
+The shared auditor now inventories every overlapping response use, including its
+preset, intensity, exact source overrides and Song/Journey windows. It detects
+short Off intervals and unbound gaps even when they fall between 4 Hz samples.
+A regression covers a 50 ms Off use and 50 ms gap without changing the recipe.
+All 19 focused audit, music-response and album-authoring checks pass.
+
+The fresh read-only album result is **202 songs, 1,205 cues and 1,205 response
+uses**, all using **Dance**. There are 822 cues with sampled qualified stems and
+383 with sampled master-only response; zero unbound, Off, blocked, unavailable
+or wholly flat sampled cues. All 203 checked authoring files and 203 Journey
+revision payloads are unchanged. The report retains the effective role ranges
+and source settings rather than claiming 202 full watch-throughs. No new analysis,
+Director authoring, render or audio generation was needed for this check.
+
+### Requirement-to-evidence acceptance
+
+| Task / complete criterion | Evidence and boundary |
+| --- | --- |
+| LL-919: exact album inventory, coherent source selection and timing | Original all-song input audit, source-qualified preparation receipts, director-album-plan-v2.json and the fresh album-response-settings-20261023.json. One coherent generation/role selector; unqualified intervals remain explicit master fallback. 143 songs have qualified stem intervals in their cues; 59 are master-only there. |
+| LL-919: trace measurements into native inputs and remediate bindings | Native response adapter and source-controlled 24-case matrix retain exact bank identity and separate Song measurements from Journey travel. The original neutral authoring and weak native participation issues were corrected through shared code and the bulk pass. No timing stretching or invented semantic analysis is credited. |
+| LL-919: usable sources and truthful fallback with one soundtrack | Effective-source status tests, five actual Director samples and their one-video/one-audio recording receipts. Aquatic Monkey explicitly uses measured master mix only; the other samples identify exact qualified roles and master fallback. |
+| LL-920: distinct drivers and visible native choreography | Fixed-source/camera/visual-time comparisons across Windward Reach, Rain Court, Weave and Glass show bass, vocal and synth effects reaching native water/geometry. Qualified drum onset at Song 143.433333 s drives native rings and tunnel strikes in two five-second clips with parameter traces. This is envelope/onset response, not measured musical semantics or certified beat tracking. |
+| LL-920: reusable controls, comfort, independence and causal comparisons | Existing musical-setting tests cover per-use preset/source settings, exact snapshots, independent swaps and locks. Native tests cover bounded caches, resting masks, measured crossings, silence settling, offset events and held motion. Controlled intensity-zero comparisons isolate response; quiet/strong uses the same visual clock and camera. Only Dance occurs in the album, covered by the matrix and clips. |
+| LL-921: saved bindings, separate clocks and transport behavior | All 202 exact saved cuts/revisions reopen in the owner audit. Existing preview/driver tests cover half-open boundaries, offsets, backward seek, pause/end/loop/hold, canceled stale work and recorder ownership. Actual pilot seeks at Song 8/15/11/8 s show ready scene, ready transition, inactive gap and the original scene on backward seek. |
+| LL-921: same painted dancing scenes in Preview and Record + Play | Five response recordings plus five matched baseline recordings are retained. The final pilot pair captures scene/gap/transition playback with the same exact audible master, non-silent AAC and changing H.264 pictures. Actual preview stills show painted media and effective-source labels. Existing Explore return/decoder cleanup acceptance remains applicable; no navigation code changed. |
+| LL-922: append all-album pass and preserve sources | addfa05 saved/reopened all 202 response cuts with 1,205 exact-source cues; preservation receipts retain 8,014 prior files and 203 original Journey payloads, with zero lock exceptions. Fresh audit rechecks 203 current files/revisions; old and new recording files remain intact. |
+| LL-922: full coverage report and contrasting Director checks | Fresh report enumerates all response uses and presets, source choices, clocks and sampled deficiencies. Five samples: sparse/vocal-led pilot (three qualified roles at 7 s), Brave Tongues (four at 90 s), Dear Papa (four at 95 s), denser Gladiator (six at 98 s), and master-only Aquatic Monkey (85 s). Pilot quiet/strong and seek/gap evidence supplements the before/after set; all use Dance. |
+| LL-922: verification and truthful limits | Current 19 checks pass; f6975c1's 24 native/preview checks and production build are reused because subsequent committed changes are documentation only and the new audit module is outside the app import graph. Native parameter traces and pixels, saved owner records, decoded clips and source-preservation receipts support different claims. Human taste, all-song recordings and sample-accurate physical AV synchronization are not inferred. |
+
+The pilot baseline retains its original source bindings; it is not an intensity-
+zero control. Other four baseline recipes are authored-neutral. Scene/media/time
+identity is verified by five-song-comparison-sources.json. The isolated native
+matrix supplies the causal control; a change between different authored scenes
+at 8 and 15 seconds does not by itself prove musical causality.
+
+### Exact latest evidence and cache obligation
+
+Private evidence in the source chat's execution/living-light/music-response/:
+
+- album-response-settings-20261023.json: full source/settings/interval audit.
+- percussion-verification.json and native-percussion-{rain-court,weave}.webm:
+  150 video packets per clip, decoded frame checks, 251 native trace samples each, qualified onset,
+  no Off events, active On events and verified Song/Journey offset. Silent visual
+  diagnostics; actual audio evidence is supplied by the Director recordings.
+- director-pilot-complete-pair.json: final baseline/response pair, exact master,
+  decoded non-silent AV, retained cut bytes and four actual seek states.
+- response-batch-evidence-readback.json and existing-director-evidence-readback.json:
+  current hash verification of the new clips and earlier Director files.
+- publication-gap-inventory.json: 63 missing older ordinary master-policy shader
+  publications out of 267 pointers; zero missing exact-asset Living Light entries.
+  59 matching old receipts exist, but their outputs/resource manifests are absent
+  from the inspected owner cache. No reconstruction or deletion was performed.
+
+The cache investigation is now scoped: current Living Light prepared banks are
+available across all 202 songs. Older ordinary shader-cache recovery remains an
+explicit open obligation on the existing cache task LL-007; it is not silently
+called repaired and does not gate the user-prioritized live Director pass.
+This corrects earlier checkpoints that left the distinction unresolved on LL-919.
+
+Reusable Lesson/Flow candidate: audit all saved settings independently of the
+sampling grid; use shared code and a bounded contrasting set to prove behavior.
+Do not turn missing ordinary shader caches into an all-album rendering detour,
+or call successful numerical inputs artistic acceptance. Source attribution:
+Calder's mass-code/album-first direction in this chat; no alternate agent identity.

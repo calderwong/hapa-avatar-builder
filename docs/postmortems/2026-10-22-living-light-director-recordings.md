@@ -220,3 +220,32 @@ control the source, camera and visual clock, identify actual active measurements
 and keep native evidence separate from human acceptance. Remaining work is
 active percussion/temporal evidence, final Director sample gates and the existing
 ordinary shader-cache recovery issue. All four response tasks remain open.
+
+
+## October 23 — finish the shared album response batch
+
+Technical criteria for LL-919–922 are accepted in the response plan's new
+requirement-to-evidence matrix. The strengthened auditor checks all 1,205 uses
+across 202 songs, including brief settings/gaps between sample frames. All uses
+are Dance, with 822 sampled stem cues and 383 master-only cues; no flagged cues
+and no checked source/revision changes. Nineteen focused checks pass.
+
+The previously silent-drum evidence gap is filled by two five-second native
+clips driven by a qualified measured onset. The final pilot baseline/response
+pair completes the five-song set and verifies actual scene, transition, gap and
+backward-seek states. These clips preserve their different purposes: controlled
+native evidence isolates causality; Director recordings establish audible,
+painted playback. Neither creates human artistic acceptance.
+
+What helped: batch settings inventory plus existing shared runtime and bounded
+recordings. What was noise: treating every song as a separate implementation
+and treating ordinary shader-cache gaps as Living Light source failures. The
+fresh cache inventory identifies 63 ordinary master-policy gaps, zero exact-
+asset Living Light gaps. Recovery remains open under LL-007; it was not performed.
+A local hash-check helper initially used a Python API unavailable on this host;
+streamed hashing corrected that diagnostic without changing any media.
+
+No app rebuild or service restart was required by the audit-only change. The
+prior role fix's build/native checks remain valid. Main-renderer repair and
+202 manual recordings are not prerequisites for this response batch. Next:
+reconcile the original integration delivery tasks and commit only owned changes.
