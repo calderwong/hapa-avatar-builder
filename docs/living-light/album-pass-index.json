@@ -1,5 +1,36 @@
 {
   "contract": "hapa.protocol-index/v1",
   "owner": "hapa-avatar-builder",
-  "documents": [{"slug":"hapa-living-light-album-director-pass-v1","title":"Living Light Director pass across the 202-song Dear Papa album","path":"docs/living-light/ALBUM_DIRECTOR_PASS.md"},{"slug":"hapa-living-light-modular-navigation-acceptance-v1","title":"Living Light modular navigation and Card return acceptance","path":"docs/living-light/MODULAR_NAVIGATION_ACCEPTANCE.md"}]
+  "documents": [
+    {
+      "slug": "hapa-living-light-album-director-pass-v1",
+      "title": "Living Light Director pass across the 202-song Dear Papa album",
+      "path": "docs/living-light/ALBUM_DIRECTOR_PASS.md"
+    },
+    {
+      "slug": "hapa-living-light-modular-navigation-acceptance-v1",
+      "title": "Living Light modular navigation and Card return acceptance",
+      "path": "docs/living-light/MODULAR_NAVIGATION_ACCEPTANCE.md"
+    },
+    {
+      "slug": "hapa-living-light-composition-delivery-acceptance-v1",
+      "title": "Living Light painted composition and current delivery acceptance",
+      "path": "docs/living-light/COMPOSITION_DELIVERY_ACCEPTANCE.md"
+    },
+    {
+      "slug": "hapa-living-light-integration-delivery-v1",
+      "title": "Living Light integration delivery and album workflow",
+      "path": "docs/living-light/INTEGRATION_DELIVERY.md"
+    },
+    {
+      "slug": "hapa-living-light-integration-delivery-checkpoint-v1",
+      "title": "Living Light final integration delivery checkpoint and lessons",
+      "path": "docs/postmortems/2026-10-16-living-light-integration-delivery.md"
+    },
+    {
+      "slug": "hapa-living-light-integration-discovery-v1",
+      "title": "Living Light integration discovery and owner map",
+      "path": "docs/living-light/DISCOVERY.md"
+    }
+  ]
 }

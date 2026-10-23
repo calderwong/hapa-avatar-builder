@@ -1046,3 +1046,171 @@ Thing revisions are unchanged. Live opening and painted portal/tunnel preview
 pass on Brave Tongues after fixing graph-omission fingerprint delivery. Final
 render certification remains separate. See [coverage, owner workflow and
 remaining review](living-light/ALBUM_DIRECTOR_PASS.md). No integration task closes.
+
+## October 16 — complete integration delivery evidence
+
+All 202 songs retain their Living Light Album Passes. The final integration
+audit maps the twelve original integration tasks to current technical evidence;
+legacy board work and human creative acceptance remain separate. Forty-four
+targeted checks, nine native depth/colour samples, current Landscape/Vertical
+painted preview and strict source/build/API freshness pass. A fresh hash audit
+verifies all 7,809 prior project/cut files unchanged. No new song render or
+recording was needed. Existing modular/navigation, build, lifecycle and encoded
+proofs are reused within their original scope. The live board owns final closure.
+See [delivery and recovery](living-light/INTEGRATION_DELIVERY.md) and the
+[checkpoint](postmortems/2026-10-16-living-light-integration-delivery.md).
+
+
+## October 22 — musical response is required, not optional polish
+
+Calder's prototype review finds weak stem/music integration during Director
+scripts. Added required P1 tasks LL-919–922 for exact signal/binding audit,
+scene-specific dancing, Director/live-recording delivery and an album-wide
+response pass. LL-902 and LL-918 now depend on that proof; prior criteria and
+statuses are preserved. The board has53 tasks/15 Done. The goal remains active,
+and earlier technical-delivery language does not establish completion under this
+amended scope. See [the required plan](living-light/MUSIC_RESPONSE_PLAN.md).
+This is planning/owner bookkeeping; no song, renderer or recording changed.
+
+
+## October 22 — musical input inventory complete
+
+LL-919 is in progress. All 202 saved Album Passes were inspected: 1,204 of
+1,205 cues are authored-neutral. All masters have readable headers and source
+hashes; only two songs have prepared banks. 194 need preparation, and six hit
+the 32-declaration limit. 79 songs need coherent stem selection; the current
+binding adapter carries no qualified stem timing. The audit preserved 405
+read authoring files and 203 Journey revisions. No motion acceptance is claimed.
+See [findings and next implementation](living-light/MUSIC_RESPONSE_PLAN.md#october-22--complete-saved-album-input-audit).
+
+
+## October 22 — coherent stem selection implemented
+
+The explicit coherent preparation path selects one generation and one file per
+role, with WAV preference, while preserving legacy bank pointers and saved
+bindings. All 202 input sets qualify; two real pilot preparations and both
+legacy fingerprints verify. Owner-pipeline, focused regression and build checks
+pass after repairing a CLI option lookup. Album preparation is running through
+one sequential owner queue. Timing maps, scene choreography, native delivery and
+new album cuts remain open; LL-919 stays in progress. See
+[checkpoint and evidence](living-light/MUSIC_RESPONSE_PLAN.md#coherent-stem-preparation--implementation-checkpoint).
+
+## October 22 — bounded visual timing connected to prepared inputs
+
+Existing Atlas evidence now supplies explicitly qualified constant offsets for
+visual envelopes, with exact hashes and measured-span limits. Three real owner
+publications qualify 5/12, 6/12 and 4/12 stems; unqualified roles and gaps stay
+unknown. Both legacy fingerprints are unchanged. Fifteen focused checks and the
+build pass; native delivery and musical motion are not yet accepted. Album
+preparation continues on the original sequential handle. No task closes. See
+[checkpoint and learning](postmortems/2026-10-22-living-light-visual-timing.md).
+
+## October 22 — native scene musical inputs connected
+
+The input preparation owner completed 202 songs (46 master-only), preserving the
+Song store and releasing its processes. The native environment articulation now
+has exact per-use musical sources, bounded presets/intensity and explicit master
+fallback. Song and Journey clocks remain separate. Numerical water/tunnel motion,
+seek/hold and owner persistence checks pass; portable import was repaired after a
+targeted failure. Pixel, event-accent, live-recording and album-response acceptance
+remain open. See [checkpoint](postmortems/2026-10-22-living-light-native-music.md).
+
+## October 22 — native onset accents and visible response
+
+Qualified display-onset crossings now reach native strikes, water rings and pulses,
+with exact Song/Journey clocks and no invented master onset. Real-source native
+comparisons cover four environments, eight seconds of animation and reverse seek.
+A GPU-only missing participation field was repaired. Compiled sampling reduced
+observed cold frames from about 3.2 seconds to 0.414–0.577 seconds. Twenty-eight
+focused checks and the build pass. No audible Director/recording acceptance or
+new album response pass is claimed. No task closes. See the native music
+[checkpoint and learning](postmortems/2026-10-22-living-light-native-music.md).
+
+## October 22 — complete Music Response authoring pass
+
+All 202 new Music Response cuts saved/reopened: 1,205 bound cues, qualified stem
+intervals on 143 songs and explicit master response on 59. Original 8,014 files
+and 203 Journey payloads pass preservation checks. A 43-song endpoint mismatch
+was repaired by separating decoded source extent from authored cut extent at 1x;
+35 focused checks and build pass. Actual UI shows the pilot cues but its service
+reports stale delivery. Playback, five contrasting recordings and human review
+remain open; LL-919–922 are in progress. See the music-response plan and native
+music postmortem. No main render or new analysis job was started.
+
+
+## October 22 — five actual Music Response recordings
+
+Five response-on Director takes saved through Record + Play and verified by owner
+hash, decoded native frames and non-silent audio. Canonical service delivery is
+current. The pilot, Brave Tongues, Dear Papa, Gladiator and master-only Aquatic
+Monkey sample actual scene/transition playback. Neutral comparisons, role and
+quiet/strong review, clear stem/fallback status and human acceptance remain open.
+No task closes. See [recording evidence and learning](postmortems/2026-10-22-living-light-director-recordings.md).
+
+
+## October 22 — effective response status and one matched Director pair
+
+Director now names actual measured stems, master-only response, explicit fallback,
+and off/unavailable states. Twenty-one focused checks and build pass; refreshed
+canonical delivery is current. Exact neutral/response Gladiator recipes match
+except for musical input; ready views at 98 seconds visibly differ and a neutral
+live take is saved. Four other matched comparisons, role/quiet-strong review and
+human acceptance remain open. See the [updated checkpoint](postmortems/2026-10-22-living-light-director-recordings.md).
+
+
+## October 22 — resume batch-first response work
+
+All 202 songs were authored in bulk. Four recorded before/after pairs now exist;
+five recipe pairs preserve scene/media/timing. Calder questioned manual overhead: 
+resume shared code/protocol and batch acceptance, keeping manual samples bounded.
+Isolated-role, quiet/strong, shader-bank and human gates stay open. No task closes.
+See the updated Director recording postmortem, including oversized capture recovery.
+
+
+## October 23 — batch input coverage
+
+Shared audit checked 202 Music Response cuts / 1,205 cues at 4 Hz: 822 sampled
+stem cues, 383 master-only cues, no unbound/off/blocked/unavailable/flat cue.
+203 files and 203 Journey payloads unchanged; 17 focused tests pass. This is
+input coverage, not visible choreography acceptance. Continue shared native
+role/quiet-strong work. No task closes. See the music-response plan.
+
+
+## October 23 — role participation repaired
+
+Shared adapter now respects native resting/isolated-role masks; the old adapter
+forced every bound role on. Native water/geometry and cache tests pass alongside
+24 focused checks and build. Canonical service delivery is current. Pixel and
+human quiet/strong acceptance remain open; no task closes. See the recording
+postmortem for failing reproduction and evidence.
+
+
+## October 23 — source-controlled native scene batch
+
+Automated 24-case comparison holds source bank, visual time and camera fixed.
+Qualified bass/vocal/synth and quiet/strong source changes visibly reach four
+scene families. Silent drums are not active percussion evidence. Source and
+recordings remain unchanged; shared app checks/build reused. See the Music
+Response plan for artifacts, instrumentation corrections and remaining gates.
+All four response tasks remain in progress; no parent or human gate closes.
+
+
+## October 23 — shared album response batch technically accepted
+
+LL-919–922 criteria now have the complete evidence matrix in MUSIC_RESPONSE_PLAN.
+Fresh settings audit: 202 songs / 1,205 uses, Dance only, 822 sampled stem cues,
+383 master-only cues, zero flagged cues; 203 files/revisions preserved. Nineteen
+focused checks pass. Active percussion clips and five before/after Director
+pairs complete representative technical checks; human review remains pending.
+Older ordinary shader-cache recovery stays open on LL-007. Final original-scope
+integration reconciliation remains; no goal completion is claimed here.
+
+
+## October 23 — sixteen-task Living Light integration delivered
+
+The original twelve integration tasks plus LL-919–922 satisfy their technical
+criteria. The final audit retains human creative review and broader legacy work
+separately. Current 115 integrated checks pass; strict source/build/API delivery
+passes after one guarded idle refresh. All 8,014 original files and 203 original
+Journey payloads match, and the retained 750-frame mixed excerpt hash matches.
+All 202 Music Response cuts remain available. See [delivery and review boundaries](living-light/INTEGRATION_DELIVERY.md#october-23--final-amended-scope-delivery-audit).

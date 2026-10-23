@@ -1,4 +1,326 @@
 {
+  "livingLightMusicResponse20261022": {
+    "status": "required-goal-work-planned",
+    "tasks": [
+      "LL-919",
+      "LL-920",
+      "LL-921",
+      "LL-922"
+    ],
+    "next": "LL-919",
+    "completionGatesAmended": [
+      "LL-902",
+      "LL-918"
+    ],
+    "reason": "Calder reports weak music/stem integration after prototype review; require visible musical choreography during Director playback.",
+    "existingCoverage": "202 authored first passes; not evidence of album-wide musical response",
+    "priority": "album-wide usable Director/live recording before single-song or main-renderer polish",
+    "plan": "docs/living-light/MUSIC_RESPONSE_PLAN.md",
+    "goal": "active",
+    "humanAcceptance": "pending",
+    "audit": {
+      "state": "complete-inventory-implementation-in-progress",
+      "songs": 202,
+      "cues": 1205,
+      "neutralCues": 1204,
+      "boundCues": 1,
+      "readableMasterHeaders": 202,
+      "preparedBanks": 2,
+      "missingBanks": 194,
+      "inputLimitRefusals": 6,
+      "stemSelectionDifferences": 79,
+      "authoringFilesUnchanged": 405,
+      "journeyRevisionsUnchanged": 203,
+      "next": "One coherent stem set, qualified timing and measured master fallback; LL-919 remains in progress"
+    },
+    "coherentPreparation": {
+      "state": "implementation-tested-album-preparation-running",
+      "selection": "coherent-stems-v1",
+      "inputSelectionPassed": 202,
+      "realSongsVerified": 2,
+      "legacyBanksPreserved": 2,
+      "timingQualified": false,
+      "nativeDeliveryVerified": false,
+      "goal": "active",
+      "task": "LL-919"
+    }
+  },
+  "livingLightIntegrationDelivery20261016": {
+    "state": "technical-evidence-complete",
+    "sourceTaskId": "01a137cc-de1d-7511-ab65-227c92d5bca0",
+    "requirementsForFinalClosure": [
+      "LL-902",
+      "LL-910",
+      "LL-918"
+    ],
+    "albumCoverage": {
+      "songs": 202,
+      "cues": 1205,
+      "newJourneys": 201,
+      "newPaintedUses": 402
+    },
+    "verification": {
+      "targetedChecks": 44,
+      "nativeCompositionSamples": 9,
+      "currentLandscapeAndVerticalPreview": true,
+      "sourceBuildApiFresh": true,
+      "originalProjectAndCutFilesUnchanged": 7809,
+      "newSongRenders": 0
+    },
+    "reusedEvidence": {
+      "modularNavigationChecks": 74,
+      "productionBuildCommit": "f911cb5",
+      "restoredMixedExcerptFrames": 750,
+      "restoredMixedExcerptSeconds": 25
+    },
+    "audit": "docs/living-light/INTEGRATION_DELIVERY.md",
+    "postmortem": "docs/postmortems/2026-10-16-living-light-integration-delivery.md",
+    "boardStatusOwner": "hapa-living-light-avatar-builder",
+    "scope": "Twelve tasks listed in the integration goal plan; legacy board work retained separately",
+    "humanCreativeAcceptance": "pending",
+    "implementationMinutes": null,
+    "verificationMinutes": null
+  },
+  "livingLightVisualTiming20261022": {
+    "status": "in_progress",
+    "task": "LL-919",
+    "qualifiedStemCounts": [
+      5,
+      6,
+      4
+    ],
+    "testedStemCounts": [
+      12,
+      12,
+      12
+    ],
+    "focusedTestsPassed": 15,
+    "buildPassed": true,
+    "legacyFingerprintsPreserved": 2,
+    "nativeDelivery": "pending",
+    "musicalMotionAcceptance": "pending",
+    "requirementsClosed": [],
+    "postmortem": "docs/postmortems/2026-10-22-living-light-visual-timing.md"
+  },
+  "livingLightNativeMusic20261022": {
+    "status": "in_progress",
+    "preparedSongs": 202,
+    "masterOnlySongs": 46,
+    "songStoreUnchanged": true,
+    "preparationProcessCleanup": true,
+    "targetedTestsPassed": 39,
+    "ownerChecksPassed": 46,
+    "nativeNumericalChecksPassed": 4,
+    "buildPassed": true,
+    "nativePixelAcceptance": "pending",
+    "events": "not-connected",
+    "requirementsClosed": [],
+    "postmortem": "docs/postmortems/2026-10-22-living-light-native-music.md"
+  },
+  "livingLightNativeOnsets20261022": {
+    "status": "in_progress",
+    "requirements": [
+      "LL-920",
+      "LL-921",
+      "LL-922"
+    ],
+    "nativeProof": "four environments, six samples on current 11:23 source bank; no audible playback",
+    "events": "qualified display-onset crossings; not certified beats",
+    "coldFrameMs": [
+      413.9,
+      577.3
+    ],
+    "focusedChecks": 28,
+    "build": "passed",
+    "albumResponsePasses": "pending",
+    "humanAcceptance": "pending"
+  },
+  "livingLightAlbumMusicResponse20261022": {
+    "state": "in_progress",
+    "savedAndReopenedSongs": 202,
+    "sourceBoundCues": 1205,
+    "songsWithQualifiedStemIntervals": 143,
+    "songsUsingMasterOnlyResponse": 59,
+    "originalFilesPreserved": 8014,
+    "originalJourneyPayloadsPreserved": 203,
+    "clockChecksPassed": 35,
+    "build": "passed",
+    "liveService": "server_restart_required",
+    "actualRecordingsVerified": 0,
+    "tasks": [
+      "LL-919",
+      "LL-920",
+      "LL-921",
+      "LL-922"
+    ],
+    "next": "Refresh existing canonical service and verify Director/Record + Play on five contrasting songs",
+    "evidence": "source chat execution/living-light/music-response/director-album-plan-v2.report.json"
+  },
+  "livingLightDirectorRecordings20261022": {
+    "status": "in_progress",
+    "songs": 5,
+    "recordings": [
+      {
+        "id": "9b1b2688-7259-4d3b-8376-488a31f96446",
+        "songId": "dear-papa-song-11-23-meant-to-meet-thu",
+        "requestedSongStartSeconds": 5
+      },
+      {
+        "id": "6e0f0b41-15b9-48d0-978c-fb850425ed44",
+        "songId": "dear-papa-song-brave-tongues",
+        "requestedSongStartSeconds": 83
+      },
+      {
+        "id": "ca7b4f5b-925f-4799-b2cf-0b1a4c9d9d83",
+        "songId": "dear-papa-song-dear-papa",
+        "requestedSongStartSeconds": 88.5
+      },
+      {
+        "id": "e7e43ae3-d440-43dc-8a89-7981fa56c903",
+        "songId": "dear-papa-song-gladiator",
+        "requestedSongStartSeconds": 92.5
+      },
+      {
+        "id": "e74b57fa-d2c8-4337-a0e8-eb3a2cef8a71",
+        "songId": "dear-papa-song-aquatic-monkey-favicon-work-in-your-underwear",
+        "requestedSongStartSeconds": 80
+      }
+    ],
+    "filesVerified": true,
+    "causalABAccepted": false,
+    "humanAccepted": false,
+    "next": "Expose truthful stem/master response state; make neutral comparisons and verify role/quiet/strong response."
+  },
+  "livingLightResponseStatus20261022": {
+    "status": "in_progress",
+    "sourceClassification": "effective-frame-contributions",
+    "focusedChecks": 21,
+    "build": "passed",
+    "serviceFresh": true,
+    "neutralPairs": 1,
+    "responseOnSongs": 5,
+    "humanAccepted": false,
+    "next": "Complete remaining neutral/role/quiet-strong comparisons and inspect whether movement is strong enough."
+  },
+  "livingLightBatchPriority20261022": {
+    "status": "in_progress",
+    "albumCuts": 202,
+    "responseOnSamples": 5,
+    "recordedComparisonPairs": 4,
+    "recipePairs": 5,
+    "manualExpansion": false,
+    "next": "Shared code/protocol and batch acceptance; isolated-role and quiet/strong gates remain open.",
+    "humanAccepted": false
+  },
+  "livingLightAlbumInputAudit20261023": {
+    "status": "in_progress",
+    "songs": 202,
+    "cues": 1205,
+    "errors": 0,
+    "flaggedCues": 0,
+    "stemCues": 822,
+    "masterOnlyCues": 383,
+    "issues": {
+      "unbound": 0,
+      "off": 0,
+      "blocked": 0,
+      "unavailable": 0,
+      "flat-sampled-envelope": 0
+    },
+    "checks": 17,
+    "sourceIntegrity": {
+      "files": 203,
+      "revisions": 203,
+      "mismatches": []
+    },
+    "humanAccepted": false,
+    "next": "Shared native role-isolation and quiet/strong response, not per-song manual capture."
+  },
+  "livingLightRoleParticipation20261023": {
+    "status": "in_progress",
+    "checks": 24,
+    "build": "passed",
+    "serviceFresh": true,
+    "sourceChange": "Preserve native visual role masks and effective-source labels",
+    "pixelAccepted": false,
+    "humanAccepted": false,
+    "next": "Shared native quiet/strong perceptual contrast and remaining full-goal acceptance."
+  },
+  "livingLightControlledNative20261023": {
+    "status": "in_progress",
+    "cases": 24,
+    "sceneFamilies": 4,
+    "preset": "dance",
+    "sourceControlled": true,
+    "cameraControlled": true,
+    "appSourceChanged": false,
+    "artisticAcceptance": false,
+    "remaining": [
+      "active percussion and temporal response",
+      "final Director before/after and quiet/strong/seek/boundary evidence",
+      "ordinary shader-cache recovery assessment"
+    ]
+  },
+  "livingLightResponseAcceptance20261023": {
+    "status": "technically_accepted",
+    "tasks": [
+      "LL-919",
+      "LL-920",
+      "LL-921",
+      "LL-922"
+    ],
+    "songs": 202,
+    "cues": 1205,
+    "responseUses": 1205,
+    "presets": [
+      "dance"
+    ],
+    "stemCues": 822,
+    "masterOnlyCues": 383,
+    "flaggedCues": 0,
+    "focusedTests": 19,
+    "directorPairs": 5,
+    "humanAccepted": false,
+    "remaining": [
+      "Original-scope final integration reconciliation",
+      "LL-007 ordinary shader-cache recovery (separate owner obligation)"
+    ]
+  },
+  "livingLightFinalDelivery20261023": {
+    "status": "technically_delivered",
+    "scope": "Twelve original integration tasks plus required LL-919\u2013922 amendment",
+    "tasks": [
+      "LL-901",
+      "LL-902",
+      "LL-903",
+      "LL-910",
+      "LL-911",
+      "LL-912",
+      "LL-913",
+      "LL-914",
+      "LL-915",
+      "LL-916",
+      "LL-917",
+      "LL-918",
+      "LL-919",
+      "LL-920",
+      "LL-921",
+      "LL-922"
+    ],
+    "songs": 202,
+    "cues": 1205,
+    "integratedTests": 115,
+    "originalFilesUnchanged": 8014,
+    "originalJourneyPayloadsUnchanged": 203,
+    "deliveryFresh": true,
+    "retainedEncodedFrames": 750,
+    "humanCreativeAcceptance": "pending",
+    "separateOpenWork": [
+      "LL-007 older ordinary shader-cache recovery",
+      "Legacy broader catalog/device/creative review tasks"
+    ],
+    "audit": "docs/living-light/INTEGRATION_DELIVERY.md"
+  },
   "livingLightFirstEntryRepair20261016": {
     "status": "in_progress",
     "requirements": [

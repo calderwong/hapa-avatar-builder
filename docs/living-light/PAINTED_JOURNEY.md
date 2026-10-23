@@ -1,5 +1,10 @@
 # Painted Journey preview
 
+Current delivery: [composition and current desktop acceptance](COMPOSITION_DELIVERY_ACCEPTANCE.md)
+and [integrated operator workflow](INTEGRATION_DELIVERY.md). The dated initial
+slice below is retained as history; later Fit/Fill/crop, Director/export and
+navigation capabilities are described in those current audits.
+
 Status: first-pass local prototype, 2026-10-13. Author: Codex in chat
 `01a137cc-de1d-7511-ab65-227c92d5bca0`, following Calder's review request and
 “Ok take a stab at pursuing that.” Source owner: Hapa Avatar Builder.

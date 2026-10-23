@@ -1,6 +1,11 @@
 # Living Light integration — discovery and owner map
 
-Updated October 16, 2026. Prototype; the complete integration remains in progress.
+Updated October 23, 2026. Local prototype; the sixteen-task integration goal,
+including required LL-919–922 music response, is technically delivered. See the
+[final audit](INTEGRATION_DELIVERY.md#october-23--final-amended-scope-delivery-audit)
+and [music-response evidence](MUSIC_RESPONSE_PLAN.md#october-23--music-response-technical-acceptance).
+Human creative acceptance remains pending; legacy broader qualification and
+ordinary shader-cache recovery remain separate open board work.
 Canonical application: **Hapa Avatar Builder → Echo Album → Living Light**.
 This work extends the existing app and Song, Journey, Director and shared Hand
 owners; it does not register a second app or media catalog.
@@ -9,17 +14,17 @@ owners; it does not register a second app or media catalog.
 
 The [Living Light board](http://127.0.0.1:5181/?project=hapa-living-light-avatar-builder)
 owns task status and acceptance. Its original 40 tasks were extended to 49 by the
-current integration work; the original [portable requirements](REQUIREMENTS.md),
+current integration work, then 53 with the four music-response tasks; the original [portable requirements](REQUIREMENTS.md),
 [contracts](CONTRACTS.md) and [acceptance matrix](ACCEPTANCE.md) remain in force.
 The additional LL-900-series tasks cover painting, Director/export, navigation
 and modular interaction. A green subtask does not close its parent requirement.
 
 | User intention | Existing implementation and evidence route | Remaining boundary |
 | --- | --- | --- |
-| Paint Hapa clips into tunnels and 3D features | [Painted Journey](PAINTED_JOURNEY.md): exact clip uses, depth surfaces, trim/loop/hold, swaps and locks | Full integrated native/resource acceptance remains open. |
-| Place Living Light scenes and transitions in Director cuts | [Director cues](DIRECTOR_CUES.md): saved exact Journey revisions, editing, proposals, native preview and managed export path | The saved full-song pilot is undergoing a local render retry; successful encoding alone is not release acceptance. |
-| Visit album, media and Cards through 3D Locations | [Album navigation](ALBUM_NAVIGATION.md): owner-bound destinations, passage edges and independent bookmarks; LL-915 accepted | Native traversal and decoder residency acceptance remain open in LL-916. |
-| Swap modular Cards and scenes | [Card Library](CARD_LIBRARY.md), [shared Hand](SHARED_HAND.md), [authoring](AUTHORING_IMPLEMENTATION.md) | Full shared-Hand round trip, proposal integration and parent acceptance remain open. |
+| Paint Hapa clips into tunnels and 3D features | [Current composition/delivery evidence](COMPOSITION_DELIVERY_ACCEPTANCE.md): exact clip uses, depth panels/portals, Fit/Fill/crop, trim/loop/hold, swaps and locks | Two enabled surfaces per recipe; arbitrary mesh UVs, physical refraction and VR are unqualified. |
+| Place Living Light scenes and transitions in Director cuts | [Director cues](DIRECTOR_CUES.md), [202-song Album Pass](ALBUM_DIRECTOR_PASS.md), [encoded evidence](PAINT_PREVIEW_EXPORT_ACCEPTANCE.md) | Current restored visuals have a verified 25-second Landscape excerpt; older full/Vertical exports retain their renderer attribution. Final readiness remains per cut; whole-album creative/export review is open. |
+| Visit album, media and Cards through 3D Locations | [Album navigation](ALBUM_NAVIGATION.md) and [native acceptance](MODULAR_NAVIGATION_ACCEPTANCE.md): exact destinations, painted travel, separate Explore clock and retained bookmark | Three-stop representative route; broad catalog/device qualification remains separate. |
+| Swap modular Cards and scenes | [Modular acceptance](MODULAR_NAVIGATION_ACCEPTANCE.md): independent scene/media/recipe choices, locks, whole-recipe Undo, saved revisions and actual Tarot/Hand return | Undo is session-bounded; incompatible mappings refuse. Separate shared-package promotion and legacy parent acceptance remain open. |
 
 Read the [integration history](../LIVING_LIGHT_INTEGRATION.md) for dated checkpoints.
 Older pending/reload statements describe their dates, not today's runtime.
@@ -28,6 +33,14 @@ records why the prior full encode was rejected and how equivalent replans now
 preserve the certified bytes. No Song Card edition or human creative acceptance
 is claimed by this discovery update. [Workflow pilot](../ECHO_WORKFLOW_PILOT.md)
 records batch evidence; the live board remains the task-status owner.
+
+For the full album, select **Direction script version → Living Light → Album
+Pass** for the earlier comparison, or **Music Response** for the measured-motion
+pass, then Preview / Record + Play. Each set covers 202 songs and 1,205 cues;
+original cuts and recordings are preserved. Missing sources retain explicit
+readiness. See [operator workflow and recovery](INTEGRATION_DELIVERY.md#operator-workflow-and-recovery).
+The current final audit reuses the existing build and verifies a supervised idle
+service refresh. No render is currently being awaited by this integration task.
 
 ## Related owners — consume evidence without transferring tasks
 
