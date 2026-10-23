@@ -21,6 +21,19 @@ test('refuses stale identities, weak/contradictory evidence, drift and duration 
 });
 
 import {applyAtlasVisualTiming} from '../src/domain/audio-atlas-visual-timing.js';
+test('qualifier and consumer agree on rounded prepared duration at the final source window',()=>{
+ for(const offset of [0,.1,-.1]){
+  const f=fixture(),p=f.performance;
+  p.durationSeconds=19.999975;p.stemSelectionPolicy='coherent-stems-v1';
+  const e=f.result.assets[1].alignment_evidence;
+  e.windows.at(-1).source_end_sample=960000;
+  for(const w of e.windows)w.lagSeconds=offset;
+  p.visualTiming=qualifyAtlasVisualTiming(f);
+  const row=p.visualTiming.rows[0];assert.equal(row.state,'qualified');
+  assert.ok(row.timeMap[0].songEndUs<=Math.floor(p.durationSeconds*1e6));
+  assert.doesNotThrow(()=>applyAtlasVisualTiming({songId:p.songId,master:{sourceHash:p.masterAudioHash},stems:[{assetId:'exact',sourceHash:p.buses[1].audioHash}]},p));
+ }
+});
 import {livingLightPreparedBinding} from '../src/domain/living-light-prepared-binding.js';
 import {createLivingLightFeatureBank} from '../src/domain/living-light-features.js';
 import {fixture as signalFixture} from './fixtures/living-light-signals.mjs';

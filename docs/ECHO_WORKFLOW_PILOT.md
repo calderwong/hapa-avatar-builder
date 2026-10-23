@@ -1214,3 +1214,14 @@ separately. Current 115 integrated checks pass; strict source/build/API delivery
 passes after one guarded idle refresh. All 8,014 original files and 203 original
 Journey payloads match, and the retained 750-frame mixed excerpt hash matches.
 All 202 Music Response cuts remain available. See [delivery and review boundaries](living-light/INTEGRATION_DELIVERY.md#october-23--final-amended-scope-delivery-audit).
+
+
+## October 23 — seven incremental songs and Codex images
+
+Seven exact new recording IDs bring the album to 209. All seven have parity
+Director families and 42 Music Response cues (41 stem / one master-only), with
+76/76 declared stems usable in selected-cut preparation and 419 previews ready.
+Fourteen images came from Codex built-in GPT Image per Calder’s correction.
+Local H3 loops remain in production; lyric candidates remain held for passage
+review. Original 202 song records and historical cuts are preserved. See the
+[intake evidence and lessons](postmortems/2026-10-23-echo-incremental-intake.md).

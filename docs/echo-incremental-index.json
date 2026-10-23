@@ -1,0 +1,16 @@
+{
+  "contract": "hapa.protocol-index/v1",
+  "owner": "hapa-avatar-builder",
+  "documents": [
+    {
+      "slug": "hapa-echo-incremental-song-ingest-pipeline-v1",
+      "title": "Echo Album incremental ingestion with Codex images and local motion loops",
+      "path": "docs/ECHO_SONG_INGEST_PIPELINE.md"
+    },
+    {
+      "slug": "hapa-echo-incremental-intake-20261023",
+      "title": "October 23 seven-song Echo intake and Codex image evidence",
+      "path": "docs/postmortems/2026-10-23-echo-incremental-intake.md"
+    }
+  ]
+}

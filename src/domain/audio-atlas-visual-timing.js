@@ -33,7 +33,7 @@ export function qualifyAtlasVisualTiming({result,resultSha256,performance}){
   const offset=median(good.map(w=>w.lagSeconds)),residual=Math.max(...good.map(w=>Math.abs(w.lagSeconds-offset)));
   if(residual>.003||Math.abs(e.drift_ppm)*1e-6*(end-start)>.003)return reject('offset-needs-stretch-or-is-inconsistent');
   const offsetUs=Math.round(offset*1e6),sourceStartUs=Math.max(Math.ceil(start*1e6),-offsetUs,0);
-  const sourceEndUs=Math.min(Math.floor(end*1e6),Math.floor(d.frameCount/d.sampleRate*1e6),Math.floor(master.sample_count/master.sample_rate_hz*1e6)-offsetUs);
+  const sourceEndUs=Math.min(Math.floor(end*1e6),Math.floor(d.frameCount/d.sampleRate*1e6),Math.floor(master.sample_count/master.sample_rate_hz*1e6)-offsetUs,Math.floor(performance.durationSeconds*1e6)-offsetUs);
   if(sourceEndUs<=sourceStartUs)return reject('empty-source-intersection');
   return {assetId:bus.assetId,state:'qualified',scope:'visual-envelope-constant-offset',sourceHash:bus.audioHash,masterHash:master.source_sha256,analysisAssetId:asset.id,sourceDecodedDigest:d.digest,ownerRunId:result.run_id,ownerResultSha256:resultSha256,evidenceRef:`atlas-visual-offset:${resultSha256}:${asset.id}`,offsetUs,measuredWindowCount:good.length,observedSpanFraction:span,maxObservedResidualSeconds:residual,
    timeMap:[{sourceStartUs,sourceEndUs,songStartUs:sourceStartUs+offsetUs,songEndUs:sourceEndUs+offsetUs}],paddingIntervals:[],

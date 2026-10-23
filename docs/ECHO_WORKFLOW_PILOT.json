@@ -3457,5 +3457,22 @@
     "humanAcceptance": "pending",
     "requirementsClosed": [],
     "evidence": "docs/living-light/ALBUM_DIRECTOR_PASS.md"
+  },
+  "incrementalEchoIntake20261023": {
+    "status": "songs-and-codex-images-verified-local-loops-in-progress",
+    "addedSongs": 7,
+    "albumSongs": 209,
+    "preferredWavStems": 76,
+    "selectedCutUsableStems": 76,
+    "codexImages": 14,
+    "livingLightCuesAdded": 42,
+    "stemCuesAdded": 41,
+    "masterOnlyCuesAdded": 1,
+    "selectedPreviewsReady": 419,
+    "lyricCandidates": "7 held for passage review; no promotion",
+    "humanAcceptance": "pending",
+    "sourcePreservation": "202 original rows and historical files preserved; variant index extended",
+    "report": "docs/postmortems/2026-10-23-echo-incremental-intake.md",
+    "imageProvider": "Codex built-in GPT Image; no API fallback"
   }
 }

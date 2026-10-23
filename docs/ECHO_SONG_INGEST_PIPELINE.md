@@ -10,7 +10,7 @@ One durable ingest run carries a song from a local source folder to the same wor
 2. analysis — master/stem technical metadata, canonical stem bindings, and script-usable lyric timing;
 3. reference reasoning — attributable LLM proposals with evidence and uncertainty boundaries;
 4. image prompts — full-bleed, provider-safe Hapa story-card prompts;
-5. cards — the existing encrypted OpenAI image-generation lane, scoped to this Song Card;
+5. cards — Codex built-in GPT Image for agent-led intake, scoped to the new Song Cards, then imported through the existing Reference Media manifest contract;
 6. loops — the existing local MiniMax H3 missing-loop queue, joined by `sourceImageRunId + sourceJobId`;
 7. Director readiness — the Song Card exposes its masters, stems, lyrics, timing, references, cards, and loops.
 
@@ -40,7 +40,18 @@ Register the inspected run. This copies source custody to the app runtime, extra
 npm run echo:song-ingest -- register --run-id=echo-song-ingest-SLUG-ID
 ```
 
-Generate cards for only that Song Card. A song-scoped run is retained beside older runs and becomes the current reference-image run; older manifests and outputs are not deleted:
+For Codex-led intake, Calder's October 23 instruction selects **GPT Image from
+Codex, not the API**. Use the built-in image-generation tool with the prepared
+song prompts. Preserve exact prompts, source Song/reference IDs, generated files
+and hashes in an immutable Reference Image run following
+[Reference Media Library](ECHO_REFERENCE_MEDIA_LIBRARY.md). Identify the provider
+as Codex image generation and `apiKeyUsed: false`; do not invent API usage or
+billing receipts. This choice does not authorize an API fallback.
+
+The older explicit API command remains available for separately requested API
+work; it is not the route for this intake. A song-scoped run is retained beside
+older runs and becomes the current reference-image run; older manifests and
+outputs are not deleted:
 
 ```bash
 electron scripts/run-echo-reference-images.cjs song dear-papa-song-SLUG
@@ -67,6 +78,11 @@ Record generated-image and loop status back into the ingest run so the UI can sh
 npm run echo:song-ingest -- record-images --run-id=RUN_ID --status=/path/to/image-status.json
 npm run echo:song-ingest -- record-loops --run-id=RUN_ID --status=/path/to/loop-status.json
 ```
+
+Image completion requires every expected job to succeed. Failed and partial runs
+remain failed or queued as appropriate; a single successful image must not mark
+an entire song's image stage complete. Failed attempts remain in history when a
+later Codex-generated run succeeds.
 
 Create a missing base Director project for a newly registered song before the album recast. This command is idempotent for songs that already have projects and backs up the project directory before an apply run:
 

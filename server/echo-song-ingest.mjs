@@ -481,9 +481,13 @@ export function createEchoSongIngestService({
     manifest.outputs.imageRun = imageStatus;
     const completedJobs = list(imageStatus.jobs).filter((job) => job.status === "completed");
     const completed = Number(imageStatus?.counts?.completed ?? completedJobs.length);
-    updateStage(manifest, "images", completed > 0 ? "complete" : "queued", completed > 0 ? `${completed} reference cards generated in ${imageStatus.runId}.` : `Reference cards queued in ${imageStatus.runId || "the current image run"}.`, completedJobs.slice(0, 3).map((job) => job.referenceTitle || job.visualConceptTitle || job.id));
-    updateStage(manifest, "loops", completed > 0 ? "ready" : "waiting", completed > 0 ? "Cards are ready for the local MiniMax H3 missing-loop queue." : "Loops wait for generated cards.");
-    manifest.state = completed > 0 ? "cards-generated" : "cards-queued";
+    const failed = Number(imageStatus?.counts?.failed ?? list(imageStatus.jobs).filter((job) => job.status === "failed").length);
+    const total = Number(imageStatus?.counts?.total ?? list(imageStatus.jobs).length);
+    const complete = total > 0 && completed === total && failed === 0;
+    const terminalFailure = failed > 0 || imageStatus.state === "failed" || imageStatus.state === "complete-with-errors";
+    updateStage(manifest, "images", complete ? "complete" : terminalFailure ? "failed" : "queued", complete ? `${completed} reference cards generated in ${imageStatus.runId}.` : terminalFailure ? `${completed}/${total} reference cards generated; ${failed} failed. Inspect the saved image run before retrying.` : `Reference cards queued in ${imageStatus.runId || "the current image run"}.`, completedJobs.slice(0, 3).map((job) => job.referenceTitle || job.visualConceptTitle || job.id));
+    updateStage(manifest, "loops", complete ? "ready" : "waiting", complete ? "Cards are ready for the local MiniMax H3 missing-loop queue." : "Loops wait for a complete generated-card run.");
+    manifest.state = complete ? "cards-generated" : terminalFailure ? "cards-failed" : "cards-queued";
     return persist(manifest);
   }
   function recordLoopRun(runId, loopStatus = {}) {

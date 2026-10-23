@@ -63,5 +63,11 @@ test("inspect and register add one idempotent song with source, timing, referenc
   service.register(inspected.runId);
   const after = JSON.parse(fs.readFileSync(path.join(root, "data", "hapa-songs-store.json"), "utf8"));
   assert.equal(after.songs.length, 2);
+  for (const [completed, failed, expected] of [[0, 2, "failed"], [1, 1, "failed"], [1, 0, "queued"], [2, 0, "complete"]]) {
+    const recorded = service.recordImageRun(inspected.runId, { runId: "immutable-image-run", counts: { total: 2, completed, failed } });
+    assert.equal(recorded.stages.find((stage) => stage.id === "images").status, expected);
+    assert.equal(recorded.stages.find((stage) => stage.id === "loops").status, expected === "complete" ? "ready" : "waiting");
+    assert.equal(service.get(inspected.runId).outputs.imageRun.counts.failed, failed);
+  }
   fs.rmSync(temporary, { recursive: true, force: true });
 });
