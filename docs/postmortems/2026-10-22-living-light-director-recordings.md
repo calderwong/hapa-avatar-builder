@@ -132,3 +132,40 @@ remain in progress. Private evidence: five-song-comparison-sources.json and
 three-new-baselines.json beside the earlier recording reports. Source code is
 unchanged, so the existing 21 focused checks/build are reused. This documentation
 checkpoint does not establish whole-album playback or export acceptance.
+
+
+## October 23 — whole-album effective-input audit
+
+The new read-only batch command checks the saved Music Response cuts against
+current source-verified coherent banks and exact receipts from the authoring plan:
+
+`node scripts/audit-living-light-music-response.mjs --plan=/absolute/music-response-plan.json --out=/absolute/new-report.json`
+
+It samples effective role energy at 4 Hz, selects instances in Journey time and
+samples audio in Song time. Reports separate qualified stems, explicit master
+response, missing/blocked/off/unbound choices, flat sampled envelopes, and useful
+quiet/strong candidate times. Zero-weight sources receive no credit. Silent
+passages and intentional Off choices are review flags, never automatic edits.
+The older album-response audit describes the original neutral pass; its hardcoded
+unavailable-timing statement is historical and must not describe the new pass.
+
+Actual result: all 202 songs / 1,205 cues read successfully. 822 cues have at least
+one sampled qualified stem; 383 use only master response at the sampled points.
+No sampled unbound, off, blocked, unavailable or wholly flat cue was found.
+All 203 checked authoring files and 203 Journey revision payloads stayed unchanged.
+No decoder, model, preparation job, renderer or media process was started.
+
+Seventeen focused audit, music-response and album-authoring checks pass. The
+initial fixture had inconsistent raw/normalized RMS; it was corrected before
+testing behavior. Source containment was additionally checked for all 202 cue
+sets. The audit-only module is not imported by the app; no app rebuild/restart
+was needed. Private evidence: album-response-audit-20261023.json,
+audit-source-containment.json and batch-audit-tests.log in this chat's evidence.
+
+This proves sampled input delivery, not native geometry, artistic quality,
+full-rate onset coverage or sample-accurate AV synchronization. Next shared-code
+work should isolate role-to-geometry response and compare quiet/strong movement
+across native scene families. The prepared signals are changing; repeating
+manual capture per song would not resolve that remaining question. LL-919–922
+stay in progress. Reusable Lesson/Flow candidate: batch source admission before
+reviewing motion, and keep numerical signal coverage distinct from visible dance.
