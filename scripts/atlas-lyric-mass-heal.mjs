@@ -3,14 +3,14 @@
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';import path from 'node:path';import {fileURLToPath} from 'node:url';
 import {createAudioAtlas} from '../server/audio-atlas.mjs';
-import {plan,assemble,alignmentCorroboration} from './atlas-lyric-timing.mjs';
+import {plan,align,assemble,alignmentCorroboration} from './atlas-lyric-timing.mjs';
 import {evaluateEchoLyricTimingPromotion} from '../src/domain/echo-lyric-promotion.js';
 import {echoLyricComparePerformanceMaps,echoLyricPerformanceMap} from '../src/domain/echo-lyric-performance.js';
 import {echoLyricVoiceOf} from '../src/domain/echo-lyric-voices.js';
 import {echoLyricHasManualTiming,echoLyricSourceLines,echoLyricRegistryTrackId,echoLyricDuplicateRegistryIds} from '../src/domain/echo-lyric-sync-safety.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const opts=Object.fromEntries(process.argv.slice(2).map(a=>{const i=a.indexOf('=');return i<0?[a.slice(2),true]:[a.slice(2,i),a.slice(i+1)];}));
-if(!opts.out)throw Error('Usage: atlas-lyric-mass-heal.mjs --out=DIR [--analyze-missing] [--song=ID] [--voices=off [--compare-master]]');
+if(!opts.out)throw Error('Usage: atlas-lyric-mass-heal.mjs --out=DIR [--analyze-missing] [--align] [--song=ID | --songs=ID,ID] [--voices=off [--compare-master]]');
 if(process.env.HAPA_AUDIO_ATLAS_WORKER)throw Error('Worker cannot coordinate catalog');
 const batchId=new Date().toISOString().replace(/[:.]/g,'-');
 const out=path.resolve(opts.out),candidateDir=path.join(out,'candidate-batches',batchId),atlas=createAudioAtlas({root}),rows=[];fs.mkdirSync(out,{recursive:true});let stopping=false;
@@ -21,7 +21,8 @@ try{
  const duplicateRegistryIds=echoLyricDuplicateRegistryIds(songs);
  const jobs=atlas.jobs().filter(j=>j.state==='complete').sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
  for(const song of songs){
-  if(stopping)break;if(opts.song&&opts.song!==song.id)continue;
+  const only=opts.songs?new Set(String(opts.songs).split(',')):null;
+  if(stopping)break;if(opts.song&&opts.song!==song.id)continue;if(only&&!only.has(song.id))continue;
   const row={id:song.id,title:song.title,status:'inspecting',startedAt:new Date().toISOString()};rows.push(row);report();
   const folder=path.join(out,'songs',song.id);fs.mkdirSync(folder,{recursive:true});
   try{
@@ -54,9 +55,13 @@ try{
     const voiced=await plan(atlas,{song:song.id,out:path.join(folder,'voices'),'transcript-run':primary.run,...(opts['analyze-missing']?{'transcribe-voices':true}:{})});
     row.voices=voiced.voices;row.voiceTranscriptions=voiced.transcriptions;
     const attempts=[];
-    try{const built=assemble(atlas,{plan:voiced.plan,'transcript-only':true,candidates:path.join(folder,'voices-candidate')});const timing=JSON.parse(fs.readFileSync(built.candidate)),gate=evaluateEchoLyricTimingPromotion(timing,{sourcePathExists:true,sttPathExists:true});attempts.push({...built,kind:'voices',gate,unresolvedLines:timing.passageReview?.unresolvedLines,voicePerformances:timing.stats.voicePerformances});}catch(error){attempts.push({kind:'voices',error:error.message});}
-    row.attempts=attempts;const accepted=attempts.find(a=>a.gate?.accepted&&a.gate&&!a.unresolvedLines?.length);
-    if(accepted){fs.mkdirSync(candidateDir,{recursive:true});for(const suffix of ['.json','.stt.json'])fs.copyFileSync(accepted.candidate.replace(/\.json$/,suffix),path.join(candidateDir,path.basename(accepted.candidate).replace(/\.json$/,suffix)));row.candidate=path.join(candidateDir,path.basename(accepted.candidate));row.confidence=accepted.confidence;row.selectedEvidence='voices';row.status='accepted-candidate';}
+    const attempt=(kind,options)=>{try{const built=assemble(atlas,{plan:voiced.plan,...options,candidates:path.join(folder,kind+'-candidate')});const timing=JSON.parse(fs.readFileSync(built.candidate)),gate=evaluateEchoLyricTimingPromotion(timing,{sourcePathExists:true,sttPathExists:true,writtenLyrics:song.lyrics??''});attempts.push({...built,kind,gate,unresolvedLines:timing.passageReview?.unresolvedLines,voicePerformances:timing.stats.voicePerformances});}catch(error){attempts.push({kind,error:error.message});}};
+    // --align: forced alignment of every window on its singer's stem (resumable; failures recorded, never fatal).
+    if(opts.align){row.status='aligning';report();try{const done=await align(atlas,{plan:voiced.plan});row.alignment={windows:done.windows,voiceWindows:done.voiceWindows,complete:done.complete,failed:done.failed};}catch(error){row.alignment={error:error.message};}attempt('voices-aligned',{});}
+    attempt('voices',{'transcript-only':true});
+    // Prefer the two-model aligned candidate when it passes every gate; else the recognizer-timed one.
+    row.attempts=attempts;const accepted=['voices-aligned','voices'].map(kind=>attempts.find(a=>a.kind===kind&&a.gate?.accepted&&!a.unresolvedLines?.length)).find(Boolean);
+    if(accepted){fs.mkdirSync(candidateDir,{recursive:true});for(const suffix of ['.json','.stt.json'])fs.copyFileSync(accepted.candidate.replace(/\.json$/,suffix),path.join(candidateDir,path.basename(accepted.candidate).replace(/\.json$/,suffix)));row.candidate=path.join(candidateDir,path.basename(accepted.candidate));row.confidence=accepted.confidence;row.selectedEvidence=accepted.kind;row.status='accepted-candidate';}
     else row.status='held-for-passage-review';
     row.finishedAt=new Date().toISOString();report();console.log(JSON.stringify({title:row.title,status:row.status,confidence:row.confidence,voices:row.voices?.map(v=>`${v.voice}:${v.supportedLines}`).join(' '),error:attempts[0]?.error}));
     continue;
@@ -72,7 +77,7 @@ try{
    row.conflictingPassages=maps[1]?echoLyricComparePerformanceMaps(maps[0],maps[1],{corroboratingWords:corroboration.words}).conflictingLines:[];
    const attempts=[];
    for(const [kind,p,comparison] of [['primary',first,null],...(second?[['master',second,null],['primary-refined',first,second],['master-refined',second,first],['combined',first,second]]:[])]){
-    try{const built=assemble(atlas,{corroboration,plan:p.plan,'comparison-plan':comparison?.plan,'comparison-mode':kind.endsWith('-refined')?'boundaries-only':null,'transcript-only':true,candidates:path.join(folder,kind+'-candidate')});const timing=JSON.parse(fs.readFileSync(built.candidate)),gate=evaluateEchoLyricTimingPromotion(timing,{sourcePathExists:true,sttPathExists:true});attempts.push({...built,kind,gate,unresolvedLines:timing.passageReview?.unresolvedLines,conflictingLines:timing.lines.flatMap((line,i)=>line.alignmentReview?.reason==='cross-source-passage-time-disagreement'?[i]:[])});}catch(error){attempts.push({kind,error:error.message});}
+    try{const built=assemble(atlas,{corroboration,plan:p.plan,'comparison-plan':comparison?.plan,'comparison-mode':kind.endsWith('-refined')?'boundaries-only':null,'transcript-only':true,candidates:path.join(folder,kind+'-candidate')});const timing=JSON.parse(fs.readFileSync(built.candidate)),gate=evaluateEchoLyricTimingPromotion(timing,{sourcePathExists:true,sttPathExists:true,writtenLyrics:song.lyrics??''});attempts.push({...built,kind,gate,unresolvedLines:timing.passageReview?.unresolvedLines,conflictingLines:timing.lines.flatMap((line,i)=>line.alignmentReview?.reason==='cross-source-passage-time-disagreement'?[i]:[])});}catch(error){attempts.push({kind,error:error.message});}
    }
    row.attempts=attempts;const accepted=attempts.filter(a=>a.gate?.accepted&&!row.conflictingPassages.length&&!attempts.some(b=>b.conflictingLines?.length)&&!(['primary','master'].includes(a.kind)&&attempts.some(b=>b.kind===a.kind+'-refined'&&b.gate?.accepted))).sort((a,b)=>b.confidence-a.confidence || Number(b.kind.endsWith('-refined')||b.kind==='combined')-Number(a.kind.endsWith('-refined')||a.kind==='combined'))[0];
    if(accepted){fs.mkdirSync(candidateDir,{recursive:true});for(const suffix of ['.json','.stt.json'])fs.copyFileSync(accepted.candidate.replace(/\.json$/,suffix),path.join(candidateDir,path.basename(accepted.candidate).replace(/\.json$/,suffix)));row.candidate=path.join(candidateDir,path.basename(accepted.candidate));row.confidence=accepted.confidence;row.selectedEvidence=accepted.kind;row.status='accepted-candidate';}

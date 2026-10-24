@@ -6,8 +6,32 @@ export function echoLyricSourceLines(value) {
  return text.split(/\r?\n/).map(line=>line.trim()).filter(line=>line&&!/^\[[^\]]*\]$/.test(line));
 }
 export function echoLyricSourceMatches(lines,lyrics) {
- const source=echoLyricSourceLines(lyrics);
- return source.length===lines.length && source.every((text,i)=>text===lines[i].text);
+ return echoLyricWrittenLinesCheck(lines,lyrics).ok;
+}
+
+/**
+ * The written lyrics are the text of record: a timing may only show them. The timed lines must be
+ * exactly the written lyric lines — same text, same order, same count — whatever engine produced
+ * the timing. Section tags such as "[Chorus]" are not sung lyrics and are ignored on both sides.
+ * Speech-to-text output never replaces written text; it only supplies timing for written words.
+ * → { ok, writtenLines, timedLines, reason?, firstDifference?: { index, written, timed } }
+ */
+export function echoLyricWrittenLinesCheck(timingLines=[],writtenLyrics) {
+ const written=echoLyricSourceLines(writtenLyrics);
+ const timed=(Array.isArray(timingLines)?timingLines:[]).map(line=>String(line?.text??'').trim()).filter(text=>text&&!/^\[[^\]]*\]$/.test(text));
+ const base={writtenLines:written.length,timedLines:timed.length};
+ if(!written.length)return {...base,ok:false,reason:'no-written-lyrics'};
+ const index=written.findIndex((text,i)=>text!==timed[i]);
+ if(index<0&&timed.length===written.length)return {...base,ok:true};
+ const at=index<0?written.length:index;
+ return {...base,ok:false,reason:timed.length<written.length?'written-lines-missing':timed.length>written.length?'lines-not-in-written-lyrics':'timed-text-differs-from-written',
+  firstDifference:{index:at,written:written[at]??null,timed:timed[at]??null}};
+}
+
+/** The written lyrics of the Song whose canonical timing ID is registryTrackId (null when none). */
+export function echoLyricWrittenLyricsFor(registryTrackId,songs=[]) {
+ const song=(songs||[]).find(s=>registryTrackId&&echoLyricRegistryTrackId(s)===String(registryTrackId));
+ return song ? song.lyrics ?? '' : null;
 }
 
 // Match the canonical Songbook lineage used by sync; audio projections can retain another take's ID.

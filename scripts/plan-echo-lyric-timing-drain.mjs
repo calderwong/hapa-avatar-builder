@@ -3,9 +3,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { evaluateEchoLyricTimingPromotion } from "../src/domain/echo-lyric-promotion.js";
+import { echoLyricWrittenLyricsFor } from "../src/domain/echo-lyric-sync-safety.js";
 import { classifyEchoLyricDrainQueue } from "../src/domain/echo-lyric-drain-plan.js";
 
 const ROOT = path.resolve(".");
+// Every timing is checked against the Song Card written lyrics (the text of record).
+const WRITTEN_SONGS = JSON.parse(fs.readFileSync(path.join(ROOT, "data/hapa-songs-store.json"), "utf8")).songs || [];
 const BASELINE_PATH = process.env.HAPA_ECHO_LYRIC_BASELINE
   || path.join(ROOT, "artifacts/echo-lyric-quality-v4/baseline.json");
 const OUTPUT_PATH = process.env.HAPA_ECHO_LYRIC_DRAIN_PLAN
@@ -68,6 +71,7 @@ function inspectTimingEvidence(registryTrackId, manifestSong = null) {
           promotion: evaluateEchoLyricTimingPromotion(timing, {
             sourcePathExists: true,
             sttPathExists: fs.existsSync(sttPath),
+            writtenLyrics: echoLyricWrittenLyricsFor(registryTrackId, WRITTEN_SONGS),
           }),
         };
       } catch {

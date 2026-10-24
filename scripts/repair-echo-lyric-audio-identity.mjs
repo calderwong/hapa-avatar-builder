@@ -5,8 +5,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { generateEchoHyperframeScript } from "../src/domain/echo-hyperframe-script.js";
 import { evaluateEchoLyricTimingPromotion } from "../src/domain/echo-lyric-promotion.js";
+import { echoLyricWrittenLyricsFor } from "../src/domain/echo-lyric-sync-safety.js";
 
 const ROOT = path.resolve(".");
+// Every timing is checked against the Song Card written lyrics (the text of record).
+const WRITTEN_SONGS = JSON.parse(fs.readFileSync(path.join(ROOT, "data/hapa-songs-store.json"), "utf8")).songs || [];
 const PROJECTS_DIR = path.join(ROOT, "data/music-video-projects");
 const LIBRARY_ROOT = process.env.HAPA_SUNO_LIBRARY_ROOT || "/Users/calderwong/Desktop/suno-library";
 const APPLY = process.argv.includes("--apply");
@@ -100,6 +103,7 @@ for (const file of fs.readdirSync(PROJECTS_DIR).filter((name) => name.endsWith("
   const promotion = evaluateEchoLyricTimingPromotion(timing, {
     sourcePathExists: true,
     sttPathExists: fs.existsSync(sttPath),
+    writtenLyrics: echoLyricWrittenLyricsFor(registryTrackId, WRITTEN_SONGS),
   });
   if (!promotion.accepted || !lines.length) {
     repairs.push({ file, songId: project.song_id, registryTrackId, previousTimingRegistryTrackId: timingRegistryTrackId, status: "blocked", reason: promotion.reasons?.join(",") || "timing-lines-missing" });

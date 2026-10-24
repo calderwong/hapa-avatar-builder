@@ -6,6 +6,8 @@ import {
   echoLyricWordOverlapCount,
   evaluateEchoLyricTimingPromotion,
 } from "../src/domain/echo-lyric-promotion.js";
+// These tests cover other gate rules; each fixture's own lines stand in for its written lyrics.
+const gate = (timing, options = {}) => evaluateEchoLyricTimingPromotion(timing, { writtenLyrics: (timing.lines || []).map((line) => line.text).join('\n'), ...options });
 
 const sidecars = { sourcePathExists: true, sttPathExists: true };
 const timing = (engine, confidence, lyricsSha256 = "lyrics-hash") => ({
@@ -18,11 +20,11 @@ const timing = (engine, confidence, lyricsSha256 = "lyrics-hash") => ({
 });
 
 test("Audio Atlas MLX timing is a measured engine and still faces every other gate", () => {
-  assert.equal(evaluateEchoLyricTimingPromotion(timing(ECHO_LYRIC_ATLAS_ENGINE, 0.8), sidecars).accepted, true);
-  const low = evaluateEchoLyricTimingPromotion(timing(ECHO_LYRIC_ATLAS_ENGINE, 0.4), sidecars);
+  assert.equal(gate(timing(ECHO_LYRIC_ATLAS_ENGINE, 0.8), sidecars).accepted, true);
+  const low = gate(timing(ECHO_LYRIC_ATLAS_ENGINE, 0.4), sidecars);
   assert.equal(low.accepted, false);
   assert.ok(low.reasons.includes("confidence-below-gate"));
-  const unknown = evaluateEchoLyricTimingPromotion(timing("some-other-engine", 0.9), sidecars);
+  const unknown = gate(timing("some-other-engine", 0.9), sidecars);
   assert.ok(unknown.reasons.includes("non-measured-engine"));
 });
 

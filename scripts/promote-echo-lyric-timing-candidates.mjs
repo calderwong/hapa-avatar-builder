@@ -7,6 +7,7 @@ import {
   createEchoLyricTimingAdjudication,
   evaluateEchoLyricTimingPromotion,
 } from "../src/domain/echo-lyric-promotion.js";
+import { echoLyricWrittenLyricsFor } from "../src/domain/echo-lyric-sync-safety.js";
 
 const ROOT = path.resolve(".");
 const CANDIDATE_DIR = process.env.HAPA_ECHO_LYRIC_CANDIDATE_DIR
@@ -25,10 +26,14 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+// Every timing is checked against the Song Card's written lyrics (the text of record).
+const SONGS = readJson(process.env.HAPA_SONG_STORE || path.join(ROOT, "data/hapa-songs-store.json")).songs || [];
 function promotionFor(timing, timingPath) {
+  const registryTrackId = String(timing.songId || path.basename(timingPath).replace(/\.json$/i, ""));
   return evaluateEchoLyricTimingPromotion(timing, {
     sourcePathExists: fs.existsSync(timingPath),
     sttPathExists: fs.existsSync(timingPath.replace(/\.json$/i, ".stt.json")),
+    writtenLyrics: echoLyricWrittenLyricsFor(registryTrackId, SONGS),
   });
 }
 

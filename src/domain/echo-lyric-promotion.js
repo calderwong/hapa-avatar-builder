@@ -1,4 +1,5 @@
 import { inspectEchoLyricPassages } from './echo-lyric-performance.js';
+import { echoLyricWrittenLinesCheck } from './echo-lyric-sync-safety.js';
 export const ECHO_LYRIC_PROMOTION_SCHEMA = "hapa.echo.lyric-promotion-gate.v1";
 export const DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE = 0.6;
 // Audio Atlas (MLX Whisper + Qwen3 forced alignment on the isolated vocal stem) is the current
@@ -266,10 +267,16 @@ function validEchoLyricTimingAdjudication(timing = {}) {
       === inspection.speechActivityInferredLineCount;
 }
 
+/**
+ * writtenLyrics: the Song Card's written lyrics (string or {text}). Required for every engine: the
+ * timed lines must be exactly the written lyric lines. Omitted → "written-lyrics-not-checked";
+ * null (no Song found) → "written-lyrics-unavailable"; any difference → "timed-lines-not-written-lyrics".
+ */
 export function evaluateEchoLyricTimingPromotion(timing = {}, {
   minimumConfidence = DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE,
   sourcePathExists = false,
   sttPathExists = false,
+  writtenLyrics = undefined,
 } = {}) {
   const lines = Array.isArray(timing.lines) ? timing.lines : [];
   const confidence = Number(timing.confidence ?? 0);
@@ -297,6 +304,14 @@ export function evaluateEchoLyricTimingPromotion(timing = {}, {
   if (!text(provenance.audioSha256)) reasons.push("audio-source-hash-missing");
   if (!text(provenance.lyricsPath)) reasons.push("lyric-source-path-missing");
   if (!text(provenance.lyricsSha256)) reasons.push("lyric-source-hash-missing");
+  // The written lyrics are the text of record; speech-to-text output may only time them.
+  let writtenLines = null;
+  if (writtenLyrics === undefined) reasons.push("written-lyrics-not-checked");
+  else if (writtenLyrics === null) reasons.push("written-lyrics-unavailable");
+  else {
+    writtenLines = echoLyricWrittenLinesCheck(lines, writtenLyrics);
+    if (!writtenLines.ok) reasons.push("timed-lines-not-written-lyrics");
+  }
   return {
     schemaVersion: ECHO_LYRIC_PROMOTION_SCHEMA,
     accepted: reasons.length === 0,
@@ -304,6 +319,7 @@ export function evaluateEchoLyricTimingPromotion(timing = {}, {
     confidence,
     engine,
     adjudicationAccepted,
+    writtenLines,
     reasons: [...new Set(reasons)],
   };
 }

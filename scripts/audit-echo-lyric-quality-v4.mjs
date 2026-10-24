@@ -10,6 +10,7 @@ import {
   lyricIssuePriority,
 } from "../src/domain/echo-lyric-quality.js";
 import { evaluateEchoLyricTimingPromotion } from "../src/domain/echo-lyric-promotion.js";
+import { echoLyricWrittenLyricsFor } from "../src/domain/echo-lyric-sync-safety.js";
 import { assessEchoLyricPrecision } from "../src/domain/echo-lyric-precision.js";
 
 const ROOT = path.resolve(".");
@@ -74,6 +75,9 @@ function sourceMetadataFor(manifestSong = null) {
   }
 }
 
+let writtenSongsCache = null;
+const writtenSongs = () => (writtenSongsCache ||= readJson(SONG_STORE_PATH).songs || []);
+
 function measuredPerformanceCanonicalFor(timingPath = "") {
   if (!timingPath || !fs.existsSync(timingPath)) return null;
   try {
@@ -81,6 +85,7 @@ function measuredPerformanceCanonicalFor(timingPath = "") {
     const promotion = evaluateEchoLyricTimingPromotion(timing, {
       sourcePathExists: true,
       sttPathExists: fs.existsSync(timingPath.replace(/\.json$/i, ".stt.json")),
+      writtenLyrics: echoLyricWrittenLyricsFor(String(timing.songId || path.basename(timingPath).replace(/\.json$/i, "")), writtenSongs()),
     });
     if (!promotion.accepted) return null;
     const text = (timing.lines || [])

@@ -15,6 +15,26 @@ timing remains readable.
 
 Whole-song transcription prefers the song's **isolated Lead Vocals / Vocals stem** from its single current stem set (`src/domain/echo-stem-set.js`). The catalog repair can compare that transcript with a separate transcription of the exact master recording. These are two views through the same recognizer, not independent models. Never analyze duplicate stem files or both formats.
 
+## Written lyrics are the text of record — enforced for every engine (2026-10-24)
+
+Calder: current lyrics are the **written** lyrics on the Song Card, never anything a speech-to-text
+model produced. Promotion and sync now refuse any timing whose lines are not exactly the written
+lyric lines — same text, same order, same count — whatever engine or pipeline produced it
+(`echoLyricWrittenLinesCheck`, `src/domain/echo-lyric-sync-safety.js`). Section tags such as
+`[Chorus]` are not sung and are ignored on both sides. The promotion gate requires the written
+lyrics as input: omitted → `written-lyrics-not-checked`, no Song found →
+`written-lyrics-unavailable`, any difference → `timed-lines-not-written-lyrics`. Every gate caller
+(promotion, sync, publish, repair, audits, the catalog runner) passes them. Sync also runs its
+master-audio checks for any timing that records a master hash, not only the v2 pipeline.
+
+Before this, only the v2 pipeline was checked. On 2026-10-24 the rule refused 39 published
+timings: six legacy `stt_performance_transcript` timings displayed the recognizer's transcript
+instead of the written lyrics (R.G.B. Nice Whale showed 11 transcript lines for 129 written), and
+others had missing, truncated or re-spaced lines. Refused timings are not synced; the stores keep
+their previous timing until the song is re-timed. Some Song Card lyric fields contain lines that
+are never sung (`TITLE: …`, `(Style: … ~75 BPM …)`, stage directions); under the exact rule they
+are written lines too, so they need an explicit decision (keep, or mark them as tags).
+
 ## Lead and backing vocals, matched to the original lyrics (2026-10-24)
 
 The written lyrics are the text of record. Recognizers mishear and misspell; their words only

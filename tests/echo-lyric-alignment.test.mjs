@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assembleEchoLyricIntervals, echoLyricTranscriptPairs, echoLyricRetainedLineIndexes } from '../src/domain/echo-lyric-alignment.js';
 import { evaluateEchoLyricTimingPromotion } from '../src/domain/echo-lyric-promotion.js';
+// These tests cover other gate rules; each fixture's own lines stand in for its written lyrics.
+const gate = (timing, options = {}) => evaluateEchoLyricTimingPromotion(timing, { writtenLyrics: (timing.lines || []).map((line) => line.text).join('\n'), ...options });
 const word = (text,start,end,matched=true) => ({ text,start,end,matched });
 const assemble = (lines,alignedWords,extra={}) => assembleEchoLyricIntervals({lines,alignedWords,duration:10,...extra});
 const valid = result => {
@@ -41,7 +43,7 @@ test('bad timestamps cannot pass promotion with confident scores or falsified cl
   {lines:[{start:1,end:3,words:[word('one',1,2),word('two',1.5,2.5)]}],reason:'overlapping-word-windows'},
   {lines:[{start:1,end:3},{start:2,end:4}],reason:'overlapping-line-windows'},
   {lines:[{start:1,end:2},{start:1,end:3}],reason:'duplicate-line-starts'}];
- for(const c of cases){const result=evaluateEchoLyricTimingPromotion({...base,lines:c.lines},{sourcePathExists:true,sttPathExists:true});assert.equal(result.accepted,false);assert.ok(result.reasons.includes(c.reason));}
+ for(const c of cases){const result=gate({...base,lines:c.lines},{sourcePathExists:true,sttPathExists:true});assert.equal(result.accepted,false);assert.ok(result.reasons.includes(c.reason));}
 });
 
 test('timing omissions require exact, unique source receipts and retain canonical indexes', () => {

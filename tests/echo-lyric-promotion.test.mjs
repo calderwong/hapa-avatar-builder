@@ -7,6 +7,8 @@ import {
   evaluateEchoLyricTimingPromotion,
   inspectEchoLyricTimingAdjudication,
 } from "../src/domain/echo-lyric-promotion.js";
+// These tests cover other gate rules; each fixture's own lines stand in for its written lyrics.
+const gate = (timing, options = {}) => evaluateEchoLyricTimingPromotion(timing, { writtenLyrics: (timing.lines || []).map((line) => line.text).join('\n'), ...options });
 
 function measuredTiming(overrides = {}) {
   return {
@@ -27,7 +29,7 @@ function measuredTiming(overrides = {}) {
 }
 
 test("measured, hashed, structurally clean timing clears the promotion gate", () => {
-  const result = evaluateEchoLyricTimingPromotion(measuredTiming(), {
+  const result = gate(measuredTiming(), {
     sourcePathExists: true,
     sttPathExists: true,
   });
@@ -79,7 +81,7 @@ test("same-quality hybrid DTW evidence can replace legacy timing without a cover
 });
 
 test("weak or synthetic timing cannot replace live Director timing", () => {
-  const weak = evaluateEchoLyricTimingPromotion(measuredTiming({
+  const weak = gate(measuredTiming({
     engine: "stub",
     confidence: 0.538,
     warnings: ["many_unmatched_lines:6"],
@@ -106,7 +108,7 @@ test("automatic confidence never bypasses invalid line or word intervals", () =>
       words: [{ text: "broken", start: 1, end: 1 }],
     }],
   });
-  const result = evaluateEchoLyricTimingPromotion(timing, {
+  const result = gate(timing, {
     sourcePathExists: true,
     sttPathExists: true,
   });
@@ -131,7 +133,7 @@ test("a narrow clean near-threshold alignment can carry an evidence adjudication
   timing.adjudication = createEchoLyricTimingAdjudication(timing, {
     adjudicatedAt: "2026-07-29T00:00:00.000Z",
   });
-  const result = evaluateEchoLyricTimingPromotion(timing, {
+  const result = gate(timing, {
     sourcePathExists: true,
     sttPathExists: true,
   });
@@ -166,7 +168,7 @@ test("adjudication cannot bypass alignment warnings or source-hash drift", () =>
   });
   clean.adjudication = createEchoLyricTimingAdjudication(clean);
   clean.provenance.audioSha256 = "different-audio";
-  const result = evaluateEchoLyricTimingPromotion(clean, {
+  const result = gate(clean, {
     sourcePathExists: true,
     sttPathExists: true,
   });
@@ -190,7 +192,7 @@ test("high word coverage can adjudicate a narrowly sparse line-anchor warning", 
   assert.equal(inspection.eligible, true);
   assert.equal(inspection.policyId, "high-word-coverage-sparse-line-anchors-v1");
   timing.adjudication = createEchoLyricTimingAdjudication(timing);
-  assert.equal(evaluateEchoLyricTimingPromotion(timing, {
+  assert.equal(gate(timing, {
     sourcePathExists: true,
     sttPathExists: true,
   }).accepted, true);
@@ -241,7 +243,7 @@ test("multilingual display lyrics can use measured speech activity between lexic
   assert.equal(inspection.eligible, true);
   assert.equal(inspection.policyId, "multilingual-speech-activity-anchors-v1");
   timing.adjudication = createEchoLyricTimingAdjudication(timing);
-  assert.equal(evaluateEchoLyricTimingPromotion(timing, {
+  assert.equal(gate(timing, {
     sourcePathExists: true,
     sttPathExists: true,
   }).accepted, true);
@@ -277,7 +279,7 @@ test("dense line anchors can adjudicate a narrowly sub-threshold word match", ()
   assert.equal(inspection.eligible, true);
   assert.equal(inspection.policyId, "dense-line-coverage-phrase-alignment-v1");
   timing.adjudication = createEchoLyricTimingAdjudication(timing);
-  assert.equal(evaluateEchoLyricTimingPromotion(timing, {
+  assert.equal(gate(timing, {
     sourcePathExists: true,
     sttPathExists: true,
   }).accepted, true);
@@ -296,5 +298,5 @@ test("single-model coverage does not displace corroborated boundaries on a diffe
 test("v2 whole-song confidence cannot bypass a locally unsupported passage",()=>{
   const timing=measuredTiming({engine:'audio-atlas-mlx',confidence:.99,lines:[{text:'missing words',start:1,end:4,words:[{start:1,end:2,matched:true}],alignmentReview:{performanceSupported:false,performanceCoverage:.2}}]});
   timing.provenance={...timing.provenance,pipeline:'audio-atlas-lyric-timing.v2',measurementKind:'transcript-timestamps'};
-  assert.ok(evaluateEchoLyricTimingPromotion(timing,{sourcePathExists:true,sttPathExists:true}).reasons.includes('unresolved-lyric-passages'));
+  assert.ok(gate(timing,{sourcePathExists:true,sttPathExists:true}).reasons.includes('unresolved-lyric-passages'));
 });

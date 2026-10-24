@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { echoLyricWrittenLyricsFor } from "../src/domain/echo-lyric-sync-safety.js";
 import {
   DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE,
   evaluateEchoLyricTimingPromotion,
 } from "../src/domain/echo-lyric-promotion.js";
 
 const ROOT = path.resolve(".");
+// Every timing is checked against the Song Card written lyrics (the text of record).
+const WRITTEN_SONGS = JSON.parse(fs.readFileSync(path.join(ROOT, "data/hapa-songs-store.json"), "utf8")).songs || [];
 const DATA_DIR = path.join(ROOT, "data");
 const PLAYLIST_ID = process.env.HAPA_DEAR_PAPA_PLAYLIST_ID || "903148b6-5709-4511-9cfd-d34b23799da6";
 const SUNO_LIBRARY_ROOT = process.env.HAPA_SUNO_LIBRARY_ROOT || "/Users/calderwong/Desktop/suno-library";
@@ -57,6 +60,7 @@ for (const result of candidates) {
     minimumConfidence: DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE,
     sourcePathExists: true,
     sttPathExists: fs.existsSync(sttPath),
+    writtenLyrics: echoLyricWrittenLyricsFor(registryTrackId, WRITTEN_SONGS),
   });
   if (!promotion.accepted) {
     rejected.push({ registryTrackId, title: result.title || timing.title || "", confidence: timing.confidence, reasons: promotion.reasons });

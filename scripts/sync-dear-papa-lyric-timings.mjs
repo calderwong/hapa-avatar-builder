@@ -2,7 +2,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "node:crypto";
-import { echoLyricHasManualTiming, echoLyricSourceMatches, echoLyricRegistryTrackId, normalizeEchoLyricTimingLines as normalizeTimingLines } from "../src/domain/echo-lyric-sync-safety.js";
+import { echoLyricHasManualTiming, echoLyricWrittenLinesCheck, echoLyricWrittenLyricsFor, echoLyricRegistryTrackId, normalizeEchoLyricTimingLines as normalizeTimingLines } from "../src/domain/echo-lyric-sync-safety.js";
 import {
   DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE,
   evaluateEchoLyricTimingPromotion,
@@ -188,6 +188,8 @@ const manifestSongs = [...new Map([
 ].map((song) => [String(song.id || ""), song])).values()];
 const timingByRegistryId = new Map();
 const timingRejections = [];
+// Written lyrics are the text of record for every engine; the store is re-checked below before writing.
+const writtenSongs = readJson(HAPA_SONG_STORE_PATH).songs || [];
 for (const song of manifestSongs) {
   if (REQUESTED_REGISTRY_TRACK_IDS.size && !REQUESTED_REGISTRY_TRACK_IDS.has(String(song.id || ""))) continue;
   const timing = readTimingForManifestSong(song);
@@ -202,6 +204,7 @@ for (const song of manifestSongs) {
       minimumConfidence: MIN_CONFIDENCE,
       sourcePathExists: fs.existsSync(timing.path),
       sttPathExists: fs.existsSync(timing.sttPath),
+      writtenLyrics: echoLyricWrittenLyricsFor(timing.registryTrackId, writtenSongs),
     },
   );
   if (promotion.accepted) timingByRegistryId.set(timing.registryTrackId, {
@@ -230,9 +233,11 @@ for (const song of store.songs || []) {
   const reasons=[];
   if(echoLyricHasManualTiming(song))reasons.push('manual-song-timing');
   if(sourceProjects.some(project=>[song.id,song.cardId,song.songId].includes(project.song_id)&&echoLyricHasManualTiming(project)))reasons.push('manual-project-timing');
-  if(timing.provenance.pipeline==='audio-atlas-lyric-timing.v2'){
-    const lyrics=typeof song.lyrics==='string'?song.lyrics:song.lyrics?.text||'';
-    if(sha256(lyrics)!==timing.provenance.lyricsSha256||!echoLyricSourceMatches(timing.lines,song.lyrics))reasons.push('canonical-lyrics-changed-or-omitted');
+  // Every engine: the timed lines must be exactly this Song Card's written lyric lines.
+  const written=echoLyricWrittenLinesCheck(timing.lines,song.lyrics);
+  if(!written.ok)reasons.push(`timed-lines-not-written-lyrics:${written.reason}`);
+  // Any timing that records its master (Atlas v2 and later) must still match the current audio bytes.
+  if(timing.provenance?.masterAudioSha256){
     if(!song.audio?.localPath || !fs.existsSync(song.audio.localPath) || crypto.createHash('sha256').update(fs.readFileSync(song.audio.localPath)).digest('hex')!==timing.provenance.masterAudioSha256)reasons.push('current-master-audio-changed');
     if(!fs.existsSync(timing.provenance.audioPath)||crypto.createHash('sha256').update(fs.readFileSync(timing.provenance.audioPath)).digest('hex')!==timing.provenance.audioSha256)reasons.push('audio-source-changed');
   }
