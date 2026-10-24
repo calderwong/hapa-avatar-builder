@@ -1,3 +1,4 @@
+import { inspectEchoLyricPassages } from './echo-lyric-performance.js';
 export const ECHO_LYRIC_PROMOTION_SCHEMA = "hapa.echo.lyric-promotion-gate.v1";
 export const DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE = 0.6;
 // Audio Atlas (MLX Whisper + Qwen3 forced alignment on the isolated vocal stem) is the current
@@ -66,6 +67,23 @@ export function inspectEchoLyricTimingAdjudication(timing = {}) {
       || end <= start
       || (duration > 0 && end > duration + 0.25);
   }).length;
+  let wordsOutsideLines = 0, overlappingWords = 0, actualLineOverlaps = 0, actualDuplicateStarts = 0;
+  let previousLine = null;
+  for (const line of timing.lines || []) {
+    const start = Number(line.start ?? line.startTime), end = Number(line.end ?? line.endTime);
+    if (previousLine) {
+      if (start < previousLine.end - 1e-6) actualLineOverlaps++;
+      if (Math.abs(start - previousLine.start) < 1e-6) actualDuplicateStarts++;
+    }
+    previousLine = { start, end };
+    let previousEnd = null;
+    for (const word of line.words || []) {
+      const ws = Number(word.start ?? word.startTime), we = Number(word.end ?? word.endTime);
+      if (ws < start - 1e-6 || we > end + 1e-6) wordsOutsideLines++;
+      if (previousEnd !== null && ws < previousEnd - 1e-6) overlappingWords++;
+      previousEnd = we;
+    }
+  }
   const structuralReasons = [];
   if (Number(stats.overlapCount || 0) > 0) structuralReasons.push("overlapping-line-windows");
   if (Number(stats.duplicateStartCount || 0) > 0) structuralReasons.push("duplicate-line-starts");
@@ -73,6 +91,11 @@ export function inspectEchoLyricTimingAdjudication(timing = {}) {
   if (invalidLineIntervals > 0) structuralReasons.push("invalid-line-intervals");
   if (!text(provenance.audioSha256)) structuralReasons.push("audio-source-hash-missing");
   if (!text(provenance.lyricsSha256)) structuralReasons.push("lyric-source-hash-missing");
+  if (wordsOutsideLines) structuralReasons.push("word-outside-line");
+  if (overlappingWords) structuralReasons.push("overlapping-word-windows");
+  if (actualLineOverlaps && !structuralReasons.includes("overlapping-line-windows")) structuralReasons.push("overlapping-line-windows");
+  if (actualDuplicateStarts && !structuralReasons.includes("duplicate-line-starts")) structuralReasons.push("duplicate-line-starts");
+  if (provenance.pipeline === 'audio-atlas-lyric-timing.v2') structuralReasons.push(...inspectEchoLyricPassages(timing).reasons);
   const cleanReasons = [...structuralReasons];
   if (!Number.isFinite(confidence) || confidence < ECHO_LYRIC_ADJUDICATION_MIN_CONFIDENCE) cleanReasons.push("confidence-below-adjudication-floor");
   if (confidence >= DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE) cleanReasons.push("automatic-gate-already-available");
@@ -182,6 +205,7 @@ export function inspectEchoLyricTimingAdjudication(timing = {}) {
     speechActivityInferredLineCount,
     invalidWordIntervals,
     invalidLineIntervals,
+    wordsOutsideLines, overlappingWords, actualLineOverlaps, actualDuplicateStarts, structuralReasons,
     reasons,
   };
 }
@@ -256,6 +280,7 @@ export function evaluateEchoLyricTimingPromotion(timing = {}, {
   const reasons = [];
   const adjudicationAccepted = validEchoLyricTimingAdjudication(timing);
   const structuralInspection = inspectEchoLyricTimingAdjudication(timing);
+  reasons.push(...structuralInspection.structuralReasons.filter(reason => !["audio-source-hash-missing", "lyric-source-hash-missing"].includes(reason)));
   if (!lines.length) reasons.push("no-timed-lines");
   if (!Number.isFinite(confidence) || (confidence < minimumConfidence && !adjudicationAccepted)) reasons.push("confidence-below-gate");
   if (Number(stats.overlapCount || 0) > 0) reasons.push("overlapping-line-windows");
@@ -279,7 +304,7 @@ export function evaluateEchoLyricTimingPromotion(timing = {}, {
     confidence,
     engine,
     adjudicationAccepted,
-    reasons,
+    reasons: [...new Set(reasons)],
   };
 }
 
@@ -319,6 +344,18 @@ export function compareEchoLyricTimingCandidate({
     && text(candidate.provenance?.lyricsSha256) && text(candidate.provenance?.lyricsSha256) === text(existing.provenance?.lyricsSha256)) {
     return { selected: true, reason: "audio-atlas-supersedes-legacy-engine" };
   }
+  const candidateSingle = candidate.provenance?.measurementKind === 'transcript-timestamps';
+  const existingSingle = existing.provenance?.measurementKind === 'transcript-timestamps';
+  const existingQwen = timingMethod(existing).includes('qwen3');
+  const candidateQwen = timingMethod(candidate).includes('qwen3');
+  // Coverage-only confidence and cross-model confidence have different meanings.
+  if (candidateSingle && existingQwen) {
+    if (!inspectEchoLyricPassages(existing).accepted && inspectEchoLyricPassages(candidate).accepted)
+      return { selected: true, reason: 'complete-passage-evidence-upgrade' };
+    return { selected: false, reason: 'preserve-corroborated-word-boundaries' };
+  }
+  if (candidateQwen && existingSingle && inspectEchoLyricPassages(candidate).accepted)
+    return { selected: true, reason: 'corroborated-word-boundary-upgrade' };
   const candidateConfidence = Number(candidate.confidence || 0);
   const existingConfidence = Number(existing.confidence || 0);
   if (candidateConfidence > existingConfidence) {

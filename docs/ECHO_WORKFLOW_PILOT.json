@@ -81,246 +81,6 @@
     "implementationMinutes": null,
     "verificationMinutes": null
   },
-  "livingLightVisualTiming20261022": {
-    "status": "in_progress",
-    "task": "LL-919",
-    "qualifiedStemCounts": [
-      5,
-      6,
-      4
-    ],
-    "testedStemCounts": [
-      12,
-      12,
-      12
-    ],
-    "focusedTestsPassed": 15,
-    "buildPassed": true,
-    "legacyFingerprintsPreserved": 2,
-    "nativeDelivery": "pending",
-    "musicalMotionAcceptance": "pending",
-    "requirementsClosed": [],
-    "postmortem": "docs/postmortems/2026-10-22-living-light-visual-timing.md"
-  },
-  "livingLightNativeMusic20261022": {
-    "status": "in_progress",
-    "preparedSongs": 202,
-    "masterOnlySongs": 46,
-    "songStoreUnchanged": true,
-    "preparationProcessCleanup": true,
-    "targetedTestsPassed": 39,
-    "ownerChecksPassed": 46,
-    "nativeNumericalChecksPassed": 4,
-    "buildPassed": true,
-    "nativePixelAcceptance": "pending",
-    "events": "not-connected",
-    "requirementsClosed": [],
-    "postmortem": "docs/postmortems/2026-10-22-living-light-native-music.md"
-  },
-  "livingLightNativeOnsets20261022": {
-    "status": "in_progress",
-    "requirements": [
-      "LL-920",
-      "LL-921",
-      "LL-922"
-    ],
-    "nativeProof": "four environments, six samples on current 11:23 source bank; no audible playback",
-    "events": "qualified display-onset crossings; not certified beats",
-    "coldFrameMs": [
-      413.9,
-      577.3
-    ],
-    "focusedChecks": 28,
-    "build": "passed",
-    "albumResponsePasses": "pending",
-    "humanAcceptance": "pending"
-  },
-  "livingLightAlbumMusicResponse20261022": {
-    "state": "in_progress",
-    "savedAndReopenedSongs": 202,
-    "sourceBoundCues": 1205,
-    "songsWithQualifiedStemIntervals": 143,
-    "songsUsingMasterOnlyResponse": 59,
-    "originalFilesPreserved": 8014,
-    "originalJourneyPayloadsPreserved": 203,
-    "clockChecksPassed": 35,
-    "build": "passed",
-    "liveService": "server_restart_required",
-    "actualRecordingsVerified": 0,
-    "tasks": [
-      "LL-919",
-      "LL-920",
-      "LL-921",
-      "LL-922"
-    ],
-    "next": "Refresh existing canonical service and verify Director/Record + Play on five contrasting songs",
-    "evidence": "source chat execution/living-light/music-response/director-album-plan-v2.report.json"
-  },
-  "livingLightDirectorRecordings20261022": {
-    "status": "in_progress",
-    "songs": 5,
-    "recordings": [
-      {
-        "id": "9b1b2688-7259-4d3b-8376-488a31f96446",
-        "songId": "dear-papa-song-11-23-meant-to-meet-thu",
-        "requestedSongStartSeconds": 5
-      },
-      {
-        "id": "6e0f0b41-15b9-48d0-978c-fb850425ed44",
-        "songId": "dear-papa-song-brave-tongues",
-        "requestedSongStartSeconds": 83
-      },
-      {
-        "id": "ca7b4f5b-925f-4799-b2cf-0b1a4c9d9d83",
-        "songId": "dear-papa-song-dear-papa",
-        "requestedSongStartSeconds": 88.5
-      },
-      {
-        "id": "e7e43ae3-d440-43dc-8a89-7981fa56c903",
-        "songId": "dear-papa-song-gladiator",
-        "requestedSongStartSeconds": 92.5
-      },
-      {
-        "id": "e74b57fa-d2c8-4337-a0e8-eb3a2cef8a71",
-        "songId": "dear-papa-song-aquatic-monkey-favicon-work-in-your-underwear",
-        "requestedSongStartSeconds": 80
-      }
-    ],
-    "filesVerified": true,
-    "causalABAccepted": false,
-    "humanAccepted": false,
-    "next": "Expose truthful stem/master response state; make neutral comparisons and verify role/quiet/strong response."
-  },
-  "livingLightResponseStatus20261022": {
-    "status": "in_progress",
-    "sourceClassification": "effective-frame-contributions",
-    "focusedChecks": 21,
-    "build": "passed",
-    "serviceFresh": true,
-    "neutralPairs": 1,
-    "responseOnSongs": 5,
-    "humanAccepted": false,
-    "next": "Complete remaining neutral/role/quiet-strong comparisons and inspect whether movement is strong enough."
-  },
-  "livingLightBatchPriority20261022": {
-    "status": "in_progress",
-    "albumCuts": 202,
-    "responseOnSamples": 5,
-    "recordedComparisonPairs": 4,
-    "recipePairs": 5,
-    "manualExpansion": false,
-    "next": "Shared code/protocol and batch acceptance; isolated-role and quiet/strong gates remain open.",
-    "humanAccepted": false
-  },
-  "livingLightAlbumInputAudit20261023": {
-    "status": "in_progress",
-    "songs": 202,
-    "cues": 1205,
-    "errors": 0,
-    "flaggedCues": 0,
-    "stemCues": 822,
-    "masterOnlyCues": 383,
-    "issues": {
-      "unbound": 0,
-      "off": 0,
-      "blocked": 0,
-      "unavailable": 0,
-      "flat-sampled-envelope": 0
-    },
-    "checks": 17,
-    "sourceIntegrity": {
-      "files": 203,
-      "revisions": 203,
-      "mismatches": []
-    },
-    "humanAccepted": false,
-    "next": "Shared native role-isolation and quiet/strong response, not per-song manual capture."
-  },
-  "livingLightRoleParticipation20261023": {
-    "status": "in_progress",
-    "checks": 24,
-    "build": "passed",
-    "serviceFresh": true,
-    "sourceChange": "Preserve native visual role masks and effective-source labels",
-    "pixelAccepted": false,
-    "humanAccepted": false,
-    "next": "Shared native quiet/strong perceptual contrast and remaining full-goal acceptance."
-  },
-  "livingLightControlledNative20261023": {
-    "status": "in_progress",
-    "cases": 24,
-    "sceneFamilies": 4,
-    "preset": "dance",
-    "sourceControlled": true,
-    "cameraControlled": true,
-    "appSourceChanged": false,
-    "artisticAcceptance": false,
-    "remaining": [
-      "active percussion and temporal response",
-      "final Director before/after and quiet/strong/seek/boundary evidence",
-      "ordinary shader-cache recovery assessment"
-    ]
-  },
-  "livingLightResponseAcceptance20261023": {
-    "status": "technically_accepted",
-    "tasks": [
-      "LL-919",
-      "LL-920",
-      "LL-921",
-      "LL-922"
-    ],
-    "songs": 202,
-    "cues": 1205,
-    "responseUses": 1205,
-    "presets": [
-      "dance"
-    ],
-    "stemCues": 822,
-    "masterOnlyCues": 383,
-    "flaggedCues": 0,
-    "focusedTests": 19,
-    "directorPairs": 5,
-    "humanAccepted": false,
-    "remaining": [
-      "Original-scope final integration reconciliation",
-      "LL-007 ordinary shader-cache recovery (separate owner obligation)"
-    ]
-  },
-  "livingLightFinalDelivery20261023": {
-    "status": "technically_delivered",
-    "scope": "Twelve original integration tasks plus required LL-919\u2013922 amendment",
-    "tasks": [
-      "LL-901",
-      "LL-902",
-      "LL-903",
-      "LL-910",
-      "LL-911",
-      "LL-912",
-      "LL-913",
-      "LL-914",
-      "LL-915",
-      "LL-916",
-      "LL-917",
-      "LL-918",
-      "LL-919",
-      "LL-920",
-      "LL-921",
-      "LL-922"
-    ],
-    "songs": 202,
-    "cues": 1205,
-    "integratedTests": 115,
-    "originalFilesUnchanged": 8014,
-    "originalJourneyPayloadsUnchanged": 203,
-    "deliveryFresh": true,
-    "retainedEncodedFrames": 750,
-    "humanCreativeAcceptance": "pending",
-    "separateOpenWork": [
-      "LL-007 older ordinary shader-cache recovery",
-      "Legacy broader catalog/device/creative review tasks"
-    ],
-    "audit": "docs/living-light/INTEGRATION_DELIVERY.md"
-  },
   "livingLightFirstEntryRepair20261016": {
     "status": "in_progress",
     "requirements": [
@@ -446,7 +206,6 @@
     ],
     "postmortem": "docs/postmortems/2026-10-16-living-light-plan-snapshot-reuse.md"
   },
-
   "livingLightNavigationModelAcceptance20261016": {
     "status": "technically-accepted",
     "task": "LL-915",
@@ -836,7 +595,7 @@
           "peakCheckpointBytes": 131706432,
           "peakEncodedBytes": 58218925,
           "peakDecodedFrameBytes": 19660800,
-          "peakRendererWorkingSetMiB": 1132.0,
+          "peakRendererWorkingSetMiB": 1132,
           "estimatedMediaAudioP95UpperMs": 44,
           "estimatedMediaAudioSamples": 6921,
           "lastShaderWindows": [
@@ -2657,175 +2416,234 @@
     }
   },
   "audioAtlasDirectorBenchmark20261007": {
-  "status": "benchmark-prototype-pilot-saved-independent-readback-agent-draft-disposition-runtime-unqualified",
-  "ownerTaskId": "01a114a2-38f0-7083-a818-6dc2670f646d",
-  "checkpointAt": "2026-10-08T01:20:47.584Z",
-  "source": "docs/audio-atlas/ALBUM_MEDIA_SELECTION_20261007.md",
-  "postmortem": "docs/postmortems/2026-10-07-echo-atlas-media-selection.md",
-  "catalog": {
-    "totalCandidates": 3637,
-    "humanAcceptedGeneral": 2310,
-    "sameSongReferences": 1327,
-    "scope": "frozen byte-qualified snapshot, not entire live manual review history",
-    "generalEligibility": "full-pool",
-    "numericGrades": "optional preferences with separate human and agent attribution"
-  },
-  "editorialBriefs": {
-    "total": 192,
-    "fullLyricInterpretation": 175,
-    "limitedSourceInterpretation": 17,
-    "humanApproval": false
-  },
-  "pilot": {
-    "songs": 6,
-    "verifiedCuts": 12,
-    "selections": 717,
-    "distinctPhysicalClips": 429,
-    "inCutRepeats": 0,
-    "nativeIdentityMismatches": 0,
-    "preparedUriMismatches": 0,
-    "sameSongScopeMismatches": 0,
-    "positiveConceptSelections": 717,
-    "avoidMatches": 0,
-    "independentContextualReview": "agent disposition supports benchmark-draft append with explicit creative refinements; not full playback or human approval",
-    "ownerSaveState": "appended-with-owner-readback",
-    "humanAccepted": false,
-    "renderAccepted": false,
-    "savedAt": "2026-10-08T01:19:39.126Z",
-    "savedSongs": 6,
-    "savedCuts": 12,
-    "readbackVerified": true,
-    "originalProjectsMutated": 0,
-    "independentLiveApiAudit": {
-      "ok": true,
-      "checkedAt": "2026-10-08T01:20:47.584Z",
-      "variants": 12,
-      "authoredShots": 795,
-      "humanMediaSelections": 668,
-      "sameSongReferenceSelections": 49,
-      "sourceBoundShaderHydrations": 168,
-      "parentsPreserved": 6,
-      "preexistingCutsPreserved": 205,
-      "receiptSha256": "7f0da76723b1a803672b261be5cd5d03041fe26683d1f797d8eb3b820f79151f"
+    "status": "benchmark-prototype-pilot-saved-independent-readback-agent-draft-disposition-runtime-unqualified",
+    "ownerTaskId": "01a114a2-38f0-7083-a818-6dc2670f646d",
+    "checkpointAt": "2026-10-08T01:20:47.584Z",
+    "source": "docs/audio-atlas/ALBUM_MEDIA_SELECTION_20261007.md",
+    "postmortem": "docs/postmortems/2026-10-07-echo-atlas-media-selection.md",
+    "catalog": {
+      "totalCandidates": 3637,
+      "humanAcceptedGeneral": 2310,
+      "sameSongReferences": 1327,
+      "scope": "frozen byte-qualified snapshot, not entire live manual review history",
+      "generalEligibility": "full-pool",
+      "numericGrades": "optional preferences with separate human and agent attribution"
     },
-    "runtimeQualified": false,
-    "liveGraphStatus": "preparing",
-    "liveGraphReason": "server_restart_required",
-    "creativeRefinements": [
-      "Dear Papa fantasy-to-cat transition",
-      "Brave Tongues technical family-tree opening",
-      "Death Ground battle-to-node-diagram clip with optional agent-origin grade 2",
-      "static cards, page layouts and substantial within-clip transformations"
-    ]
-  },
-  "history": {
-    "narrowPoolSavedSongs": 22,
-    "narrowPoolSavedCuts": 44,
-    "narrowPoolDisposition": "superseded benchmark, receipts preserved",
-    "v3v4Disposition": "technically verified, held unsaved for creative-fit failures"
-  },
-  "existingAnalysisFollower": {
-    "pollMs": 30000,
-    "maxMs": 43200000,
-    "startsAnalysis": false,
-    "automaticRetries": 0,
-    "defaultAppend": false,
-    "explicitApply": "may save qualified Director cuts through existing owner",
-    "recordedStateProvesLiveness": false
-  },
-  "acceptedRequirements": [],
-  "workflowCountsChanged": false,
-  "sourceDelivery": "workspace prototype; not committed owner implementation",
-  "broadSuiteRepeatedForDocumentation": false,
-  "remaining": [
-    "active 19-song expansion and subsequent qualified Atlas/Director coverage",
-    "separately scoped live-runtime hold",
-    "complete playback and named creative refinements",
-    "limited-context source gaps",
-    "final render and human preference acceptance",
-    "scoped source delivery"
-  ],
-  "expansion": {
-    "songs": 19,
-    "state": "active; not complete",
-    "analysis": "reuse saved original core-qualified results",
-    "newAnalysisStarted": false
-  },
-  "successorV6": {
-    "checkpointAt": "2026-10-08T01:43:37.369170+00:00",
-    "retainedV5": {
-      "savedSongs": 25,
-      "savedCuts": 50,
-      "selections": 2767,
-      "distinctPhysicalClips": 1167,
-      "endedAt": "2026-10-08T01:31:05.479Z"
+    "editorialBriefs": {
+      "total": 192,
+      "fullLyricInterpretation": 175,
+      "limitedSourceInterpretation": 17,
+      "humanApproval": false
     },
-    "reviewFinding": "Old Trouble Performance had 36 of 81 slots without positive authored concepts; old pair preserved as superseded history after its replacement saved.",
-    "replacement": {
-      "savedSongs": 1,
-      "savedCuts": 2,
-      "savedAt": "2026-10-08T01:41:56.256Z",
-      "readbackVerified": true,
-      "selected": 125,
-      "positive": 125,
-      "activeSection": 118,
-      "distinctPhysicalClips": 83,
-      "avoidMatches": 0,
+    "pilot": {
+      "songs": 6,
+      "verifiedCuts": 12,
+      "selections": 717,
+      "distinctPhysicalClips": 429,
       "inCutRepeats": 0,
-      "historicalCutsCounted": 50,
-      "briefsChanged": 1,
-      "otherBriefsUnchanged": 191,
-      "maximumOtherSongPairOverlap": {
-        "clips": 15,
-        "fraction": 0.24193548387096775,
-        "song": "Foreign Hawties"
-      },
+      "nativeIdentityMismatches": 0,
+      "preparedUriMismatches": 0,
+      "sameSongScopeMismatches": 0,
+      "positiveConceptSelections": 717,
+      "avoidMatches": 0,
+      "independentContextualReview": "agent disposition supports benchmark-draft append with explicit creative refinements; not full playback or human approval",
+      "ownerSaveState": "appended-with-owner-readback",
       "humanAccepted": false,
-      "renderAccepted": false
-    },
-    "preSaveReview": {
-      "minimumPositiveFraction": 0.9,
-      "maximumAvoidMatches": 0,
-      "exactBriefContextMethodBinding": true,
-      "holdsBeforeAppend": true,
-      "continueOtherQualifiedSongs": true,
-      "automaticHeldRetry": false,
-      "claim": "Metadata coverage, not visual or human acceptance"
-    },
-    "remainingDirector": {
-      "songs": 167,
-      "pipelineId": "atlas-pipeline-cb09babe-a22d-4067-8626-f28dd4016e72",
-      "planSha256": "1799be9654a8b9ca2f5eb62fdd38c1e870361dd813b3525fd146e1af09dd1dd9",
-      "startedAt": "2026-10-08T01:42:04.770000+00:00",
-      "stateAtCheckpoint": "running",
-      "countsAtCheckpoint": {
-        "songs": 167,
-        "planned": 151,
-        "running": 1,
-        "coreQualified": 15,
-        "coreFailed": 0,
-        "blocked": 0,
-        "verified": 0,
-        "saved": 2,
-        "reviewHeld": 0,
-        "needsReview": 0,
-        "qualifiedPendingDirector": 13,
-        "attemptedThisInvocation": 3,
-        "completedThisInvocation": 2,
-        "reviewHeldThisInvocation": 0
+      "renderAccepted": false,
+      "savedAt": "2026-10-08T01:19:39.126Z",
+      "savedSongs": 6,
+      "savedCuts": 12,
+      "readbackVerified": true,
+      "originalProjectsMutated": 0,
+      "independentLiveApiAudit": {
+        "ok": true,
+        "checkedAt": "2026-10-08T01:20:47.584Z",
+        "variants": 12,
+        "authoredShots": 795,
+        "humanMediaSelections": 668,
+        "sameSongReferenceSelections": 49,
+        "sourceBoundShaderHydrations": 168,
+        "parentsPreserved": 6,
+        "preexistingCutsPreserved": 205,
+        "receiptSha256": "7f0da76723b1a803672b261be5cd5d03041fe26683d1f797d8eb3b820f79151f"
       },
-      "maxMs": 43200000,
-      "pollMs": 30000,
-      "newAnalysisStarted": false,
-      "automaticRetries": 0,
-      "livenessClaim": "Recorded status is not independent process proof"
+      "runtimeQualified": false,
+      "liveGraphStatus": "preparing",
+      "liveGraphReason": "server_restart_required",
+      "creativeRefinements": [
+        "Dear Papa fantasy-to-cat transition",
+        "Brave Tongues technical family-tree opening",
+        "Death Ground battle-to-node-diagram clip with optional agent-origin grade 2",
+        "static cards, page layouts and substantial within-clip transformations"
+      ]
     },
-    "mediaPlanSha256": "660340f776de592c8347c03fadfadd260c6244f311ff04bd757a23b0ac41cebd",
-    "runtimeQualified": false,
+    "history": {
+      "narrowPoolSavedSongs": 22,
+      "narrowPoolSavedCuts": 44,
+      "narrowPoolDisposition": "superseded benchmark, receipts preserved",
+      "v3v4Disposition": "technically verified, held unsaved for creative-fit failures"
+    },
+    "existingAnalysisFollower": {
+      "pollMs": 30000,
+      "maxMs": 43200000,
+      "startsAnalysis": false,
+      "automaticRetries": 0,
+      "defaultAppend": false,
+      "explicitApply": "may save qualified Director cuts through existing owner",
+      "recordedStateProvesLiveness": false
+    },
     "acceptedRequirements": [],
-    "sourceDelivery": "workspace prototype; documentation-only owner commit"
-  }
-},
+    "workflowCountsChanged": false,
+    "sourceDelivery": "workspace prototype; not committed owner implementation",
+    "broadSuiteRepeatedForDocumentation": false,
+    "remaining": [
+      "active 19-song expansion and subsequent qualified Atlas/Director coverage",
+      "separately scoped live-runtime hold",
+      "complete playback and named creative refinements",
+      "limited-context source gaps",
+      "final render and human preference acceptance",
+      "scoped source delivery"
+    ],
+    "expansion": {
+      "songs": 19,
+      "state": "active; not complete",
+      "analysis": "reuse saved original core-qualified results",
+      "newAnalysisStarted": false
+    },
+    "successorV6": {
+      "checkpointAt": "2026-10-08T01:43:37.369170+00:00",
+      "retainedV5": {
+        "savedSongs": 25,
+        "savedCuts": 50,
+        "selections": 2767,
+        "distinctPhysicalClips": 1167,
+        "endedAt": "2026-10-08T01:31:05.479Z"
+      },
+      "reviewFinding": "Old Trouble Performance had 36 of 81 slots without positive authored concepts; old pair preserved as superseded history after its replacement saved.",
+      "replacement": {
+        "savedSongs": 1,
+        "savedCuts": 2,
+        "savedAt": "2026-10-08T01:41:56.256Z",
+        "readbackVerified": true,
+        "selected": 125,
+        "positive": 125,
+        "activeSection": 118,
+        "distinctPhysicalClips": 83,
+        "avoidMatches": 0,
+        "inCutRepeats": 0,
+        "historicalCutsCounted": 50,
+        "briefsChanged": 1,
+        "otherBriefsUnchanged": 191,
+        "maximumOtherSongPairOverlap": {
+          "clips": 15,
+          "fraction": 0.24193548387096775,
+          "song": "Foreign Hawties"
+        },
+        "humanAccepted": false,
+        "renderAccepted": false
+      },
+      "preSaveReview": {
+        "minimumPositiveFraction": 0.9,
+        "maximumAvoidMatches": 0,
+        "exactBriefContextMethodBinding": true,
+        "holdsBeforeAppend": true,
+        "continueOtherQualifiedSongs": true,
+        "automaticHeldRetry": false,
+        "claim": "Metadata coverage, not visual or human acceptance"
+      },
+      "remainingDirector": {
+        "songs": 167,
+        "pipelineId": "atlas-pipeline-cb09babe-a22d-4067-8626-f28dd4016e72",
+        "planSha256": "1799be9654a8b9ca2f5eb62fdd38c1e870361dd813b3525fd146e1af09dd1dd9",
+        "startedAt": "2026-10-08T01:42:04.770000+00:00",
+        "stateAtCheckpoint": "running",
+        "countsAtCheckpoint": {
+          "songs": 167,
+          "planned": 151,
+          "running": 1,
+          "coreQualified": 15,
+          "coreFailed": 0,
+          "blocked": 0,
+          "verified": 0,
+          "saved": 2,
+          "reviewHeld": 0,
+          "needsReview": 0,
+          "qualifiedPendingDirector": 13,
+          "attemptedThisInvocation": 3,
+          "completedThisInvocation": 2,
+          "reviewHeldThisInvocation": 0
+        },
+        "maxMs": 43200000,
+        "pollMs": 30000,
+        "newAnalysisStarted": false,
+        "automaticRetries": 0,
+        "livenessClaim": "Recorded status is not independent process proof"
+      },
+      "mediaPlanSha256": "660340f776de592c8347c03fadfadd260c6244f311ff04bd757a23b0ac41cebd",
+      "runtimeQualified": false,
+      "acceptedRequirements": [],
+      "sourceDelivery": "workspace prototype; documentation-only owner commit"
+    }
+  },
+  "lyricTimingRepair20261013": {
+    "status": "four-priority-cuts-saved-source-commit-held",
+    "sourceTaskId": "01a133b4-6ae4-7a30-bf37-269c87a725fd",
+    "songs": [
+      "Miss Infinity",
+      "Miss Medusa",
+      "Between the Beats",
+      "Wide and Narrows"
+    ],
+    "preservedOriginalCuts": 125,
+    "affectedTests": {
+      "passed": 245,
+      "failed": 0
+    },
+    "repositoryTests": {
+      "passed": 2790,
+      "failed": 7,
+      "skipped": 1
+    },
+    "productionBuild": "passed",
+    "humanListeningAccepted": false,
+    "catalogHealed": false,
+    "sourceCommit": "held-by-verification-gate",
+    "secondBrainWriteback": "pending",
+    "requirementsNewlyAccepted": [],
+    "postmortem": "docs/postmortems/2026-10-13-echo-lyric-timing.md",
+    "subsequentUserCorrection": {
+      "status": "wide-and-narrows-omission-withdrawn",
+      "restoredTimedLines": 108,
+      "cutId": "wide-and-narrows-complete-lyrics-review-20261013",
+      "timingAccepted": false,
+      "otherSongsUnchanged": true,
+      "rootCause": "authored prompt/performance discrepancy compounded by lead-only ASR and weak-anchor errors",
+      "systemicDiscrepancyGates": "proposed-not-implemented"
+    }
+  },
+  "lyricTimingMassHeal20261013": {
+    "status": "catalog-pass-delivered-with-explicit-review-holds",
+    "scope": "201 song records; 187 written lyric sources; complete text and historical cuts preserved",
+    "source": "docs/audio-atlas/LYRIC_TIMING.md",
+    "postmortem": "docs/postmortems/2026-10-13-echo-lyric-timing.md",
+    "owner": "Audio Atlas",
+    "humanListeningAccepted": false,
+    "appliedThisBatch": 26,
+    "savedTimingCuts": 26,
+    "existingStrongerTimingPreserved": 1,
+    "heldForPassageReview": 156,
+    "heldForRecordingIdentity": 4,
+    "instrumentalSourceRecords": 14,
+    "originalCutsHashVerified": 7496,
+    "sourceRecordsVerified": 201,
+    "preservationIssues": 0,
+    "secondBrainWriteback": "indexed-and-exact-revision-check-passed",
+    "sourceCommit": "held-by-seven-baseline-reproduced-required-test-failures",
+    "renderReadiness": {
+      "ready-no-known-blockers": 3,
+      "blocked": 23
+    }
+  },
   "livingLightPaintedJourney20261013": {
     "status": "prototype-source-verified",
     "contract": "docs/living-light/PAINTED_JOURNEY.md",
@@ -3457,6 +3275,246 @@
     "humanAcceptance": "pending",
     "requirementsClosed": [],
     "evidence": "docs/living-light/ALBUM_DIRECTOR_PASS.md"
+  },
+  "livingLightVisualTiming20261022": {
+    "status": "in_progress",
+    "task": "LL-919",
+    "qualifiedStemCounts": [
+      5,
+      6,
+      4
+    ],
+    "testedStemCounts": [
+      12,
+      12,
+      12
+    ],
+    "focusedTestsPassed": 15,
+    "buildPassed": true,
+    "legacyFingerprintsPreserved": 2,
+    "nativeDelivery": "pending",
+    "musicalMotionAcceptance": "pending",
+    "requirementsClosed": [],
+    "postmortem": "docs/postmortems/2026-10-22-living-light-visual-timing.md"
+  },
+  "livingLightNativeMusic20261022": {
+    "status": "in_progress",
+    "preparedSongs": 202,
+    "masterOnlySongs": 46,
+    "songStoreUnchanged": true,
+    "preparationProcessCleanup": true,
+    "targetedTestsPassed": 39,
+    "ownerChecksPassed": 46,
+    "nativeNumericalChecksPassed": 4,
+    "buildPassed": true,
+    "nativePixelAcceptance": "pending",
+    "events": "not-connected",
+    "requirementsClosed": [],
+    "postmortem": "docs/postmortems/2026-10-22-living-light-native-music.md"
+  },
+  "livingLightNativeOnsets20261022": {
+    "status": "in_progress",
+    "requirements": [
+      "LL-920",
+      "LL-921",
+      "LL-922"
+    ],
+    "nativeProof": "four environments, six samples on current 11:23 source bank; no audible playback",
+    "events": "qualified display-onset crossings; not certified beats",
+    "coldFrameMs": [
+      413.9,
+      577.3
+    ],
+    "focusedChecks": 28,
+    "build": "passed",
+    "albumResponsePasses": "pending",
+    "humanAcceptance": "pending"
+  },
+  "livingLightAlbumMusicResponse20261022": {
+    "state": "in_progress",
+    "savedAndReopenedSongs": 202,
+    "sourceBoundCues": 1205,
+    "songsWithQualifiedStemIntervals": 143,
+    "songsUsingMasterOnlyResponse": 59,
+    "originalFilesPreserved": 8014,
+    "originalJourneyPayloadsPreserved": 203,
+    "clockChecksPassed": 35,
+    "build": "passed",
+    "liveService": "server_restart_required",
+    "actualRecordingsVerified": 0,
+    "tasks": [
+      "LL-919",
+      "LL-920",
+      "LL-921",
+      "LL-922"
+    ],
+    "next": "Refresh existing canonical service and verify Director/Record + Play on five contrasting songs",
+    "evidence": "source chat execution/living-light/music-response/director-album-plan-v2.report.json"
+  },
+  "livingLightDirectorRecordings20261022": {
+    "status": "in_progress",
+    "songs": 5,
+    "recordings": [
+      {
+        "id": "9b1b2688-7259-4d3b-8376-488a31f96446",
+        "songId": "dear-papa-song-11-23-meant-to-meet-thu",
+        "requestedSongStartSeconds": 5
+      },
+      {
+        "id": "6e0f0b41-15b9-48d0-978c-fb850425ed44",
+        "songId": "dear-papa-song-brave-tongues",
+        "requestedSongStartSeconds": 83
+      },
+      {
+        "id": "ca7b4f5b-925f-4799-b2cf-0b1a4c9d9d83",
+        "songId": "dear-papa-song-dear-papa",
+        "requestedSongStartSeconds": 88.5
+      },
+      {
+        "id": "e7e43ae3-d440-43dc-8a89-7981fa56c903",
+        "songId": "dear-papa-song-gladiator",
+        "requestedSongStartSeconds": 92.5
+      },
+      {
+        "id": "e74b57fa-d2c8-4337-a0e8-eb3a2cef8a71",
+        "songId": "dear-papa-song-aquatic-monkey-favicon-work-in-your-underwear",
+        "requestedSongStartSeconds": 80
+      }
+    ],
+    "filesVerified": true,
+    "causalABAccepted": false,
+    "humanAccepted": false,
+    "next": "Expose truthful stem/master response state; make neutral comparisons and verify role/quiet/strong response."
+  },
+  "livingLightResponseStatus20261022": {
+    "status": "in_progress",
+    "sourceClassification": "effective-frame-contributions",
+    "focusedChecks": 21,
+    "build": "passed",
+    "serviceFresh": true,
+    "neutralPairs": 1,
+    "responseOnSongs": 5,
+    "humanAccepted": false,
+    "next": "Complete remaining neutral/role/quiet-strong comparisons and inspect whether movement is strong enough."
+  },
+  "livingLightBatchPriority20261022": {
+    "status": "in_progress",
+    "albumCuts": 202,
+    "responseOnSamples": 5,
+    "recordedComparisonPairs": 4,
+    "recipePairs": 5,
+    "manualExpansion": false,
+    "next": "Shared code/protocol and batch acceptance; isolated-role and quiet/strong gates remain open.",
+    "humanAccepted": false
+  },
+  "livingLightAlbumInputAudit20261023": {
+    "status": "in_progress",
+    "songs": 202,
+    "cues": 1205,
+    "errors": 0,
+    "flaggedCues": 0,
+    "stemCues": 822,
+    "masterOnlyCues": 383,
+    "issues": {
+      "unbound": 0,
+      "off": 0,
+      "blocked": 0,
+      "unavailable": 0,
+      "flat-sampled-envelope": 0
+    },
+    "checks": 17,
+    "sourceIntegrity": {
+      "files": 203,
+      "revisions": 203,
+      "mismatches": []
+    },
+    "humanAccepted": false,
+    "next": "Shared native role-isolation and quiet/strong response, not per-song manual capture."
+  },
+  "livingLightRoleParticipation20261023": {
+    "status": "in_progress",
+    "checks": 24,
+    "build": "passed",
+    "serviceFresh": true,
+    "sourceChange": "Preserve native visual role masks and effective-source labels",
+    "pixelAccepted": false,
+    "humanAccepted": false,
+    "next": "Shared native quiet/strong perceptual contrast and remaining full-goal acceptance."
+  },
+  "livingLightControlledNative20261023": {
+    "status": "in_progress",
+    "cases": 24,
+    "sceneFamilies": 4,
+    "preset": "dance",
+    "sourceControlled": true,
+    "cameraControlled": true,
+    "appSourceChanged": false,
+    "artisticAcceptance": false,
+    "remaining": [
+      "active percussion and temporal response",
+      "final Director before/after and quiet/strong/seek/boundary evidence",
+      "ordinary shader-cache recovery assessment"
+    ]
+  },
+  "livingLightResponseAcceptance20261023": {
+    "status": "technically_accepted",
+    "tasks": [
+      "LL-919",
+      "LL-920",
+      "LL-921",
+      "LL-922"
+    ],
+    "songs": 202,
+    "cues": 1205,
+    "responseUses": 1205,
+    "presets": [
+      "dance"
+    ],
+    "stemCues": 822,
+    "masterOnlyCues": 383,
+    "flaggedCues": 0,
+    "focusedTests": 19,
+    "directorPairs": 5,
+    "humanAccepted": false,
+    "remaining": [
+      "Original-scope final integration reconciliation",
+      "LL-007 ordinary shader-cache recovery (separate owner obligation)"
+    ]
+  },
+  "livingLightFinalDelivery20261023": {
+    "status": "technically_delivered",
+    "scope": "Twelve original integration tasks plus required LL-919\u2013922 amendment",
+    "tasks": [
+      "LL-901",
+      "LL-902",
+      "LL-903",
+      "LL-910",
+      "LL-911",
+      "LL-912",
+      "LL-913",
+      "LL-914",
+      "LL-915",
+      "LL-916",
+      "LL-917",
+      "LL-918",
+      "LL-919",
+      "LL-920",
+      "LL-921",
+      "LL-922"
+    ],
+    "songs": 202,
+    "cues": 1205,
+    "integratedTests": 115,
+    "originalFilesUnchanged": 8014,
+    "originalJourneyPayloadsUnchanged": 203,
+    "deliveryFresh": true,
+    "retainedEncodedFrames": 750,
+    "humanCreativeAcceptance": "pending",
+    "separateOpenWork": [
+      "LL-007 older ordinary shader-cache recovery",
+      "Legacy broader catalog/device/creative review tasks"
+    ],
+    "audit": "docs/living-light/INTEGRATION_DELIVERY.md"
   },
   "incrementalEchoIntake20261023": {
     "status": "songs-and-codex-images-verified-local-loops-in-progress",

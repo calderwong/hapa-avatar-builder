@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {authorizeVoiceConsumer} from './avatar-voice-consumer.mjs';
 import {readEchoSavedCut} from './echo-saved-cut-reader.mjs';
 import { createSongAudioUpload } from './song-audio-upload.mjs';
 import { createAudioAtlas } from './audio-atlas.mjs';
@@ -197,6 +198,8 @@ import { openAvatarContextGenerationService } from "./avatar-context-generation-
 import { openAvatarWisdomCouncilService } from "./avatar-wisdom-council-service.mjs";
 import { openAvatarProposalReviewService } from "./avatar-proposal-review-service.mjs";
 import { openAvatarCardCustodyService } from "./card-custody-service.mjs";
+import { createAvatarVoiceService } from './avatar-voice.mjs';
+import { handleAvatarVoice, voiceBrowserContext } from './avatar-voice-routes.mjs';
 import { openHumanVideoEnrichmentStore } from "./human-video-enrichment-store.mjs";
 import { openHumanVideoAgentReviewStore } from "./human-video-agent-review-store.mjs";
 import { openHumanVideoQuickSortStore } from "./human-video-quick-sort-store.mjs";
@@ -1060,6 +1063,7 @@ const avatarProposalReviewService = await openAvatarProposalReviewService({
 });
 const AVATAR_CARD_CUSTODY_ROOT = process.env.HAPA_AVATAR_CARD_CUSTODY_ROOT || path.join(DATA_DIR, "card-custody");
 const avatarCardCustodyService = openAvatarCardCustodyService({ root: AVATAR_CARD_CUSTODY_ROOT });
+let avatarVoiceService;
 const STARGATE_GATE_PASS_PROFILE_ROOT = process.env.HAPA_GATE_PASS_PROFILE_ROOT || path.join(OVERWIND_DIR, "gate-pass");
 const OVERWIND_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-bootstrap.json");
 const OVERWIND_SHELL_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-shell-bootstrap.json");
@@ -1238,6 +1242,7 @@ function shutdownBuilder(signal) {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = Promise.allSettled([
     audioAtlasService?.close() || Promise.resolve(),
+    avatarVoiceService?.close() || Promise.resolve(),
     Promise.resolve().then(() => livingLightService?.close()),
     livingLightLocalUiHandle?.close() || Promise.resolve(),
     echoPerformancePreparation.close(),
@@ -2381,6 +2386,23 @@ async function route(req, res) {
     const { MEDIA_REQUIREMENTS, TAG_LIBRARY } = await import("../src/domain/avatar.js");
     sendJson(res, 200, { requirements: MEDIA_REQUIREMENTS, tags: TAG_LIBRARY });
     return;
+  }
+
+  if (pathname.startsWith('/api/avatar-voices/')) {
+    const context=bootstrap=>voiceBrowserContext(req,{bind:builderListenerBind(req,host),allowedOrigins:ALLOWED_ORIGINS,bootstrap});
+    if(pathname==='/api/avatar-voices/session'&&req.method==='POST'){
+      if(!LOCAL_UI_SESSION_ENABLED||!loopbackAddress(req.socket?.remoteAddress)||!context(true)||req.headers['transfer-encoding']||Number(req.headers['content-length']||0)!==0){sendJson(res,403,{error:'voice_session_denied',preDispatch:true});return;}
+      const bytes=await readRawBody(req,1);if(bytes.length){sendJson(res,400,{error:'empty_session_body_required',preDispatch:true});return;}
+      res.setHeader('Set-Cookie',localUiSessionCookie(req));res.setHeader('Cache-Control','no-store');sendJson(res,201,{ok:true});return;
+    }
+    const authorize=async(request,response)=>{
+      const consumer=await authorizeVoiceConsumer(request,{root:ROOT,bind:builderListenerBind(request,host)});if(consumer)return consumer;
+      if(request.headers.authorization){if(AVATAR_ADMIN_TOKEN&&timingSafeTextEqual(request.headers.authorization,`Bearer ${AVATAR_ADMIN_TOKEN}`))return true;sendJson(response,401,{error:'unauthorized',preDispatch:true});return false;}
+      if(hasTrustedLocalUiSession(request)&&context(false))return true;
+      sendJson(response,401,{error:'unauthorized',preDispatch:true});return false;
+    };
+    avatarVoiceService ||= createAvatarVoiceService({root:ROOT,custody:avatarCardCustodyService,resolveAvatar:async id=>(await readStore()).avatars.find(a=>a.id===id),listSpeakers:async()=>(await readStore()).avatars.filter(a=>!a.projection?.readOnly&&!a.isExternalProjection).map(a=>({id:a.id,label:a.primaryName}))});
+    if(await handleAvatarVoice({req,res,url,service:avatarVoiceService,readBody,sendJson,serveLocalFile,requireAdmin:authorize}))return;
   }
 
   if (pathname === "/api/voicebox/health" && req.method === "GET") {
@@ -6530,7 +6552,7 @@ async function route(req, res) {
     }
 
     if (action === "attach" && req.method === "GET") {
-      sendJson(res, 200, createAttachPack(avatar, url.searchParams.get("target") || "agent"));
+      sendJson(res, 200, {...createAttachPack(avatar, url.searchParams.get("target") || "agent"),voiceLibrary:{schemaVersion:'hapa.avatar-voice.v1',avatarId:avatar.id,endpoint:`/api/avatar-voices/${encodeURIComponent(avatar.id)}`,access:'authenticated-local',owner:'hapa-avatar-builder'}});
       return;
     }
 
@@ -14096,7 +14118,7 @@ async function serveGeneratedMedia(pathname, req, res) {
   }
 }
 
-async function serveLocalFile(filePath, req, res) {
+async function serveLocalFile(filePath, req, res, {cacheControl = 'private, max-age=3600'} = {}) {
   try {
     const safePath = path.resolve(filePath);
     const info = await stat(safePath);
@@ -14114,7 +14136,7 @@ async function serveLocalFile(filePath, req, res) {
         "Content-Length": range.end - range.start + 1,
         "Content-Range": `bytes ${range.start}-${range.end}/${info.size}`,
         "Accept-Ranges": "bytes",
-        "Cache-Control": "private, max-age=3600"
+        "Cache-Control": cacheControl
       });
       streamFileToResponse(req, res, safePath, { start: range.start, end: range.end });
       return true;
@@ -14125,7 +14147,7 @@ async function serveLocalFile(filePath, req, res) {
       "Content-Type": contentType(safePath),
       "Content-Length": info.size,
       "Accept-Ranges": "bytes",
-      "Cache-Control": "private, max-age=3600"
+      "Cache-Control": cacheControl
     });
     streamFileToResponse(req, res, safePath);
     return true;

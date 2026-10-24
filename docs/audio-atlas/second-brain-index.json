@@ -46,6 +46,11 @@
       "slug": "hapa-audio-atlas-word-alignment-v1",
       "title": "Audio Atlas supplied-text word alignment qualification",
       "path": "docs/audio-atlas/WORD_ALIGNMENT.md"
+    },
+    {
+      "slug": "hapa-audio-atlas-lyric-timing-v1",
+      "title": "Audio Atlas full-song lyric timing and catalog repair",
+      "path": "docs/audio-atlas/LYRIC_TIMING.md"
     }
   ]
 }

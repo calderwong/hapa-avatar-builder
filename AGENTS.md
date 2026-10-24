@@ -163,3 +163,13 @@ Calder authorized execution on 2026-10-06 after the detailed planning pass. Read
 - Whole-song lyric timing: `scripts/atlas-lyric-timing.mjs` (plan → align → assemble), then the shared promotion gate and `scripts/sync-dear-papa-lyric-timings.mjs`. Protocol: `docs/audio-atlas/LYRIC_TIMING.md`.
 - Do **not** regress to the Hapa Music Viz `enrich_suno_playlist_lyrics.py` / whisper.cpp / ggml path because it looks simpler or an older doc names it. It is legacy; update any doc that still points there.
 - Every consumer uses exactly one stem set per song (`src/domain/echo-stem-set.js`): one generation, one record per role, WAV preferred. Never feed every stem file or both the WAV and MP3 copies; duplicate roles/files are refused by the Atlas, the eligibility audit and the batch coordinator. Stem roles must be role names (`Lead Vocals`), not file stubs (`0-lead-vocals`).
+
+## CMS collection design — user direction, 2026-10-17
+
+Before creating or revising CMS collection-entry surfaces, read
+[CMS_COLLECTION_DESIGN.md](docs/CMS_COLLECTION_DESIGN.md). Calder asks for
+visible category/style slots, in-place recording/upload/replacement/deletion,
+and truthful completeness that fills in as records are saved. Do not hide a
+known collection behind a category dropdown and single generic form. Reuse CMS
+identity, preserve per-item drafts, and verify empty/partial/complete/recovery
+states. This supplements existing owner and protocol rules.

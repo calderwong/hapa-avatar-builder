@@ -29,7 +29,7 @@ export async function handleAudioAtlas({req,res,url,atlas,uploads,requireAdmin,r
     if(suffix==='/songs'&&req.method==='GET')value={songs:atlas.list()};
     else if(suffix==='/inventory'&&req.method==='GET')value=await atlas.inventory();
     else if(suffix==='/jobs'&&req.method==='GET')value={jobs:atlas.jobs(params.songId)};
-    else if(suffix==='/jobs'&&req.method==='POST'){const body=await readBody(req);value=await atlas.start(body.songId,{transcribe:body.transcribe===true,beats:body.beats===true,acoustic:body.acoustic===true,alignment:body.alignment,pitch:body.pitch});}
+    else if(suffix==='/jobs'&&req.method==='POST'){const body=await readBody(req);value=await atlas.start(body.songId,{alignmentBaseRunId:body.alignmentBaseRunId||null,transcriptionBaseRunId:body.transcriptionBaseRunId||null,transcriptionSourceId:body.transcriptionSourceId||null,transcriptionLanguage:body.transcriptionLanguage||'en',transcribe:body.transcribe===true,beats:body.beats===true,acoustic:body.acoustic===true,alignment:body.alignment,pitch:body.pitch});}
     else {
       const match=suffix.match(/^\/jobs\/([a-zA-Z0-9_-]+)(?:\/(query|review|export|reference|text-search|noise-reference|descriptions))?$/);
       if(!match)throw Object.assign(new Error('Atlas route not found'),{statusCode:404});

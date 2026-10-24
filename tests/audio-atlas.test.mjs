@@ -250,3 +250,45 @@ test('spectrogram artifacts participate in cache health and legacy query stays e
  assert.equal((await atlas.start('song-a')).cache_hit,true);fs.appendFileSync(path.join(dir,a.spectrogram.artifact),'tampered');
  assert.throws(()=>atlas.query(j.id,{op:'spectrogram'}),/integrity/);const fresh=await atlas.start('song-a');await atlas.wait(fresh.id);assert.notEqual(fresh.id,j.id);assert.equal(calls(),2);
 });
+
+test('alignment can reuse exact-source measurements without running the measurement worker again',async t=>{
+ const f=alignmentFixture(t);const base=await f.atlas.start('song-a');await f.atlas.wait(base.id);
+ const original=fs.readFileSync(path.join(f.root,'data/audio-atlas/runs',base.id,'result.json'));
+ const job=await f.atlas.start('song-a',{alignment:f.request,alignmentBaseRunId:base.id});
+ assert.equal((await f.atlas.wait(job.id)).state,'complete');
+ assert.deepEqual(f.phases,['measurements','audio-atlas-align.py']);
+ const r=f.atlas.result(job.id);assert.equal(r.measurement_reuse.run_id,base.id);assert.equal(r.run_id,job.id);
+ assert.equal(r.measurement_reuse.result_sha256,digest(original));
+ assert.equal(r.forced_alignment.supplied_text,f.request.text);
+ assert.deepEqual(fs.readFileSync(path.join(f.root,'data/audio-atlas/runs',base.id,'result.json')),original);
+ assert.equal((await f.atlas.start('song-a',{alignment:f.request,alignmentBaseRunId:base.id})).cache_hit,true);
+});
+test('measurement reuse refuses changed audio, corrupt parents and non-alignment operations',async t=>{
+ const f=alignmentFixture(t);const base=await f.atlas.start('song-a');await f.atlas.wait(base.id);
+ await assert.rejects(()=>f.atlas.start('song-a',{alignmentBaseRunId:base.id}),/alignment-only/);
+ fs.appendFileSync(f.audio,'changed');
+ await assert.rejects(()=>f.atlas.start('song-a',{alignment:f.request,alignmentBaseRunId:base.id}),/source set differs/);
+ assert.deepEqual(f.phases,['measurements']);
+ const file=path.join(f.root,'data/audio-atlas/runs',base.id,'result.json');fs.appendFileSync(file,' ');
+ await assert.rejects(()=>f.atlas.start('song-a',{alignment:f.request,alignmentBaseRunId:base.id}),/integrity mismatch/);
+});
+
+test('transcription source and language are explicit, source-bound, and reuse does not inherit words',async t=>{
+ const seen=[];
+ const f=fixture(t,async(_root,manifest)=>{
+  const m=JSON.parse(fs.readFileSync(manifest));seen.push(m);
+  const file=path.join(path.dirname(manifest),'result.json');
+  if(m.transcription_only){const r=JSON.parse(fs.readFileSync(file));assert.deepEqual(r.observations,[]);r.transcript_candidate={source_asset_id:m.transcription.source_id,word_count:0};fs.writeFileSync(file,JSON.stringify(r));return;}
+  fs.writeFileSync(file,JSON.stringify({run_id:m.id,song_id:m.song.id,title:'Test',supplied_lyrics:'source lyric',assets:[{id:'master',role:'Master',source_sha256:m.sources[0].sha256,status:'ready',sample_rate_hz:100,sample_count:1000,channels:1,decoded_sha256:'b'.repeat(64),timeline_id:'timeline',features:{frames:[]}}],observations:[],coverage:{},stem_alignment:{status:'unknown'},elapsed_seconds:1}));
+ });
+ const model=path.join(f.root,'model');fs.mkdirSync(model);fs.writeFileSync(path.join(model,'weights.npz'),'fixture');fs.writeFileSync(path.join(model,'config.json'),'{}');
+ fs.mkdirSync(path.join(f.root,'data/audio-atlas'),{recursive:true});fs.writeFileSync(path.join(f.root,'data/audio-atlas/local-model.json'),JSON.stringify({python:process.execPath,modelPath:model}));
+ const base=await f.atlas.start('song-a');await f.atlas.wait(base.id);
+ const request={transcribe:true,transcriptionBaseRunId:base.id,transcriptionSourceId:'master',transcriptionLanguage:'auto'};
+ const job=await f.atlas.start('song-a',request);assert.equal((await f.atlas.wait(job.id)).state,'complete');assert.equal(seen.length,2);assert.equal(seen[1].transcription_only,true);assert.deepEqual(seen[1].transcription,{source_id:'master',language:'auto'});
+ assert.equal((await f.atlas.start('song-a',request)).cache_hit,true);
+ await assert.rejects(()=>f.atlas.start('song-a',{...request,beats:true}),/transcription-only/);
+ await assert.rejects(()=>f.atlas.start('song-a',{...request,transcriptionSourceId:'stem-100'}),/not registered/);
+ await assert.rejects(()=>f.atlas.start('song-a',{...request,transcriptionLanguage:'invented'}),/language/);
+ fs.appendFileSync(f.audio,'changed');await assert.rejects(()=>f.atlas.start('song-a',request),/source set differs/);
+});

@@ -53,7 +53,8 @@
     "Peer-blind Stargate Wisdom Council / atomic seat seal / five-class dissent / human tradeoff authority",
     "Canonical Overwind Card Origin Outbox",
     "Overwind acknowledged Card subscriber",
-    "Universal Overcard consumer: Hand / Deck / Placement / Formation / Responsibility"
+    "Universal Overcard consumer: Hand / Deck / Placement / Formation / Responsibility",
+    "Avatar Voice Cards / style captures / Scripts / local cloned voice-overs / player bundles"
   ],
   "interfaces": {
     "apiHealth": "http://127.0.0.1:8787/api/health",

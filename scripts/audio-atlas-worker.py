@@ -83,12 +83,65 @@ def features(pcm, sr):
             'units':{'rms':'linear full scale','peak':'linear full scale','spectral_centroid_hz':'Hz'},
             'normalization':'none','channel_axis':'source channel order','frames':frames}
 
+def transcribe_result(manifest, result, out, ffmpeg, vocal_source=None):
+    if manifest.get('model'):
+        write(out/'progress.json',{'stage':'transcribing','completed':len(result['assets']),'total':len(result['assets']),'role':'MLX Whisper vocal candidate'})
+        source,asset=vocal_source or (manifest['sources'][0],result['assets'][0])
+        requested=manifest.get('transcription',{}).get('source_id')
+        if requested:
+            source=next(s for s in manifest['sources'] if s['id']==requested)
+            asset=next(a for a in result['assets'] if a['id']==requested and a['status']=='ready')
+        asr_audio=out/'asr-16000.f32'
+        try:
+            # Local array input prevents mlx_whisper from spawning its own unbounded decoder.
+            command([ffmpeg,'-nostdin','-v','error','-xerror','-threads','1','-protocol_whitelist','file,pipe','-i',source['path'],'-t',str(MAX_SECONDS+1),'-ac','1','-ar','16000','-f','f32le','-y',str(asr_audio)])
+            samples=np.fromfile(asr_audio,dtype='<f4')
+            model=manifest['model'];model_path=Path(model['path'])
+            if sha(model_path/'weights.npz')!=model['weights_sha256'] or sha(model_path/'config.json')!=model['config_sha256']: raise ValueError('model_changed')
+            import socket
+            def denied(*args,**kwargs): raise RuntimeError('Atlas inference has networking disabled')
+            socket.socket.connect=denied
+            import mlx_whisper
+            from importlib.metadata import version
+            transcript,decode=transcribe_finite(lambda audio: mlx_whisper.transcribe(audio,path_or_hf_repo=str(model_path),word_timestamps=True,language=None if manifest.get('transcription',{}).get('language')=='auto' else manifest.get('transcription',{}).get('language','en'),temperature=0.,condition_on_previous_text=False,verbose=None),samples)
+            transcript=finite_json(transcript)
+            write(out/'whisper-raw.json',transcript)
+            words=[]
+            for segment in transcript.get('segments',[]):
+                for word in segment.get('words',[]):
+                    if word.get('start') is None or word.get('end') is None: continue
+                    start=round(float(word['start'])*asset['sample_rate_hz']);end=round(float(word['end'])*asset['sample_rate_hz'])
+                    if not 0<=start<end<=asset['sample_count']: continue
+                    observation={'id':f"{asset['id']}:word:{len(words)}",'kind':'hapa.audio.word_candidate','claim_type':'model_inferred',
+                      'subject_id':asset['id'],'timeline_id':asset['timeline_id'],'reference_sample_rate_hz':asset['sample_rate_hz'],
+                      'start_sample':start,'end_sample':end,'shape':'interval','payload':{'text':word['word'],'model_score':word.get('probability'),'score_semantics':'uncalibrated Whisper word probability'},
+                      'provenance':{'run_id':manifest['id'],'source_sha256':source['sha256'],'model_revision':model['revision'],'weights_sha256':model['weights_sha256'],
+                        'analysis_view':{'sample_rate_hz':16000,'channels':1,'map_numerator':asset['sample_rate_hz'],'map_denominator':16000,'offset_samples':0,'rounding':'nearest'},'evidence_asset_id':asset['id'],'raw_evidence':'whisper-raw.json','raw_evidence_sha256':sha(out/'whisper-raw.json')},
+                      'confidence':None,'timing_uncertainty_samples':None,'review_state':'unreviewed'}
+                    words.append(observation)
+            result['observations'].extend(words)
+            result['transcript_candidate']={'text':transcript.get('text',''),'source_asset_id':asset['id'],'word_count':len(words),
+              'method':'mlx-whisper word timestamps','model_revision':model['revision'],'weights_sha256':model['weights_sha256'],
+              'package_version':version('mlx-whisper'),'language':transcript.get('language','unknown'),'requested_language':manifest.get('transcription',{}).get('language','en'),'quality_qualified':False,'network':'disabled','source_timeline_only':True,'decode':decode}
+            result['coverage']['word_timing']={'state':'candidate','method':'MLX Whisper word timestamps','new_inference':True,'human_reviewed':False,'phoneme_or_syllable_timing':False}
+        except Exception as e:
+            result['coverage']['word_timing']={'state':'failed','error':str(e)[:500],'imported_candidates_preserved':True}
+        finally: asr_audio.unlink(missing_ok=True)
+
 def main():
     if os.environ.get('HAPA_AUDIO_ATLAS_WORKER') != '1': raise ValueError('Worker requires its owner role')
     p=argparse.ArgumentParser();p.add_argument('--manifest',required=True);args=p.parse_args()
     manifest=json.loads(Path(args.manifest).read_text()); out=Path(args.manifest).parent
     started=time.monotonic(); ffmpeg=shutil.which('ffmpeg');ffprobe=shutil.which('ffprobe')
     if not ffmpeg or not ffprobe: raise ValueError('Existing ffmpeg and ffprobe are required')
+    if manifest.get('transcription_only'):
+        result=json.loads((out/'result.json').read_text())
+        transcribe_result(manifest,result,out,ffmpeg)
+        result['elapsed_seconds']=time.monotonic()-started
+        write(out/'result.json',result)
+        write(out/'progress.json',{'stage':'complete','completed':1,'total':1})
+        return
+
     result={'schema_version':VERSION,'run_id':manifest['id'],'song_id':manifest['song']['id'],
       'title':manifest['song']['title'],'policy':{'scope':'local-private','external_upload':False},
       'runtime':{'python':platform.python_version(),'numpy':np.__version__,
@@ -207,45 +260,7 @@ def main():
     result['coverage']['word_timing']={'state':'imported_unverified','method':'existing Echo lyric candidates','new_inference':False}
     for name in ['phonemes','syllables','beats','downbeats','semantic_audio','acoustic_embeddings','notes','diarization']:
         result['coverage'][name]={'state':'unsupported','reason':'No qualified adapter wired in this profile; no inferred absence.'}
-    if manifest.get('model'):
-        write(out/'progress.json',{'stage':'transcribing','completed':len(result['assets']),'total':len(result['assets']),'role':'MLX Whisper vocal candidate'})
-        source,asset=vocal_source or (manifest['sources'][0],result['assets'][0])
-        asr_audio=out/'asr-16000.f32'
-        try:
-            # Local array input prevents mlx_whisper from spawning its own unbounded decoder.
-            command([ffmpeg,'-nostdin','-v','error','-xerror','-threads','1','-protocol_whitelist','file,pipe','-i',source['path'],'-t',str(MAX_SECONDS+1),'-ac','1','-ar','16000','-f','f32le','-y',str(asr_audio)])
-            samples=np.fromfile(asr_audio,dtype='<f4')
-            model=manifest['model'];model_path=Path(model['path'])
-            if sha(model_path/'weights.npz')!=model['weights_sha256'] or sha(model_path/'config.json')!=model['config_sha256']: raise ValueError('model_changed')
-            import socket
-            def denied(*args,**kwargs): raise RuntimeError('Atlas inference has networking disabled')
-            socket.socket.connect=denied
-            import mlx_whisper
-            from importlib.metadata import version
-            transcript,decode=transcribe_finite(lambda audio: mlx_whisper.transcribe(audio,path_or_hf_repo=str(model_path),word_timestamps=True,language='en',temperature=0.,condition_on_previous_text=False,verbose=None),samples)
-            transcript=finite_json(transcript)
-            write(out/'whisper-raw.json',transcript)
-            words=[]
-            for segment in transcript.get('segments',[]):
-                for word in segment.get('words',[]):
-                    if word.get('start') is None or word.get('end') is None: continue
-                    start=round(float(word['start'])*asset['sample_rate_hz']);end=round(float(word['end'])*asset['sample_rate_hz'])
-                    if not 0<=start<end<=asset['sample_count']: continue
-                    observation={'id':f"{asset['id']}:word:{len(words)}",'kind':'hapa.audio.word_candidate','claim_type':'model_inferred',
-                      'subject_id':asset['id'],'timeline_id':asset['timeline_id'],'reference_sample_rate_hz':asset['sample_rate_hz'],
-                      'start_sample':start,'end_sample':end,'shape':'interval','payload':{'text':word['word'],'model_score':word.get('probability'),'score_semantics':'uncalibrated Whisper word probability'},
-                      'provenance':{'run_id':manifest['id'],'source_sha256':source['sha256'],'model_revision':model['revision'],'weights_sha256':model['weights_sha256'],
-                        'analysis_view':{'sample_rate_hz':16000,'channels':1,'map_numerator':asset['sample_rate_hz'],'map_denominator':16000,'offset_samples':0,'rounding':'nearest'},'evidence_asset_id':asset['id'],'raw_evidence':'whisper-raw.json','raw_evidence_sha256':sha(out/'whisper-raw.json')},
-                      'confidence':None,'timing_uncertainty_samples':None,'review_state':'unreviewed'}
-                    words.append(observation)
-            result['observations'].extend(words)
-            result['transcript_candidate']={'text':transcript.get('text',''),'source_asset_id':asset['id'],'word_count':len(words),
-              'method':'mlx-whisper word timestamps','model_revision':model['revision'],'weights_sha256':model['weights_sha256'],
-              'package_version':version('mlx-whisper'),'language':'en','quality_qualified':False,'network':'disabled','source_timeline_only':True,'decode':decode}
-            result['coverage']['word_timing']={'state':'candidate','method':'MLX Whisper word timestamps','new_inference':True,'human_reviewed':False,'phoneme_or_syllable_timing':False}
-        except Exception as e:
-            result['coverage']['word_timing']={'state':'failed','error':str(e)[:500],'imported_candidates_preserved':True}
-        finally: asr_audio.unlink(missing_ok=True)
+    transcribe_result(manifest,result,out,ffmpeg,vocal_source)
     result['elapsed_seconds']=time.monotonic()-started
     result['real_time_factor']=result['elapsed_seconds']/(len(master)/8000)
     write(out/'result.json',result)

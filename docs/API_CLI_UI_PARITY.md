@@ -119,3 +119,16 @@ The canonical overlay schema is `hapa.human-video-enrichment-store.v1` in `src/d
 Queue and import automation may extract/hash frames and validate receipts only. It cannot make semantic or quality judgments. Reference workers may compare optical evidence only with their supplied packet, and packet breadth never changes Card authority. Pending proposals never project into Echo State.
 
 These records are human direction only. They do not establish canon, ownership, rights clearance, publication approval, or render authority.
+
+## Motion Avatar Sources (2026-10-15 prototype)
+
+- UI: Builder's optional **Motion Avatar Sources** section, image picker/drop, existing reorder/preview/delete and save queue.
+- Contract: image assets with `requirementId: motion_avatar_source`; optional, no completeness quota.
+- API: existing `GET /api/avatars/:id/attach?target=motion-avatar` adds `motionAvatarSources`.
+- CLI: `node cli/avatar-builder.mjs attach <id> --target motion-avatar --json` returns the same list.
+- Evidence: `tests/motion-avatar-source.test.mjs` covers persistence/normalization, ID/provenance export, optional scoring, reorder/move/remove, image-only domain guards and isolated-store CLI pickup.
+- Boundary: image intake is implemented; automated rigging, rig review and audio acceptance remain downstream work. See [operator and agent flow](MOTION_AVATAR_SOURCES.md).
+
+## Avatar Voice Cards and Scripts — local prototype
+
+UI: Builder → Voice & Scripts. Shared service: `server/avatar-voice.mjs`; authenticated routes: `/api/avatar-voices/:avatarId`; CLI: `node cli/avatar-voice.mjs`. Capture, list, scripts, generation, cancellation, archive/restore, and audio retrieval have the same owner. Player bundles use the authenticated API and UI download. See [contract and evidence limits](AVATAR_VOICE_CARDS.md). Real cloning acceptance requires installed OmniVoice weights and a permitted reference recording; fixture audio does not establish voice quality.

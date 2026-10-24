@@ -195,6 +195,14 @@ Double-click launcher:
 launch-avatar-builder.command
 ```
 
+## Motion Avatar Sources
+
+Use **Builder → Motion Avatar Sources → Add source images** to attach images intended for conversion into moving 2D Avatars. This optional section is separate from the ordinary reference categories and 3D rigs. After sync completes, an agent can retrieve exact source and Avatar IDs from the attach pack’s `motionAvatarSources` list. See [intake and agent pickup](docs/MOTION_AVATAR_SOURCES.md).
+
+## Avatar Voice Cards and Scripts
+
+Use **Builder → Voice & Scripts → Open voice sampler** to record or upload style samples for the selected Avatar, save Voice Cards, write reusable scripts, and queue local voice-overs. Automatic capture can create two starter scripts. Completed clips export audio plus directions for the Avatar Player. See [capture, engine setup, API/CLI and current verification limits](docs/AVATAR_VOICE_CARDS.md).
+
 ## Human Enricher
 
 Open **Human Enricher** from the Builder's top-level work surfaces to review every video registered across the System Media Library, Avatar Cards, Tarot Cards, scenes, and read-only Hell Week projections. The workbench shows each video's known technical metadata, source identity, tags, and relationships alongside four human-authored fields:

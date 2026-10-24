@@ -282,3 +282,19 @@ test("dense line anchors can adjudicate a narrowly sub-threshold word match", ()
     sttPathExists: true,
   }).accepted, true);
 });
+
+
+test("single-model coverage does not displace corroborated boundaries on a different confidence scale",()=>{
+  const lines=[{text:'real words',start:1,end:3,words:[{start:1,end:2,matched:true},{start:2,end:3,matched:true}],alignmentReview:{modelAgreementRatio:1}}];
+  const existing=measuredTiming({engine:'audio-atlas-mlx',confidence:.8,lines,provenance:{wordTiming:{method:'audio-atlas-qwen3-forced-alignment-windowed'}}});
+  const candidate=measuredTiming({engine:'audio-atlas-mlx',confidence:.99,lines:[{...lines[0],alignmentReview:{performanceSupported:true,performanceCoverage:1}}],provenance:{measurementKind:'transcript-timestamps'}});
+  const input={candidate,existing,candidatePromotion:{accepted:true},existingPromotion:{accepted:true}};
+  assert.equal(compareEchoLyricTimingCandidate(input).reason,'preserve-corroborated-word-boundaries');
+  existing.lines[0].alignmentReview.modelAgreementRatio=0;
+  assert.equal(compareEchoLyricTimingCandidate(input).reason,'complete-passage-evidence-upgrade');
+});
+test("v2 whole-song confidence cannot bypass a locally unsupported passage",()=>{
+  const timing=measuredTiming({engine:'audio-atlas-mlx',confidence:.99,lines:[{text:'missing words',start:1,end:4,words:[{start:1,end:2,matched:true}],alignmentReview:{performanceSupported:false,performanceCoverage:.2}}]});
+  timing.provenance={...timing.provenance,pipeline:'audio-atlas-lyric-timing.v2',measurementKind:'transcript-timestamps'};
+  assert.ok(evaluateEchoLyricTimingPromotion(timing,{sourcePathExists:true,sttPathExists:true}).reasons.includes('unresolved-lyric-passages'));
+});

@@ -137,7 +137,20 @@ export const ASSET_NODE_TYPES = [
   { id: "prompt-hook", label: "Prompt hook" }
 ];
 
+export const MOTION_AVATAR_SOURCE_REQUIREMENT_ID = "motion_avatar_source";
+
 export const MEDIA_REQUIREMENTS = [
+  {
+    id: MOTION_AVATAR_SOURCE_REQUIREMENT_ID,
+    label: "Motion Avatar Sources",
+    shortLabel: "Motion Source",
+    accent: "cyan",
+    required: 0,
+    optional: true,
+    accepts: ["image"],
+    description: "Images to turn into moving 2D Avatars. Start with a clear front-facing portrait or full body with an unobstructed face. These are source candidates awaiting rig review.",
+    defaultTags: ["motion-source"]
+  },
   {
     id: "character_dossier",
     label: "Character Dossier",
@@ -1572,6 +1585,10 @@ export function assignAssetToSlot(avatar, asset, slotId = null) {
   const next = normalizeAvatarCard(avatar);
   const normalizedAsset = createMediaAsset(asset);
   normalizedAsset.requirementId = asset.requirementId || normalizedAsset.requirementId;
+  const targetRole = slotId ? next.slots.find((slot) => slot.id === slotId)?.requirementId : normalizedAsset.requirementId;
+  if ((targetRole === MOTION_AVATAR_SOURCE_REQUIREMENT_ID || normalizedAsset.requirementId === MOTION_AVATAR_SOURCE_REQUIREMENT_ID) && normalizedAsset.type !== "image") {
+    throw new Error("Motion Avatar Sources accepts images only.");
+  }
   normalizedAsset.processing = {
     ...(normalizedAsset.processing || {}),
     status: "attached",
@@ -1667,6 +1684,9 @@ export function moveAssetToRequirement(avatar, assetId, targetRequirementId, tar
   const assetIndex = next.assets.findIndex((item) => item.id === assetId);
   if (assetIndex < 0) return next;
 
+  if (targetRequirementId === MOTION_AVATAR_SOURCE_REQUIREMENT_ID && next.assets[assetIndex].type !== "image") {
+    throw new Error("Motion Avatar Sources accepts images only.");
+  }
   const sourceSlot = next.slots.find((slot) => slot.assetId === assetId) || null;
   const sourceRequirementId = sourceSlot?.requirementId || next.assets[assetIndex].requirementId || targetRequirementId;
   if (sourceRequirementId === targetRequirementId) {
@@ -2565,6 +2585,7 @@ export function createAttachPack(avatar, target = "agent") {
       const presentation = slotPresentation.get(slot.id) || { sectionOrder: null, defaultForSection: false };
       return asset
         ? {
+            assetId: asset.id,
             slotId: slot.id,
             role: requirement?.id || slot.requirementId,
             label: requirement?.label || slot.label,
@@ -2600,6 +2621,16 @@ export function createAttachPack(avatar, target = "agent") {
   const baseReferences = refs.filter((ref) =>
     ["character_dossier", "fullbody_backgroundless", "backgroundless_two_thirds", "fullbody_concept_art", "closeup_emotions"].includes(ref.role)
   );
+  const motionAvatarSources = refs
+    .filter((ref) => ref.role === MOTION_AVATAR_SOURCE_REQUIREMENT_ID && ref.type === "image")
+    .map((ref) => ({
+      ...ref,
+      schemaVersion: "hapa.motion-avatar-source.v1",
+      avatarCardId: normalizedAvatar.id,
+      status: "awaiting-rig-review",
+      source: assetById.get(ref.assetId)?.source || null,
+      metadata: assetById.get(ref.assetId)?.metadata || {}
+    }));
   const videoBranches = createVideoBranchReferences(normalizedAvatar);
   const modelReferences = createModelReferences(normalizedAvatar);
   const videoLinks = createVideoTransitionReferences(normalizedAvatar);
@@ -2617,10 +2648,12 @@ export function createAttachPack(avatar, target = "agent") {
       "Use close-up emotions for face and acting reference.",
       "Use kit items and kit poses when scene action depends on gear.",
       "Use videoBranches when motion, timing, transition, or camera behavior should follow an existing image state.",
+      "Use motionAvatarSources for 2D rigging intake; these are unreviewed source candidates, not finished rigs. Preserve avatarCardId and assetId in derived work.",
       "Use modelReferences when a 3D scene, rig transfer, pose retarget, or animation preview needs the avatar asset directly.",
       "If a required slot is missing, create a healing task before production use."
     ],
     baseReferences,
+    motionAvatarSources,
     videoBranches,
     videoLinks,
     videoMatchQueue,

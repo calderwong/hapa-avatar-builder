@@ -140,9 +140,16 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
     if(hash(bytes)!==j.result_sha256)throw fail('Atlas result integrity mismatch',409);
     const value=JSON.parse(bytes);validateAtlasResult(value);return value;
   }
-  async function start(songId,{transcribe=false,beats=false,acoustic=false,alignment=null,pitch=null}={}){
+  async function start(songId,{transcribe=false,beats=false,acoustic=false,alignment=null,pitch=null,alignmentBaseRunId=null,transcriptionBaseRunId=null,transcriptionSourceId=null,transcriptionLanguage='en'}={}){
     textSearch.ensureNoOrphans();descriptions.ensureNoOrphans();
     alignment=alignmentRequest(alignment);pitch=pitchRequest(pitch);
+    if(alignmentBaseRunId && (!alignment || transcribe || beats || acoustic || pitch)) throw fail('Analysis reuse is only available for alignment-only requests',422);
+    if(transcriptionBaseRunId && (!transcribe || alignment || alignmentBaseRunId || beats || acoustic || pitch)) throw fail('Transcription reuse requires transcription-only request',422);
+    if(transcriptionSourceId && !transcribe) throw fail('Transcription source requires transcription',422);
+    if(!['en','auto'].includes(transcriptionLanguage)) throw fail('Transcription language must be en or auto',422);
+    const transcriptionOnly=Boolean(transcriptionBaseRunId);
+    alignmentBaseRunId=alignmentBaseRunId||transcriptionBaseRunId;
+    if(alignmentBaseRunId) safeId(alignmentBaseRunId);
     safeId(songId);
     const song=songs().find(s=>s.id===songId);if(!song)throw fail('Song not found',404);
     if(alignment&&!list().find(s=>s.id===songId).sources.some(s=>s.id===alignment.sourceId))throw fail('Alignment source is not registered for this song',422);
@@ -172,6 +179,7 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
         if(info.status!=='bytes-verified'||!info.audioHeaderRecognized)throw fail(`Unreadable registered ${index?'stem':'master'} audio`,422);
         sources.push({id:index?`stem-${index}`:'master',role:index?(row.kind||row.stemType||row.title):'Master',path:row.localPath,uri:index?row.uri:row.wavUri||row.mp3Uri,sha256:info.sha256});
       }
+      if(transcriptionSourceId&&!sources.some(s=>s.id===transcriptionSourceId))throw fail('Transcription source is not registered for this song',422);
       if(sources.length>25)throw fail('At most 24 stems per analysis');
       // Never analyze duplicate stems: one record per role and each file at most once.
       const stemRoles=sources.slice(1).map(s=>stemRoleLabel({stemType:s.role}).toLowerCase().replace(/[^a-z0-9]+/g,''));
@@ -185,7 +193,14 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
         weights_sha256:hash(fs.readFileSync(path.join(config.modelPath,'weights.npz'))),
         config_sha256:hash(fs.readFileSync(path.join(config.modelPath,'config.json')))}:null;
       const selectedPython=config?.python||alignConfig?.python||pitchConfig?.python||python;
-      const key=hash({version:ATLAS_VERSION,contractVersion:CONTRACT_VERSION,songId,sources,lyrics,timing:song.lyricTimings,code,python:selectedPython,runtime:runtimeIdentity(selectedPython),beatRuntime:beatModel?runtimeIdentity(beatModel.python):null,model,beatModel,clapConfig,clapRuntime:clapConfig?runtimeIdentity(clapConfig.python):null,alignment,alignmentModel:alignConfig,alignmentRuntime:alignConfig?runtimeIdentity(alignConfig.python):null,...(pitch?{pitch,pitchConfig,pitchRuntime:runtimeIdentity(pitchConfig.python)}:{})});
+      let alignmentBase=null,alignmentBaseHash=null;
+      if(alignmentBaseRunId){
+        alignmentBase=result(alignmentBaseRunId);buildAtlasContract(alignmentBase);
+        alignmentBaseHash=status(alignmentBaseRunId).result_sha256;
+        if(alignmentBase.song_id!==songId || alignmentBase.assets.length!==sources.length || sources.some(source=>!alignmentBase.assets.some(asset=>asset.id===source.id&&asset.role===source.role&&asset.status==='ready'&&asset.source_sha256===source.sha256))) throw fail('Reused analysis source set differs from current song audio',409);
+        for(const asset of alignmentBase.assets) verifySpectrogramArtifact(asset,directory(alignmentBaseRunId));
+      }
+      const key=hash({transcriptionSourceId,transcriptionLanguage,transcriptionOnly,alignmentBaseRunId,alignmentBaseHash,version:ATLAS_VERSION,contractVersion:CONTRACT_VERSION,songId,sources,lyrics,timing:song.lyricTimings,code,python:selectedPython,runtime:runtimeIdentity(selectedPython),beatRuntime:beatModel?runtimeIdentity(beatModel.python):null,model,beatModel,clapConfig,clapRuntime:clapConfig?runtimeIdentity(clapConfig.python):null,alignment,alignmentModel:alignConfig,alignmentRuntime:alignConfig?runtimeIdentity(alignConfig.python):null,...(pitch?{pitch,pitchConfig,pitchRuntime:runtimeIdentity(pitchConfig.python)}:{})});
       for(const old of jobs(songId).filter(j=>j.key===key&&j.state==='complete')){
         try{const cached=result(old.id);buildAtlasContract(cached);for(const a of cached.assets)verifySpectrogramArtifact(a,directory(old.id));return {...old,cache_hit:true};}catch{/* Corrupt output never qualifies as a cache hit. */}
       }
@@ -205,7 +220,7 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
         if((await createEchoSourceInspector().inspect(preserved)).sha256!==source.sha256)throw fail('Preserved source integrity mismatch');
         source.original_path=source.path;source.path=preserved;source.uri=`/api/echos/audio-atlas/jobs/${id}/audio/${source.id}`;
       }
-      const manifest={id,song:{id:songId,title:song.title,lyrics,lyricTimings:song.lyricTimings||[]},sources,model,beats:beatModel,clap:clapConfig,alignment,alignment_model:alignConfig,pitch,pitch_runtime:pitchConfig};
+      const manifest={id,transcription_only:transcriptionOnly,transcription:{source_id:transcriptionSourceId,language:transcriptionLanguage},song:{id:songId,title:song.title,lyrics,lyricTimings:song.lyricTimings||[]},sources,model,beats:beatModel,clap:clapConfig,alignment,alignment_model:alignConfig,pitch,pitch_runtime:pitchConfig,alignment_base:alignmentBaseRunId?{run_id:alignmentBaseRunId,result_sha256:alignmentBaseHash}:null};
       atomic(path.join(dir,'manifest.json'),manifest);
       const job={id,song_id:songId,title:song.title,key,state:'queued',created_at:new Date().toISOString(),owner_pid:process.pid,policy:'local-private',cache_hit:false};
       atomic(jobFile(id),job);
@@ -214,7 +229,23 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
       handle.promise=(async()=>{
         try{
           update({state:'running'});
+          if(alignmentBase){
+            // Reuse source-bound measurements, not prior words, reviews or inferred alignment.
+            const assets=structuredClone(alignmentBase.assets);
+            for(const asset of assets){
+              const bytes=verifySpectrogramArtifact(asset,directory(alignmentBaseRunId));
+              if(bytes) fs.writeFileSync(path.join(dir,asset.spectrogram.artifact),bytes);
+              asset.source_uri=sources.find(source=>source.id===asset.id).uri;
+            }
+            const reused={schema_version:alignmentBase.schema_version,run_id:id,song_id:songId,title:song.title,
+              supplied_lyrics:lyrics,imported_word_candidates:song.lyricTimings||[],assets,observations:[],coverage:{},
+              stem_alignment:{status:'unknown'},elapsed_seconds:0,
+              measurement_reuse:{run_id:alignmentBaseRunId,result_sha256:alignmentBaseHash,source_hashes_verified:true,scope:'asset measurements only; no prior word candidates or review inherited'}};
+            validateAtlasResult(reused);buildAtlasContract(reused);atomic(path.join(dir,'result.json'),reused);
+            if(transcriptionOnly) await runner(root,path.join(dir,'manifest.json'),{python:selectedPython,signal:controller.signal,onSpawn:pid=>update({worker_pid:pid}),onOutput:text=>{job.output_tail=(job.output_tail||'').concat(text).slice(-2500);}});
+          }else{
           await runner(root,path.join(dir,'manifest.json'),{python:selectedPython,signal:controller.signal,onSpawn:pid=>update({worker_pid:pid}),onOutput:text=>{job.output_tail=(job.output_tail||'').concat(text).slice(-2500);}});
+          }
           if(controller.signal.aborted)throw fail('Analysis cancelled');
           if(beatModel){
             atomic(path.join(dir,'progress.json'),{stage:'beats',role:'Beat This CPU',completed:sources.length,total:sources.length});

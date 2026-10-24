@@ -2,6 +2,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "node:crypto";
+import { echoLyricHasManualTiming, echoLyricSourceMatches, echoLyricRegistryTrackId } from "../src/domain/echo-lyric-sync-safety.js";
 import {
   DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE,
   evaluateEchoLyricTimingPromotion,
@@ -45,7 +46,9 @@ function readJson(filePath) {
 }
 
 function writeJson(filePath, payload) {
-  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  const temporary=filePath+'.'+process.pid+'.tmp';
+  try { fs.writeFileSync(temporary, `${JSON.stringify(payload, null, 2)}\n`, {encoding:"utf8",mode:fs.existsSync(filePath)?fs.statSync(filePath).mode&0o777:0o600});fs.renameSync(temporary,filePath); }
+  finally { if(fs.existsSync(temporary))fs.unlinkSync(temporary); }
 }
 
 function sha256(value) {
@@ -60,7 +63,7 @@ function timingQuality(lines = [], confidence = 0) {
     if (next && Math.abs(Number(line.start) - Number(next.start)) < .01) duplicateStarts += 1;
     for (const word of line.words || []) if (Number(word.start) < Number(line.start) - .05 || Number(word.end) > Number(line.end) + .25) wordBounds += 1;
   }
-  const qualityStatus = Number(confidence) < .6 || overlaps || duplicateStarts ? "source-aligned-needs-review" : "source-aligned";
+  const qualityStatus = Number(confidence) < .6 || overlaps || duplicateStarts || wordBounds ? "source-aligned-needs-review" : "source-aligned";
   return { qualityStatus, confidence: Number(confidence || 0), overlaps, duplicateStarts, wordBounds, humanReviewed: false };
 }
 
@@ -140,18 +143,21 @@ function normalizeTimingLines(lines = []) {
             start: Number(word.start ?? word.startTime ?? start),
             end: Number(word.end ?? word.endTime ?? end),
             matched: word.matched ?? undefined,
+            ...(word.evidenceSourceRun?{evidenceSourceRun:word.evidenceSourceRun}:{}),
+            ...(word.recognitionMatches?{recognitionMatches:word.recognitionMatches}:{}),
             index: Number(word.index ?? wordIndex)
           })).filter((word) => word.word)
         : [];
       return {
         id: line.id || `timed-line-${index + 1}`,
-        start: Number(start.toFixed(3)),
-        end: Number(end.toFixed(3)),
+        start: Number(start.toFixed(6)),
+        end: Number(end.toFixed(6)),
         text: line.text || line.line || line.lyric || "",
         section: line.section || line.section_label || "",
         section_id: line.section_id || line.sectionId || "",
         section_label: line.section_label || line.sectionLabel || line.section || "",
         confidence: Number(line.confidence ?? 0),
+        ...(line.alignmentReview ? { alignmentReview: line.alignmentReview } : {}),
         words
       };
     })
@@ -188,13 +194,7 @@ function readTimingForManifestSong(song = {}) {
   return null;
 }
 
-function registryIdForSong(song = {}) {
-  return song.lineage?.registryTrackId
-    || song.audio?.registryTrackId
-    || song.registryTrackId
-    || song.attribution?.songRegistryTrackId
-    || "";
-}
+const registryIdForSong = echoLyricRegistryTrackId;
 
 if (!fs.existsSync(MANIFEST_PATH)) {
   console.error(`Dear Papa playlist manifest not found: ${MANIFEST_PATH}`);
@@ -252,8 +252,24 @@ for (const song of manifestSongs) {
   });
 }
 
-const store = readJson(HAPA_SONG_STORE_PATH);
-const songbook = readJson(SONGBOOK_PATH);
+const originalStoreBytes=fs.readFileSync(HAPA_SONG_STORE_PATH),originalSongbookBytes=fs.readFileSync(SONGBOOK_PATH);
+const store = JSON.parse(originalStoreBytes);
+const songbook = JSON.parse(originalSongbookBytes);
+const sourceProjects=fs.readdirSync(PROJECTS_DIR).filter(name=>name.endsWith('-video-project.json')).map(file=>{const payload=readJson(path.join(PROJECTS_DIR,file));return payload.music_video_project||payload;});
+// Gate the whole song before any of its projections change. Manual authoring and source drift win.
+for (const song of store.songs || []) {
+  const id=registryIdForSong(song), timing=timingByRegistryId.get(id);if(!timing)continue;
+  const reasons=[];
+  if(echoLyricHasManualTiming(song))reasons.push('manual-song-timing');
+  if(sourceProjects.some(project=>[song.id,song.cardId,song.songId].includes(project.song_id)&&echoLyricHasManualTiming(project)))reasons.push('manual-project-timing');
+  if(timing.provenance.pipeline==='audio-atlas-lyric-timing.v2'){
+    const lyrics=typeof song.lyrics==='string'?song.lyrics:song.lyrics?.text||'';
+    if(sha256(lyrics)!==timing.provenance.lyricsSha256||!echoLyricSourceMatches(timing.lines,song.lyrics))reasons.push('canonical-lyrics-changed-or-omitted');
+    if(!song.audio?.localPath || !fs.existsSync(song.audio.localPath) || crypto.createHash('sha256').update(fs.readFileSync(song.audio.localPath)).digest('hex')!==timing.provenance.masterAudioSha256)reasons.push('current-master-audio-changed');
+    if(!fs.existsSync(timing.provenance.audioPath)||crypto.createHash('sha256').update(fs.readFileSync(timing.provenance.audioPath)).digest('hex')!==timing.provenance.audioSha256)reasons.push('audio-source-changed');
+  }
+  if(reasons.length){timingByRegistryId.delete(id);timingRejections.push({registryTrackId:id,title:song.title,reasons});}
+}
 let storeUpdated = 0;
 let songbookUpdated = 0;
 let duplicateExactTimingKeys = 0;
@@ -406,6 +422,7 @@ const report = {
 };
 
 if (APPLY_MUTATIONS) {
+  if(!fs.readFileSync(HAPA_SONG_STORE_PATH).equals(originalStoreBytes)||!fs.readFileSync(SONGBOOK_PATH).equals(originalSongbookBytes))throw Error('Song stores changed during timing preparation; rerun without overwriting concurrent edits');
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
   fs.copyFileSync(HAPA_SONG_STORE_PATH, path.join(BACKUP_DIR, `hapa-songs-store.before-lyric-timing-sync-${RUN_ID}.json`));
   fs.copyFileSync(SONGBOOK_PATH, path.join(BACKUP_DIR, `dear-papa-songbook.before-lyric-timing-sync-${RUN_ID}.json`));

@@ -60,6 +60,7 @@ import { BUILDER_HOST_TARGETS, getBuilderHostTarget, getBuilderOvercardManagemen
 import BuilderMenuHostTab from "./overcard/BuilderMenuHostTab.jsx";
 import { useOvercardAttachments } from "@hapa/overcard/react";
 import { resolveBuilderViewContext } from "./overcard/viewContext.js";
+import AvatarVoicePanel from './components/AvatarVoicePanel.jsx';
 import { resolveTarotAttachmentContext } from "./overcard/tarotFormationAdapter.js";
 import BuilderHeaderHand from "./overcard/BuilderHeaderHand.jsx";
 import dearPapaSongbook from "../fixtures/build-week/judge-data/dear-papa-songbook.json";
@@ -84,6 +85,7 @@ import {
   VIDEO_LINK_TYPES,
   RELATIONSHIP_METRICS,
   MEDIA_REQUIREMENTS,
+  MOTION_AVATAR_SOURCE_REQUIREMENT_ID,
   TAG_GROUPS,
   appendAssetNode,
   attachAvatarModel,
@@ -2733,10 +2735,18 @@ export default function App({ overcardAdapter }) {
     }
 
     const droppedFiles = [...(event.dataTransfer.files || [])];
+    if (requirementId === MOTION_AVATAR_SOURCE_REQUIREMENT_ID && droppedFiles.some((file) => !file.type.startsWith("image/"))) {
+      notify("Motion Avatar Sources accepts images only.");
+      return;
+    }
     const assets = droppedFiles.length
       ? await processLocalFiles(droppedFiles, "slot-drop", requirementId, `Attach to ${requirementById(requirementId)?.shortLabel || "section"}`)
       : await assetsFromDrop(event, requirementId, [...intake, ...selectedAvatar.assets]);
     if (!assets.length) return;
+    if (requirementId === MOTION_AVATAR_SOURCE_REQUIREMENT_ID && assets.some((asset) => asset.type !== "image")) {
+      notify("Motion Avatar Sources accepts images only.");
+      return;
+    }
 
     const videoAssets = assets.filter((asset) => asset.type === "video");
     if (videoAssets.length) {
@@ -2763,9 +2773,24 @@ export default function App({ overcardAdapter }) {
     cue("drop");
   }
 
+  async function handleMotionSourcePicker(files) {
+    if (!selectedAvatar || !files.length) return;
+    if (files.some((file) => !file.type.startsWith("image/"))) throw new Error("Choose image files for Motion Avatar Sources.");
+    const assets = await processLocalFiles(files, "motion-avatar-source-upload", MOTION_AVATAR_SOURCE_REQUIREMENT_ID, "Motion source upload");
+    if (!assets.length) throw new Error("No supported images were selected.");
+    let nextAvatar = selectedAvatar;
+    for (const asset of assets) nextAvatar = assignAssetToSlot(nextAvatar, { ...asset, requirementId: MOTION_AVATAR_SOURCE_REQUIREMENT_ID });
+    replaceAvatar(nextAvatar, `Added ${assets.length} motion source image${assets.length === 1 ? "" : "s"}. Sync queued.`);
+    selectAsset(assets.at(-1).id);
+  }
+
   function handleRequirementMove(assetId, sourceRequirementId, targetRequirementId, targetSlotId = null) {
     if (!selectedAvatar || !assetId) return;
     const movedBefore = selectedAvatar.assets.find((asset) => asset.id === assetId);
+    if (targetRequirementId === MOTION_AVATAR_SOURCE_REQUIREMENT_ID && movedBefore?.type !== "image") {
+      notify("Motion Avatar Sources accepts images only.");
+      return;
+    }
     const sourceLabel = requirementById(sourceRequirementId)?.label || sourceRequirementId || "Avatar";
     const targetRequirement = requirementById(targetRequirementId);
     const targetLabel = targetRequirement?.label || targetRequirementId || "Avatar";
@@ -3673,6 +3698,7 @@ export default function App({ overcardAdapter }) {
 
         {activeView === "builder" && selectedAvatar && audit && (
           <section className="builder-view">
+            <AvatarVoicePanel avatarId={selectedAvatar.id} label={selectedAvatar.primaryName} />
             <WriterCharacterPanel avatarId={selectedAvatar.id} label={selectedAvatar.primaryName} />
             <div className="panel hapa-panel intake-panel" data-variant="resting">
               <div className="section-head hapa-panel-head">
@@ -3741,6 +3767,25 @@ export default function App({ overcardAdapter }) {
                 </div>
               </div>
 
+              {MEDIA_REQUIREMENTS.filter((requirement) => requirement.optional).map((requirement) => (
+                <RequirementPanel
+                  key={`${selectedAvatar.id}-${requirement.id}`}
+                  requirement={requirement}
+                  requirementAudit={audit.byRequirement.find((item) => item.id === requirement.id)}
+                  onPick={handleMotionSourcePicker}
+                  slots={selectedAvatar.slots.filter((slot) => slot.requirementId === requirement.id)}
+                  assets={selectedAvatar.assets}
+                  videoBranchMap={videoBranchMap}
+                  selectedAssetId={selectedAssetId}
+                  onSelectAsset={selectAsset}
+                  onDrop={handleDrop}
+                  onExpand={openExpandedAsset}
+                  onDelete={handleDeleteAsset}
+                  onPreview={showHoverPreview}
+                  onPreviewHide={hideHoverPreview}
+                />
+              ))}
+
               <AvatarModelPanel
                 activeModel={activeModelAsset}
                 modelAssets={modelAssets}
@@ -3755,7 +3800,7 @@ export default function App({ overcardAdapter }) {
               />
 
               <div className="requirements-grid">
-                {MEDIA_REQUIREMENTS.map((requirement) => {
+                {MEDIA_REQUIREMENTS.filter((requirement) => !requirement.optional).map((requirement) => {
                   const requirementAudit = audit.byRequirement.find((item) => item.id === requirement.id);
                   const slots = selectedAvatar.slots.filter((slot) => slot.requirementId === requirement.id);
                   return (
@@ -11873,7 +11918,9 @@ function SectionSelectionDock({ asset, requirement, slot, slotOrder, branchCount
   );
 }
 
-function RequirementPanel({ requirement, requirementAudit, slots, assets, videoBranchMap, selectedAssetId, onSelectAsset, onDrop, onExpand, onDelete, onPreview, onPreviewHide }) {
+function RequirementPanel({ requirement, requirementAudit, onPick, slots, assets, videoBranchMap, selectedAssetId, onSelectAsset, onDrop, onExpand, onDelete, onPreview, onPreviewHide }) {
+  const [picking, setPicking] = useState(false);
+  const [pickError, setPickError] = useState("");
   const assetMap = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
   const orderedSlots = useMemo(
     () => [...slots].sort((a, b) => Number(a.required === false) - Number(b.required === false)),
@@ -11916,6 +11963,7 @@ function RequirementPanel({ requirement, requirementAudit, slots, assets, videoB
   return (
     <section
       className={`bucket-panel hapa-panel accent-${requirement.accent}`}
+      style={requirement.optional ? { gridColumn: "1 / -1" } : undefined}
       data-variant="notch"
       data-card-type={requirementCardType(requirement.id)}
       data-state={dragState.sourceSlotId ? "dragging" : "idle"}
@@ -11931,21 +11979,50 @@ function RequirementPanel({ requirement, requirementAudit, slots, assets, videoB
           <h3>{requirement.label}</h3>
         </div>
         <div className="bucket-count">
-          <strong>{requirementAudit.filled}/{requirementAudit.required}</strong>
-          {requirementAudit.overfill > 0 && <em>+{requirementAudit.overfill} overfill</em>}
+          <strong>{requirement.optional ? `${filledSlots.length} sources` : `${requirementAudit.filled}/${requirementAudit.required}`}</strong>
+          {requirement.optional && <em>Optional · awaiting rig review</em>}
+          {!requirement.optional && requirementAudit.overfill > 0 && <em>+{requirementAudit.overfill} overfill</em>}
         </div>
       </header>
-      <ProgressBar value={requirementAudit.percent} />
+      {!requirement.optional && <ProgressBar value={requirementAudit.percent} />}
+      {requirement.optional && (
+        <div>
+          <p>{requirement.description}</p>
+          <label className="local-picker hapa-btn" data-intent="primary">
+            <ImagePlus size={15} /> {picking ? "Adding source images…" : "Add source images"}
+            <input
+              type="file"
+              aria-label="Add source images"
+              className="file-input"
+              accept="image/*"
+              multiple
+              disabled={picking}
+              onChange={async (event) => {
+                const files = [...event.target.files];
+                event.target.value = "";
+                setPickError("");
+                setPicking(true);
+                try { await onPick(files); }
+                catch (error) { setPickError(error.message || "Upload failed. Please try again."); }
+                finally { setPicking(false); }
+              }}
+            />
+          </label>
+          {pickError && <p role="alert">{pickError}</p>}
+          <p>After sync completes, tell your agent this Avatar’s name to review the source, rig it, and test audio control.</p>
+        </div>
+      )}
       <div
         className="bucket-drop-strip"
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
+          event.stopPropagation();
           clearSlotDrag();
           onDrop(event, requirement.id);
         }}
       >
         <Upload size={15} />
-        <span>{openTargets > 0 ? `${openTargets} open` : "overfill"}</span>
+        <span>{requirement.optional ? "Drop source images here" : openTargets > 0 ? `${openTargets} open` : "overfill"}</span>
       </div>
       {draggedAsset && dragTargetLabel && (
         <div className="section-drag-readout" aria-live="polite">
@@ -12082,7 +12159,7 @@ function RequirementPanel({ requirement, requirementAudit, slots, assets, videoB
                 >
                   <Trash2 size={13} />
                 </button>
-                {slot.required === false && <em className="overfill-chip">overfill</em>}
+                {slot.required === false && <em className="overfill-chip">{requirement.optional ? "source" : "overfill"}</em>}
               </div>
               {selectedAssetId === asset.id && (
                 <SectionSelectionDock
