@@ -34,16 +34,34 @@ export function scoreDustLoopAsset({ recordingId, title, receipt, uri, sizeBytes
 
 const matchesSong = (song, songId) => [song?.id, song?.songId, song?.cardId].includes(songId);
 
+/** Copy a recording into the public media root (idempotent by size). */
+async function publishRecording(deps, recordingId, folder) {
+  if (!SAFE_ID.test(String(recordingId || ''))) throw fail('recordingId must name a Preview Recording', 400);
+  const record = await deps.recordings.get(recordingId);
+  const artifact = await deps.recordings.openFile(recordingId);
+  if (!/webm/.test(artifact.contentType)) throw fail('only WebM recordings can be published');
+  const dir = path.join(deps.mediaDir, folder), fileName = `${recordingId}.webm`, target = path.join(dir, fileName);
+  await fsp.mkdir(dir, { recursive: true });
+  const existing = fs.existsSync(target) ? (await fsp.stat(target)).size : -1;
+  if (existing !== artifact.sizeBytes) await fsp.copyFile(artifact.filePath, target);
+  return { record, artifact, uri: `/media/${folder}/${fileName}` };
+}
+
+/** Publish a Score Dust export as ordinary video media for the Director cut. */
+export async function publishScoreDustRender(deps, body = {}) {
+  const { record, artifact, uri } = await publishRecording(deps, body.recordingId, 'score-dust-renders');
+  return { schemaVersion: 'hapa.echo.score-dust.render-media.v1', recordingId: body.recordingId, uri, sha256: artifact.sha256 || null, sizeBytes: artifact.sizeBytes,
+    width: Number(record?.width) || null, height: Number(record?.height) || null, durationSeconds: Number(record?.durationMs) > 0 ? Number(record.durationMs) / 1000 : null, songId: record?.songId || null };
+}
+
 /**
  * attachScoreDustLoop(deps, body)
  * deps: { recordings: {get, openFile}, mediaDir, tarot: {read, write}, songs: {read, write} }
  */
 export async function attachScoreDustLoop(deps, body) {
   const request = parseLoopAttachment(body);
-  const record = await deps.recordings.get(request.recordingId);
-  const artifact = await deps.recordings.openFile(request.recordingId);
-  if (!/webm/.test(artifact.contentType)) throw fail('only WebM recordings can be attached as loops');
   // Validate the target before copying anything.
+  await deps.recordings.get(request.recordingId);
   let tarotStore = null, songStore = null, song = null;
   if (request.target.kind === 'tarot') {
     tarotStore = normalizeTarotStore(await deps.tarot.read());
@@ -53,12 +71,9 @@ export async function attachScoreDustLoop(deps, body) {
     song = (songStore.songs || []).find((s) => matchesSong(s, request.target.songId));
     if (!song) throw fail(`no Song Card ${request.target.songId}`, 404);
   }
-  const dir = path.join(deps.mediaDir, 'score-dust-loops'), fileName = `${request.recordingId}.webm`, target = path.join(dir, fileName);
-  await fsp.mkdir(dir, { recursive: true });
-  const existing = fs.existsSync(target) ? (await fsp.stat(target)).size : -1;
-  if (existing !== artifact.sizeBytes) await fsp.copyFile(artifact.filePath, target);
+  const { record, artifact, uri } = await publishRecording(deps, request.recordingId, 'score-dust-loops');
   const asset = scoreDustLoopAsset({ recordingId: request.recordingId, title: request.title || record?.projectTitle || '', receipt: request.receipt,
-    uri: `/media/score-dust-loops/${fileName}`, sizeBytes: artifact.sizeBytes, sha256: artifact.sha256 || null, songId: record?.songId || null });
+    uri, sizeBytes: artifact.sizeBytes, sha256: artifact.sha256 || null, songId: record?.songId || null });
   if (tarotStore) {
     const next = attachTarotCardMedia(tarotStore, request.target.cardId, asset, 'loop_video');
     await deps.tarot.write(next);

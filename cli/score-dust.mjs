@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPreviewRecordingStore } from '../server/preview-recording-store.mjs';
-import { attachScoreDustLoop } from '../server/echo-score-dust-loops.mjs';
+import { attachScoreDustLoop, publishScoreDustRender } from '../server/echo-score-dust-loops.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mediaDir = process.env.HAPA_MEDIA_DIR || path.join(root, 'data/media');
@@ -28,11 +28,15 @@ function store(file) {
 }
 
 try {
-  if (op !== 'attach-loop' || !id || (!options.tarot && !options.song)) throw new Error('Usage: node cli/score-dust.mjs attach-loop RECORDING_ID (--tarot=CARD_ID | --song=SONG_ID) [--title=TEXT] [--receipt=RECEIPT.json]');
+  if (op === 'publish-render' && id) {
+    console.log(JSON.stringify({ ok: true, data: await publishScoreDustRender({ recordings, mediaDir }, { recordingId: id }) }, null, 2));
+  } else {
+  if (op !== 'attach-loop' || !id || (!options.tarot && !options.song)) throw new Error('Usage: node cli/score-dust.mjs attach-loop RECORDING_ID (--tarot=CARD_ID | --song=SONG_ID) [--title=TEXT] [--receipt=RECEIPT.json] | publish-render RECORDING_ID');
   const target = options.tarot ? { kind: 'tarot', cardId: String(options.tarot) } : { kind: 'song', songId: String(options.song) };
   const receipt = options.receipt ? JSON.parse(fs.readFileSync(options.receipt, 'utf8')) : null;
   const result = await attachScoreDustLoop({ recordings, mediaDir, tarot: store(tarotPath), songs: store(songPath) }, { recordingId: id, target, title: options.title, receipt });
   console.log(JSON.stringify({ ok: true, data: result }, null, 2));
+  }
 } catch (error) {
   console.error(JSON.stringify({ ok: false, error: error.message }));
   process.exitCode = 1;

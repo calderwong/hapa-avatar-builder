@@ -54,7 +54,7 @@ test("the CLI attaches through the same module and backs up the store first", as
     fs.writeFileSync(tarotPath, JSON.stringify(f.state().tarot));
     const cardId = f.state().tarot.cards[0].id;
     const env = { ...process.env, HAPA_MEDIA_DIR: f.mediaDir, HAPA_TAROT_STORE: tarotPath, HAPA_SONG_STORE: path.join(f.root, "songs.json") };
-    const before = fs.existsSync(path.join(repo, "data/backups")) ? fs.readdirSync(path.join(repo, "data/backups")) : [];
+    const hadBackups = fs.existsSync(path.join(repo, "data/backups")), before = hadBackups ? fs.readdirSync(path.join(repo, "data/backups")) : [];
     const out = JSON.parse(execFileSync(process.execPath, [path.join(repo, "cli/score-dust.mjs"), "attach-loop", f.record.id, `--tarot=${cardId}`, "--title=Signal loop"], { env, encoding: "utf8" }));
     assert.equal(out.ok, true);
     assert.equal(out.data.asset.name, "Signal loop");
@@ -63,5 +63,6 @@ test("the CLI attaches through the same module and backs up the store first", as
     const added = fs.readdirSync(path.join(repo, "data/backups")).filter((name) => !before.includes(name));
     assert.equal(added.length, 1);
     for (const name of added) fs.rmSync(path.join(repo, "data/backups", name));
+    if (!hadBackups) fs.rmdirSync(path.join(repo, "data/backups"));
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });

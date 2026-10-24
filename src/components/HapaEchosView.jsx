@@ -7,6 +7,7 @@ import SongAudioAvailability, { useSongAudioInventory } from "./SongAudioAvailab
 import AudioAtlasPanel from "./AudioAtlasPanel.jsx";
 import { createEchoScoreDustRenderer } from "./echo-score-dust-renderer.js";
 import { useEchoScoreDust } from "./useEchoScoreDust.js";
+import { scoreDustShotPlacements } from "../domain/echo-score-dust-cut.js";
 import EchoScoreDustPanel from "./EchoScoreDustPanel.jsx";
 import { echoTimelineMediaInstances, hyperFramesMediaOpacityState } from "../domain/echo-media-presentation.js";
 import { prepareEchoAudioPlayback } from '../domain/echo-audio-playback.js';
@@ -7876,6 +7877,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                   }} exportContext={{
                                     apiBase: API_BASE, songId: selectedProjectSongId, songTitle: activeProject?.song_title || activeProject?.title || "",
                                     shots: activeProject?.timeline || [], resolveUri: resolveMediaUri,
+                                    // Place a Score Dust render on the shots it fully covers (working copy of the cut).
+                                    placeInCut: (render) => {
+                                      if (directorEditingLocked || !activeProject) return { placed: 0, skipped: [], error: "The cut is busy or locked; try again when it is idle." };
+                                      const { placements, skipped } = scoreDustShotPlacements(activeProject.timeline || [], render);
+                                      for (const { index, patch } of placements) handleUpdateShot(index, patch);
+                                      return { placed: placements.length, skipped };
+                                    },
                                     // Atlas master bytes when the score came from Atlas; otherwise the player's current source.
                                     audioUrl: scoreDust.kind === "atlas" && scoreDust.runId ? `${API_BASE}/api/echos/audio-atlas/jobs/${encodeURIComponent(scoreDust.runId)}/audio/master` : (audioRef.current?.currentSrc || audioBlobUrl || ""),
                                   }} onSeek={(seconds) => {

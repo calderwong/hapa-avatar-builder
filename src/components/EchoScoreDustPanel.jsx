@@ -84,6 +84,7 @@ function ScoreStrip({ dust, currentTime, onSeek }) {
 const EXPORT_RANGES = {
   clip: "15 s clip from playhead",
   section: "Current section",
+  shot: "Current shot of the cut",
   song: "Whole song",
   loop: "8 s seamless loop from playhead",
 };
@@ -100,7 +101,10 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
   const run = async () => {
     const playback = dust.playback, duration = playback.score.durationSeconds, at = Math.min(currentTime, duration - 0.5);
     const cue = playback.stateAt(at).cue;
+    const shot = (exportContext?.shots || []).find((s) => at >= Number(s.start_sec) && at < Number(s.end_sec));
+    if (range === "shot" && !shot) { setJob({ state: "error", message: "No cut shot under the playhead." }); return; }
     const plan = range === "song" ? { start: 0, length: duration } : range === "section" ? { start: cue.start, length: cue.end - cue.start }
+      : range === "shot" ? { start: Number(shot.start_sec), length: Math.min(duration, Number(shot.end_sec)) - Number(shot.start_sec) }
       : range === "loop" ? { start: Math.max(1.5, at), length: 8, bridge: 1.5 } : { start: at, length: 15 };
     controller.current = new AbortController();
     if (download.current) { URL.revokeObjectURL(download.current); download.current = ""; }
@@ -131,7 +135,7 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
   return (
     <fieldset className="score-dust-export">
       <legend>Export video <span>exact song-time frames</span></legend>
-      <label>Range <select aria-label="Export range" value={range} onChange={(e) => setRange(e.target.value)}>{Object.entries(EXPORT_RANGES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+      <label>Range <select aria-label="Export range" value={range} onChange={(e) => setRange(e.target.value)}>{Object.entries(EXPORT_RANGES).filter(([k]) => k !== "shot" || exportContext?.shots?.length).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
       <label>Format <select aria-label="Export format" value={format} onChange={(e) => setFormat(e.target.value)}>{Object.entries(SCORE_DUST_EXPORT_FORMATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></label>
       <label>Background <select aria-label="Export background" value={background} onChange={(e) => setBackground(e.target.value)}>
         {Object.entries(SCORE_DUST_EXPORT_BACKGROUNDS).map(([k, v]) => <option key={k} value={k} disabled={k === "cut" && !hasCut}>{v}{k === "cut" && !hasCut ? " (none in this cut)" : ""}</option>)}
@@ -144,6 +148,7 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
       {job.message && <span role={job.state === "error" ? "alert" : "status"} className="score-dust-hint">{job.message}</span>}
       {job.state === "done" && download.current && <a className="hapa-btn" href={download.current} download={`score-dust-${exportContext?.songId || "song"}-${Math.round(job.receipt.startSeconds)}s.webm`}>Download .webm</a>}
       {job.state === "done" && job.recordingId && <AttachLoop job={job} exportContext={exportContext} />}
+      {job.state === "done" && job.recordingId && exportContext?.placeInCut && job.receipt.background !== "transparent" && <PlaceInCut job={job} exportContext={exportContext} />}
     </fieldset>
   );
 }
@@ -396,6 +401,29 @@ function ScoreDustLooks({ dust, apiBase }) {
       <button type="button" className="hapa-btn" disabled={!dustLookSlug(name)} onClick={save} data-testid="score-dust-look-save">Save current look</button>
       {message && <span role="status" className="score-dust-hint">{message}</span>}
     </fieldset>
+  );
+}
+
+/** Put a finished render on the shots it covers, as video media in the working copy of the cut. */
+function PlaceInCut({ job, exportContext }) {
+  const [state, setState] = useState({ state: "idle", message: "" });
+  const place = async () => {
+    setState({ state: "working", message: "Publishing the render as media…" });
+    try {
+      const response = await fetch(`${exportContext.apiBase || ""}/api/echos/score-dust/renders`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recordingId: job.recordingId }) });
+      const value = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(value.message || `Publish failed (${response.status})`);
+      const result = exportContext.placeInCut({ ...value, startSeconds: job.receipt.startSeconds, durationSeconds: job.receipt.durationSeconds, width: job.receipt.width, height: job.receipt.height, receipt: job.receipt });
+      if (result.error) throw new Error(result.error);
+      const skipped = result.skipped.length ? ` ${result.skipped.length} shot${result.skipped.length === 1 ? "" : "s"} skipped (${[...new Set(result.skipped.map((s) => s.reason))].join("; ")}).` : "";
+      setState({ state: result.placed ? "done" : "error", message: result.placed ? `Placed on ${result.placed} shot${result.placed === 1 ? "" : "s"} in the working copy. Save the cut to keep it.${skipped}` : `No shot lies fully inside this render.${skipped} Export the section or whole song.` });
+    } catch (error) { setState({ state: "error", message: error.message }); }
+  };
+  return (
+    <span className="score-dust-attach" data-testid="score-dust-place">
+      <button type="button" className="hapa-btn" disabled={state.state === "working"} onClick={place} data-testid="score-dust-place-button">Use in the cut (working copy)</button>
+      {state.message && <span role={state.state === "error" ? "alert" : "status"} className="score-dust-hint">{state.message}</span>}
+    </span>
   );
 }
 

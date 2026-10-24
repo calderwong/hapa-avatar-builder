@@ -531,6 +531,44 @@ lyricLines?}`. Both are read-only; a cue applies to the request direction,
 else the latest saved one. CLI: `visual-score-suggest RUN [--mood=…]
 [--tags=a,b]`, `visual-score-cue RUN --text="…" [--direction=FILE]`.
 
+**Score Dust in the final cut** (P2 item 7). Score Dust is not certified as
+a *Final render ready* shader, and that is deliberate. The HyperFrames final
+render accepts shaders only as hash-bound exact proxies: short sampled loops
+packed into a PNG atlas. Score Dust is a song-length, song-time-exact
+renderer whose picture depends on the whole score, so a sampled loop would
+misrepresent it. Its simulation is exact for a sequential render (export
+re-prerolls on seeks), but a frame is not independently addressable, so
+chunked parallel rendering would differ at chunk starts. The picker keeps it
+as a preview visualizer.
+
+Score Dust reaches the final render as **video media** instead:
+1. Export with **Range → Current shot of the cut** (or a section or the whole
+   song), over the score background or the Director cut's media.
+2. Choose **Use in the cut (working copy)**. `POST /api/echos/score-dust/renders`
+   (CLI: `node cli/score-dust.mjs publish-render RECORDING_ID`) publishes the
+   recording to `/media/score-dust-renders/<id>.webm`.
+3. `scoreDustShotPlacements` (`src/domain/echo-score-dust-cut.js`) replaces
+   the media of every shot that the render fully covers, through the
+   Director's own `handleUpdateShot`. Each shot gets:
+   - a `hapa.echo.playback-media.v2` contract with exact `sourceInSeconds` /
+     `sourceOutSeconds`, the content hash and `origin:
+     hapa-score-dust-render`;
+   - provenance: recording, score fingerprint, seed, background and the
+     replaced media id.
+
+   The replaced media's casting and eligibility claims are cleared rather
+   than carried over.
+
+Shots are skipped, with the reason shown, when they are only partly
+covered, when they require specific characters or scenes
+(`mediaConstraints`), or when they fall in a loop bridge. Transparent exports
+are not offered for placement. The change lands in the cut's working copy;
+saving it uses the normal append-only cut save, and preparation/compile still
+verify the bytes. Because it is ordinary video, the cut's ISF visualizer cues
+keep layering above it with their own blend modes: that is how Score Dust
+mixes with shaders. Verified in the real Echos view: a "Current shot" export
+was placed on its 30–45 s shot, and the timeline names it "Score Dust render".
+
 ### Saved directions
 
 Directions, not composed scores, are saved. A direction is the compact human
@@ -753,15 +791,35 @@ real Echo Song is still open.
   - New guardrail: anything that depends on another store (album colour from
     Song Cards) is resolved into the direction when saved. A saved score must
     never change because a Song Card changed later.
+- **P2 batch 3 (same day):**
+  - Reused: the Avatar viewer's GLTFLoader for models, the lyric rasteriser
+    for text logos, the Director's `handleUpdateShot` and
+    `hapa.echo.playback-media.v2` contract (the media-recast shape) for
+    placing renders, and the album bible's roles idea for the director's
+    inferred sections.
+  - Misunderstood, then corrected: "certify as Final render ready" assumed a
+    shader-style certification. Reading the HyperFrames compiler showed the
+    gate means a hash-bound sampled PNG-atlas loop, which would misrepresent
+    a song-length renderer. Score Dust reaches the final render as exact
+    video media placed per shot instead, and the doc says why it is not a
+    certified shader.
+  - Noise: a picture-facing test read `faceAt`, which only covers words;
+    pictures face through the motion segment's `face` flag.
+  - Usability fix found in the real view: a 15 s clip seeked from the strip
+    rarely aligns with shots, so placement correctly refused. A **Current
+    shot of the cut** export range makes the aligned path the easy one.
+  - New guardrail: the director never guesses. Unmapped clauses are reported,
+    and inferred section roles are always "likely".
 - **Candidates:** Decision Card — *keep the reusable score separate from play
-  seed/settings*; Decision Card — *looks hold only song-independent fields*;
+  seed/settings*; Decision Card — *song-length renderers enter the final cut as
+  exact media, not sampled shader proxies*; Decision Card — *looks hold only song-independent fields*;
   Lesson Card — *resolve cross-store inputs into the saved direction*; Lesson Card — *readable particle material must face the
   camera*; Skill candidate — *Atlas run → musical timeline → directed score*;
   Flow explainer — *three time scales of a music visual*.
 
 ## P2 backlog (defined 2026-10-24)
 
-Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) and **batch 2** (◆) are done; **batch 3** (▲) is in progress (2026-10-24). See the *P2 batch* sections above.
+Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★), **batch 2** (◆) and **batch 3** (▲) are done (2026-10-24). See the *P2 batch* sections above.
 
 | # | Item | Size |
 | --- | --- | --- |
@@ -771,7 +829,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) an
 | 4 ◆ | Background and export colour: solid, gradient or transparent | S |
 | 5 ◆ | Album colour language as palettes (`album-visual-language.js`); a preset and the Album look, not an automatic default | S |
 | 6 ★ | Composite exports with the Director cut's media (hard cuts) | L |
-| 7 | Certify the fixed-step renderer as Final render ready; per-cue scheduling and mixing with ISF shaders | M |
+| 7 ▲ | Score Dust in the final cut: baked per shot as exact video media, under the cut's ISF cues (not certified as a sampled shader proxy; see above) | M |
 | 8 ◆ | Loops attached to Song Card / Tarot card loops | S |
 | 9 ★ | Stem-aware responses: drums kick, bass swells, vocals bring more dust in, cymbals sparkle; ◆ words follow the singer | M |
 | 10 ◆ | Per-section editing: edit one occurrence, split/merge/move sections, busy/density per section (no strip dragging or drawn curves) | M |
@@ -795,7 +853,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) an
 3. Make the cue picker accept Score Dust once its fixed-step export is
    certified as a final renderer; today it stays a preview visualizer.
 4. Tune family pools, exposure and phrase limits on real Echo Songs.
-5. Remaining P2 items: certify the fixed-step renderer as Final render ready
-   (7), lyric control (12), Avatar 3D models as shapes (13), SVG/text logos
-   (14), agent-written direction (15), GPU simulation (16), cross-device
-   Listen together (17), more 3D stages (18).
+5. Remaining P2 items: GPU simulation for 20k–80k particles (16),
+   cross-device Listen together with sign-in (17), and more 3D stages (18).
+   Frame-addressable simulation (deterministic checkpoints) would be needed
+   before Score Dust could be a chunk-rendered final renderer.
