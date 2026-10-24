@@ -498,6 +498,33 @@ real Echo Song is still open.
   camera*; Skill candidate — *Atlas run → musical timeline → directed score*;
   Flow explainer — *three time scales of a music visual*.
 
+## P2 backlog (defined 2026-10-24)
+
+Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (in progress) is marked ★.
+
+| # | Item | Size |
+| --- | --- | --- |
+| 1 ★ | Palette editor: three colour pickers per section; presets (Neon, Monochrome, Sunset, Ice, Ember, song RGB perspective) | S |
+| 2 ★ | Colour modes: palette, by frequency, by speed, along the shape, by depth, from the picture | M |
+| 3 ★ | Colour dynamics: palette crossfades at section changes, lift flash, break desaturation, brighter returns | S |
+| 4 | Background and export colour: solid, gradient or transparent | S |
+| 5 | Album colour language as default palettes (`album-visual-language.js`) | S |
+| 6 ★ | Composite exports with the Director cut's media | L |
+| 7 | Certify the fixed-step renderer as Final render ready; per-cue scheduling and mixing with ISF shaders | M |
+| 8 | Loops attached to Song Card / Tarot card loops | S |
+| 9 ★ | Stem-aware responses: drums kick, bass swells, vocals trigger words, cymbals sparkle | M |
+| 10 | Per-section editing: edit one occurrence, drag/split/merge sections, busy/density curves | M |
+| 11 ★ | Camera moves authored on the score strip | S |
+| 12 | Lyric control: line choice, font, word-by-word mode | M |
+| 13 | Avatar 3D models sampled into shapes | M |
+| 14 | SVG and text logos as shapes | S |
+| 15 | Agent-written direction from lyrics, mood and Atlas sound tags; natural-language cues | M |
+| 16 | GPU simulation for 20k–80k particles | L |
+| 17 | Listen together across devices via the phone bridge, with sign-in, host hand-off, reactions | M |
+| 18 | More 3D stages (Tarot Draw visualizer modes, floor reflections) | M |
+| 19 ★ | Reusable named looks applied across songs | S |
+| 20 ★ | Comfort and safety: reduced motion; at most 3 bright flashes per second | S |
+
 ## Next steps
 
 1. Composite exports with the Director cut's media (today they are the dust

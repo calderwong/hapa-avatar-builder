@@ -11,6 +11,7 @@
 import * as THREE from "three";
 import { createScoreDustPerformance } from "../domain/echo-score-dust-performance.js";
 import { dustBandsFromSpectrum, DUST_BAND_COUNT } from "../domain/echo-dust-swarm.js";
+import { computeDustColours } from "../domain/echo-score-dust-colour.js";
 
 export const ECHO_SCORE_DUST_STAGE_CONTRACT = Object.freeze({
   schemaVersion: "hapa.echo.score-dust.stage-contract.v1",
@@ -57,7 +58,7 @@ export function createEchoScoreDustThreeLayer({ world, particleCount = 3000, det
   root.add(points);
 
   let performanceHost = null, playbackKey = "", target = null, drawCount = n, disposed = false;
-  const bands = new Float32Array(DUST_BAND_COUNT), palette = [new THREE.Color(), new THREE.Color(), new THREE.Color()], targetPosition = new THREE.Vector3(), centroid = new THREE.Vector3();
+  const bands = new Float32Array(DUST_BAND_COUNT), rgb = new Float32Array(n * 3), targetPosition = new THREE.Vector3(), centroid = new THREE.Vector3();
   const report = { active: false, centroid: new THREE.Vector3(), meanColor: 0x56f0cf, energy: 0, visible: 0, formation: null, cueId: null };
 
   function setPlayback(playback, settings = {}, key = "") {
@@ -85,18 +86,19 @@ export function createEchoScoreDustThreeLayer({ world, particleCount = 3000, det
     root.scale.setScalar(scale);
     if (fft?.length) dustBandsFromSpectrum(fft, bands); else bands.fill(0);
     const { state } = performanceHost.advanceTo(currentTime, { bandsAt: fft?.length ? () => bands : null });
-    root.rotation.y = reducedMotion ? 0 : performanceHost.camera(currentTime, state).yaw;
-    (state.palette || []).slice(0, 3).forEach((c, i) => palette[i].setHSL(c.h / 360, c.s, Math.min(0.75, c.l)));
+    root.rotation.y = reducedMotion || performanceHost.reducedMotion ? 0 : performanceHost.camera(currentTime, state).yaw;
+    // Same colour modes, crossfades, flash gate and desaturation as the 2D preview.
+    computeDustColours(performanceHost.swarm, performanceHost.style(currentTime, state), rgb, { rotation: performanceHost.swarm.rotation });
     // Contrast: brighter dust over bright stages, never blown out over dark ones.
     const contrast = 0.8 + 0.6 * clamp(stage.backgroundLuminance ?? 0.15);
-    const swarm = performanceHost.swarm, colorsUsed = Math.max(1, Math.min(3, state.palette?.length || 1));
+    const swarm = performanceHost.swarm;
     let r = 0, g = 0, b = 0, sx = 0, sy = 0, sz = 0, lit = 0;
     for (let i = 0; i < drawCount; i++) {
       const i3 = i * 3, alpha = swarm.visibility[i] * swarm.brightness[i] * (0.35 + 0.5 * swarm.band[i]) * contrast;
       positions[i3] = swarm.position[i3]; positions[i3 + 1] = swarm.position[i3 + 1]; positions[i3 + 2] = swarm.position[i3 + 2];
-      const c = palette[i % colorsUsed];
-      colors[i3] = c.r * alpha; colors[i3 + 1] = c.g * alpha; colors[i3 + 2] = c.b * alpha;
-      if (alpha > 0.05) { r += c.r; g += c.g; b += c.b; sx += positions[i3]; sy += positions[i3 + 1]; sz += positions[i3 + 2]; lit++; }
+      // Shared colours are sRGB; vertex colours are linear.
+      colors[i3] = Math.pow(rgb[i3], 2.2) * alpha; colors[i3 + 1] = Math.pow(rgb[i3 + 1], 2.2) * alpha; colors[i3 + 2] = Math.pow(rgb[i3 + 2], 2.2) * alpha;
+      if (alpha > 0.05) { r += rgb[i3]; g += rgb[i3 + 1]; b += rgb[i3 + 2]; sx += positions[i3]; sy += positions[i3 + 1]; sz += positions[i3 + 2]; lit++; }
     }
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.color.needsUpdate = true;
@@ -104,7 +106,7 @@ export function createEchoScoreDustThreeLayer({ world, particleCount = 3000, det
     if (lit) {
       centroid.set(sx / lit, sy / lit, sz / lit);
       root.localToWorld(report.centroid.copy(centroid));
-      report.meanColor = new THREE.Color(r / lit, g / lit, b / lit).getHex();
+      report.meanColor = new THREE.Color().setRGB(r / lit, g / lit, b / lit, THREE.SRGBColorSpace).getHex();
     }
     Object.assign(report, { active: true, energy: clamp(state.intensity), visible: lit, formation: swarm.formation, cueId: state.cue?.id || null });
     return report;

@@ -77,7 +77,9 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
       const score = composeEchoVisualScore(timeline, directionCheck.ok ? direction : {}, { lyricLines, lyricAudioHash });
       const validation = validateEchoVisualScore(score, { timeline, assets: pictures.status === "ready" ? pictures.options.map((o) => o.assetId) : null });
       if (!directionCheck.ok) validation.errors.unshift(...directionCheck.errors);
-      const settings = normalizeDustPlaySettings(direction.playSettings || {}, timeline);
+      // Reduced motion follows the OS setting unless the direction chooses.
+      const osReduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const settings = normalizeDustPlaySettings({ ...(osReduced ? { reducedMotion: true } : {}), ...(direction.playSettings || {}) }, timeline);
       const playback = validation.ok ? prepareEchoScorePlayback(score, timeline, { pulse: settings.pulse }) : null;
       return { score, validation: { ...validation, ok: validation.ok && directionCheck.ok }, settings, playback };
     } catch (error) {

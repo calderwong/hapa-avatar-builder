@@ -40,6 +40,7 @@
 .score-dust-motif select { margin-left: auto; }
 .score-dust-swatches { display: inline-flex; gap: 2px; }
 .score-dust-swatches i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.score-dust-swatches input[type="color"] { width: 18px; height: 18px; padding: 0; border: 1px solid rgba(148, 163, 184, 0.4); border-radius: 3px; background: none; cursor: pointer; }
 .score-dust-hint { color: #94a3b8; font-size: 11px; }
 .score-dust-phrases { margin: 0; padding-left: 16px; max-height: 96px; overflow: auto; }
 .score-dust-phrases button { background: none; border: 0; color: var(--hapa-neon-cyan, #22d3ee); cursor: pointer; padding: 0 4px 0 0; font: inherit; }

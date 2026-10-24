@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { DUST_FORMATION_FAMILIES } from "../domain/echo-dust-swarm.js";
 import { ECHO_VISUAL_SCORE_EVENT_RESPONSES, ECHO_VISUAL_SCORE_PULSES } from "../domain/echo-visual-score.js";
+import { DUST_COLOUR_MODES, DUST_COLOUR_PRESET_LABELS, DUST_FLASH_LIMIT_PER_SECOND, hexToHsl, hslToHex } from "../domain/echo-score-dust-colour.js";
 import { decodeSongAudio, exportScoreDustVideo, SCORE_DUST_EXPORT_FORMATS } from "./echo-score-dust-export.js";
 import { ensureEchoPreviewRecordingLocalSession } from "../domain/echo-preview-recording.js";
 import { useScoreDustSession } from "./useScoreDustSession.js";
 import "./EchoScoreDustPanel.css";
 
 const EVENT_KINDS = ["lift", "fall", "build", "break", "change"];
+const COLOUR_MODE_LABELS = { palette: "Palette", frequency: "By frequency", speed: "By speed", height: "Along the shape", depth: "By depth", picture: "From the picture" };
+const COLOUR_SWITCHES = [["crossfadeSeconds", "Crossfade between sections"], ["liftFlash", "Flash on lifts"], ["breakDesaturate", "Drain colour in breaks"], ["brighterReturns", "Brighter returns"]];
 const EVENT_LABELS = { lift: "Energy lift", fall: "Energy fall", build: "Gradual build", break: "Quiet break", change: "Spectral change" };
 const time = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 const hsl = (c, alpha = 1) => `hsl(${c.h} ${Math.round(c.s * 100)}% ${Math.round(c.l * 100)}% / ${alpha})`;
@@ -179,7 +182,14 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
             <legend>Motifs <span>one shape and palette per repeating section</span></legend>
             {groups.map(({ motif, returns, palette }) => (
               <label key={motif.id} className="score-dust-motif" title={motif.reason}>
-                <span className="score-dust-swatches">{palette.map((c, i) => <i key={i} style={{ background: hsl(c) }} />)}</span>
+                <span className="score-dust-swatches">{palette.map((c, i) => (
+                  <input key={i} type="color" aria-label={`${motif.repeatGroup} colour ${i + 1}`} value={hslToHex(c)}
+                    onChange={(event) => update((current) => {
+                      const next = palette.map((p) => ({ ...p })), picked = hexToHsl(event.target.value);
+                      if (picked) next[i] = picked;
+                      return { palettes: { ...(current.palettes || {}), [motif.repeatGroup]: next } };
+                    })} />
+                ))}</span>
                 <span>{motif.repeatGroup.replace("group-", "Group ")} · {returns}×</span>
                 <select aria-label={`Formation for ${motif.repeatGroup}`} value={direction.families?.[motif.repeatGroup] || ""}
                   onChange={(event) => update((current) => {
@@ -217,6 +227,34 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
             <label>Seed <input type="number" min="0" step="1" aria-label="Performance seed" value={settings?.seed ?? 0}
               onChange={(event) => update((current) => ({ playSettings: { ...(current.playSettings || {}), seed: Math.max(0, Math.floor(Number(event.target.value) || 0)) } }))} /></label>
             <button type="button" className="hapa-btn" onClick={() => update((current) => ({ playSettings: { ...(current.playSettings || {}), seed: Math.floor(Math.random() * 2 ** 31) } }))}>Vary</button>
+          </fieldset>
+          <fieldset data-testid="score-dust-colour">
+            <legend>Colour</legend>
+            <label>Mode <select aria-label="Colour mode" value={score.colour?.mode || "palette"} onChange={(e) => update((current) => ({ colour: { ...(current.colour || {}), mode: e.target.value } }))}>
+              {DUST_COLOUR_MODES.map((m) => <option key={m} value={m}>{COLOUR_MODE_LABELS[m]}</option>)}
+            </select></label>
+            <label>Preset <select aria-label="Colour preset" value={direction.colour?.preset || ""} onChange={(e) => update((current) => ({ colour: { ...(current.colour || {}), preset: e.target.value || null } }))}>
+              <option value="">Generated</option>
+              {Object.entries(DUST_COLOUR_PRESET_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select></label>
+            {direction.colour?.preset && direction.palettes && Object.keys(direction.palettes).length > 0 && (
+              <button type="button" className="hapa-btn" onClick={() => update(() => ({ palettes: {} }))}>Apply preset to edited sections</button>
+            )}
+            {COLOUR_SWITCHES.map(([key, label]) => (
+              <label key={key}><input type="checkbox" aria-label={label}
+                checked={key === "crossfadeSeconds" ? (score.colour?.crossfadeSeconds ?? 1.2) > 0 : score.colour?.[key] !== false}
+                onChange={(e) => update((current) => ({ colour: { ...(current.colour || {}), [key]: key === "crossfadeSeconds" ? (e.target.checked ? 1.2 : 0) : e.target.checked } }))} /> {label}</label>
+            ))}
+          </fieldset>
+          <fieldset data-testid="score-dust-comfort">
+            <legend>Comfort</legend>
+            <label><input type="checkbox" aria-label="Reduced motion" checked={Boolean(settings?.reducedMotion)}
+              onChange={(e) => update((current) => ({ playSettings: { ...(current.playSettings || {}), reducedMotion: e.target.checked } }))} /> Reduced motion</label>
+            <label>Bright flashes <select aria-label="Bright flash limit" value={settings?.flashLimitPerSecond ?? DUST_FLASH_LIMIT_PER_SECOND}
+              onChange={(e) => update((current) => ({ playSettings: { ...(current.playSettings || {}), flashLimitPerSecond: Number(e.target.value) } }))}>
+              <option value={3}>Up to 3 per second</option><option value={2}>Up to 2 per second</option><option value={1}>Up to 1 per second</option><option value={0}>None</option>
+            </select></label>
+            <span className="score-dust-hint">Flashes never exceed 3 per second. Reduced motion follows your system setting until you change it here.</span>
           </fieldset>
           <fieldset>
             <legend>Moments</legend>

@@ -6,6 +6,7 @@
 // Formation spin and camera yaw are closed-form functions of song time, so a
 // seek lands on the same view continuous playback would have reached.
 import { createDustSwarm, DUST_BAND_COUNT } from "./echo-dust-swarm.js";
+import { createFlashGate, dustColourStyle } from "./echo-score-dust-colour.js";
 
 export const SCORE_DUST_STEP_HZ = 60;
 export const SCORE_DUST_RESET_GAP_SECONDS = 2;
@@ -99,6 +100,8 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
   const prerollSteps = Math.round(clamp(settings.prerollSeconds ?? 1.5, 0, 5) * SCORE_DUST_STEP_HZ);
   const gapSteps = SCORE_DUST_RESET_GAP_SECONDS * SCORE_DUST_STEP_HZ;
   const phraseCache = new Map(), derived = new Float32Array(DUST_BAND_COUNT);
+  // Comfort: reduced motion calms kicks, replaces shocks, stops spin and orbit.
+  const reduced = settings.reducedMotion === true, flashGate = createFlashGate(settings.flashLimitPerSecond ?? 3);
   let simulated = null, formationKey = "", resets = 0, stepsRun = 0;
 
   function formationFor(state, upcoming = null) {
@@ -129,7 +132,8 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
       // Words are held stiff so they resolve within about half a second.
       bands, hold: reading ? 1 : clamp(0.4 + 0.45 * (1 - busy) + 0.4 * anticipation), omega: reading ? 8 : 4.5 + 2 * busy,
       flow: 0.06 + 0.5 * busy * (1 - anticipation * 0.7), reach: 0.22 + 0.4 * state.intensity,
-      participation: reading ? 1 : state.density, calm: Math.max(state.calm, 0.95 * motion.faceAt(t)), rotation: motion.rotationAt(t),
+      participation: reading ? 1 : state.density, calm: Math.max(state.calm, 0.95 * motion.faceAt(t)), rotation: reduced ? 0 : motion.rotationAt(t),
+      ...(reduced ? { flow: 0.03 + 0.15 * busy } : {}),
     };
   }
 
@@ -138,12 +142,15 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
     const state = playback.stateAt(to), upcoming = state.phrase ? null : playback.stateAt(to + SCORE_DUST_PHRASE_LEAD_SECONDS).phrase;
     applyFormation(state, null, upcoming);
     // Scheduled beats kick on the exact step that crosses them; lifts launch fronts.
-    const crossed = playback.crossings(from, to);
-    if (crossed.beats) swarm.kick((0.3 + 0.5 * state.intensity) * (crossed.downbeat ? 1.4 : 1));
+    const crossed = playback.crossings(from, to), motionScale = reduced ? 0.2 : 1;
+    if (crossed.beats) swarm.kick((0.3 + 0.5 * state.intensity) * (crossed.downbeat ? 1.4 : 1) * motionScale);
+    // Bright flashes pass through the gate (≤ 3/s); motion is never gated.
+    if (crossed.downbeat && !reduced) flashGate.request(to, 0.25 + 0.15 * state.intensity);
     for (const event of crossed.events) {
-      if (event.response === "shock") swarm.shock(1.1);
-      else if (event.response === "kick") swarm.kick(1);
+      if (event.response === "shock") { if (reduced) swarm.kick(0.25); else swarm.shock(1.1); if (!reduced) flashGate.request(to, 0.85); }
+      else if (event.response === "kick") swarm.kick(motionScale);
     }
+    flashGate.decay(1 / SCORE_DUST_STEP_HZ);
     const bands = bandsAt?.(to, state) || scoreDerivedBands(state, derived);
     const reading = Boolean((state.phrase || upcoming) && !(state.phrase || upcoming).burst);
     swarm.step(1 / SCORE_DUST_STEP_HZ, controlsFor(state, bands, to, reading));
@@ -160,6 +167,7 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
     if (simulated === null || target < simulated || target - simulated > gapSteps) {
       const start = Math.max(0, target - prerollSteps), startTime = start / SCORE_DUST_STEP_HZ;
       swarm.reset(startTime);
+      flashGate.reset();
       formationKey = "";
       applyFormation(playback.stateAt(startTime), motion.rotationAt(startTime));
       simulated = start; reset = true; resets++;
@@ -173,11 +181,16 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
   /** Camera for song time t: closed-form yaw, pitch levelled for phrases, push before lifts. */
   function camera(t, state) {
     const face = motion.faceAt(t);
-    return { yaw: motion.yawAt(t), pitch: (0.2 + 0.05 * Math.sin(t * 0.2)) * (1 - face), distance: (state?.camera?.distance ?? 4.4) - 0.45 * (state?.anticipation || 0) };
+    return { yaw: reduced ? 0 : motion.yawAt(t), pitch: (0.2 + (reduced ? 0 : 0.05 * Math.sin(t * 0.2))) * (1 - face), distance: (state?.camera?.distance ?? 4.4) - (reduced ? 0 : 0.45 * (state?.anticipation || 0)) };
+  }
+
+  /** Colour style at song time t (palette crossfade, gated flash, desaturation). */
+  function style(t, state) {
+    return dustColourStyle(playback, state, t, { flash: flashGate.level });
   }
 
   return {
-    swarm, motion, playback, advanceTo, camera,
-    diagnostics: () => ({ simulatedTime: simulated === null ? null : simulated / SCORE_DUST_STEP_HZ, resets, stepsRun, formation: swarm.formation, formationKey, particles: swarm.count, seed: swarm.seed }),
+    swarm, motion, playback, advanceTo, camera, style, reducedMotion: reduced,
+    diagnostics: () => ({ simulatedTime: simulated === null ? null : simulated / SCORE_DUST_STEP_HZ, resets, stepsRun, formation: swarm.formation, formationKey, particles: swarm.count, seed: swarm.seed, flashes: flashGate.stats(), reducedMotion: reduced }),
   };
 }

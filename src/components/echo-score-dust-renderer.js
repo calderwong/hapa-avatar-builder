@@ -7,6 +7,7 @@
 // (prepareFrame/paintFrame) so existing packaging can consume it.
 import { projectDustSwarm, dustBandsFromSpectrum, sampleDustTargetsFromPixels, DUST_BAND_COUNT } from "../domain/echo-dust-swarm.js";
 import { createScoreDustPerformance } from "../domain/echo-score-dust-performance.js";
+import { computeDustColours } from "../domain/echo-score-dust-colour.js";
 import { composeEchoVisualScore, prepareEchoScorePlayback, reflexOnlyEchoTimeline } from "../domain/echo-visual-score.js";
 
 const LIVE_PARTICLE_CAP = 4000;
@@ -63,17 +64,12 @@ export function loadImageTargets(ref, count, seed, surfaceFactory = defaultSurfa
   });
 }
 
-function color(palette, index, lift) {
-  const c = palette?.[index % (palette?.length || 1)] || { h: 190, s: 0.8, l: 0.6 };
-  return `hsl(${c.h.toFixed(1)} ${(c.s * 100).toFixed(1)}% ${(Math.min(0.9, c.l + lift) * 100).toFixed(1)}%)`;
-}
-
 /**
  * Painter shared by live and offline hosts. Trails are a decaying history of
  * light on a transparent layer, so media beneath the canvas stays visible.
  */
 export function createScoreDustPainter(surfaceFactory = defaultSurface) {
-  let trail = null, trailCtx = null, glow = null, glowCtx = null, projected = null;
+  let trail = null, trailCtx = null, glow = null, glowCtx = null, projected = null, rgb = null, keys = null, order = null;
   function ensure(width, height) {
     if (!trail || trail.width !== width || trail.height !== height) {
       trail = surfaceFactory(width, height); trailCtx = trail?.getContext("2d") || null;
@@ -100,14 +96,29 @@ export function createScoreDustPainter(surfaceFactory = defaultSurface) {
       ctx.fillRect(0, 0, width, height);
     }
     target.globalCompositeOperation = "lighter";
-    const palette = state?.palette, colors = palette?.length || 1;
     const stride = Math.max(1, Math.round(1 / clamp(drawFraction, 0.1, 1)));
     // Additive light scales with particle count; normalise so 4k and 12k read alike.
     const exposure = Math.min(1, Math.sqrt(2500 / swarm.count)), boost = Math.min(1.6, stride) * exposure;
-    for (let k = 0; k < colors; k++) {
-      target.fillStyle = color(palette, k, 0.08 * intensity);
-      for (let i = k * stride; i < swarm.count; i += colors * stride) {
-        const alpha = projected.alpha[i];
+    // Per-particle colour from the shared colour module, grouped into 4-bit
+    // RGB buckets so the canvas changes fill colour only once per bucket.
+    const live = performance.swarm, n = live.count;
+    if (!rgb || rgb.length !== n * 3) { rgb = new Float32Array(n * 3); keys = new Uint16Array(n); order = new Uint32Array(n); }
+    computeDustColours(live, performance.style(t, state), rgb, { rotation: live.rotation ?? 0 });
+    const counts = new Map();
+    for (let i = 0; i < n; i += stride) {
+      const key = (Math.min(15, (rgb[i * 3] * 15.99) | 0) << 8) | (Math.min(15, (rgb[i * 3 + 1] * 15.99) | 0) << 4) | Math.min(15, (rgb[i * 3 + 2] * 15.99) | 0);
+      keys[i] = key; counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    let cursor = 0;
+    const starts = new Map();
+    for (const [key, total] of counts) { starts.set(key, cursor); cursor += total; }
+    const fill = new Map(starts);
+    for (let i = 0; i < n; i += stride) { const at = fill.get(keys[i]); order[at] = i; fill.set(keys[i], at + 1); }
+    for (const [key, begin] of starts) {
+      const r16 = key >> 8, g16 = (key >> 4) & 15, b16 = key & 15;
+      target.fillStyle = `rgb(${r16 * 17} ${g16 * 17} ${b16 * 17})`;
+      for (let k = begin, end = begin + counts.get(key); k < end; k++) {
+        const i = order[k], alpha = projected.alpha[i];
         if (alpha < 0.02) continue;
         const r = projected.radius[i] * (stride > 1 ? 1.15 : 1);
         target.globalAlpha = Math.min(1, alpha * boost);

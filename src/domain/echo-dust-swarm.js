@@ -164,7 +164,7 @@ export function sampleDustTargetsFromPixels(image, { count = 2000, seed = 1, thr
   const candidates = [];
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (lit(x, y) >= threshold) candidates.push(y * width + x);
   const total = Math.max(0, Math.min(DUST_MAX_PARTICLES, count | 0));
-  const points = { count: 0, position: new Float32Array(total * 3), normal: new Float32Array(total * 3), param: new Float32Array(total), flex: new Float32Array(total), edge: new Uint8Array(total) };
+  const points = { count: 0, position: new Float32Array(total * 3), normal: new Float32Array(total * 3), param: new Float32Array(total), flex: new Float32Array(total), edge: new Uint8Array(total), color: new Uint8Array(total * 3) };
   if (!candidates.length || !total) return points;
   const span = Math.max(width, height), half = scale / 2;
   for (let i = 0; i < total; i++) {
@@ -180,6 +180,9 @@ export function sampleDustTargetsFromPixels(image, { count = 2000, seed = 1, thr
     points.param[i] = clamp((points.position[i * 3] + half) / scale);
     points.flex[i] = edge ? 0.15 : 0.45;
     points.edge[i] = edge ? 1 : 0;
+    // Keep the picture's own colour for "from the picture" colouring.
+    const o = index * 4;
+    points.color[i * 3] = data[o]; points.color[i * 3 + 1] = data[o + 1]; points.color[i * 3 + 2] = data[o + 2];
   }
   points.count = total;
   return points;
@@ -218,6 +221,9 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
   const target = new Float32Array(n * 3), normal = new Float32Array(n * 3), param = new Float32Array(n), flex = new Float32Array(n), previous = new Float32Array(n * 3);
   // Stable per-particle variation from the integer hash.
   const frequency = new Float32Array(n), size = new Float32Array(n), brightness = new Float32Array(n), rank = new Float32Array(n), lag = new Float32Array(n), scatter = new Float32Array(n * 3);
+  // Per-particle source colour when the formation comes from a picture.
+  const tint = new Uint8Array(n * 3);
+  let tintActive = false;
   for (let i = 0; i < n; i++) {
     frequency[i] = 0.7 + 0.6 * hashUnit(i, s, 1);
     size[i] = 0.6 + 0.8 * hashUnit(i, s, 2);
@@ -245,12 +251,14 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
     const family = points ? "points" : String(spec);
     if (!points && !FORMATIONS[family]) throw new RangeError(`Unknown dust formation: ${family}`);
     const baseFlex = flexibility ?? FAMILY_FLEXIBILITY[family] ?? 0.5;
+    tintActive = Boolean(points?.count && points.color);
     for (let i = 0; i < n; i++) {
       let p;
       if (points?.count) {
         const j = i % points.count;
         p = [points.position[j * 3], points.position[j * 3 + 1], points.position[j * 3 + 2], points.normal[j * 3], points.normal[j * 3 + 1], points.normal[j * 3 + 2], points.param[j]];
         flex[i] = points.flex[j];
+        if (tintActive) { tint[i * 3] = points.color[j * 3]; tint[i * 3 + 1] = points.color[j * 3 + 1]; tint[i * 3 + 2] = points.color[j * 3 + 2]; }
       } else if (points) {
         p = [scatter[i * 3] * 1.6, scatter[i * 3 + 1] * 1.6, scatter[i * 3 + 2] * 1.6, scatter[i * 3], scatter[i * 3 + 1], scatter[i * 3 + 2], rank[i]];
         flex[i] = baseFlex;
@@ -369,7 +377,8 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
   }
 
   return {
-    count: n, seed: s, position, velocity, band, visibility, target, normal, param, flex, size, brightness, frequency, rank,
+    count: n, seed: s, position, velocity, band, visibility, target, normal, param, flex, size, brightness, frequency, rank, tint,
+    get tintActive() { return tintActive; },
     get time() { return time; },
     get formation() { return formation; },
     get rotation() { return rotation; },

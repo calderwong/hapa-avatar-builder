@@ -11,6 +11,7 @@
 // score so one score can be replayed with controlled variation.
 
 import { DUST_FORMATION_FAMILIES, seedFromString, hashUnit } from "./echo-dust-swarm.js";
+import { DUST_COLOUR_MODES, DUST_COLOUR_PRESETS, DUST_FLASH_LIMIT_PER_SECOND, normalizeDustColour, presetPaletteFor } from "./echo-score-dust-colour.js";
 
 export const ECHO_MUSICAL_TIMELINE_SCHEMA = "hapa.echo.musical-timeline.v1";
 export const ECHO_VISUAL_SCORE_SCHEMA = "hapa.echo.visual-score.v1";
@@ -209,7 +210,8 @@ export function composeEchoVisualScore(timeline, direction = {}, { lyricLines = 
     if (!pinned && family === previousFamily) family = pool[(pool.indexOf(family) + 1) % pool.length];
     previousFamily = family;
     const paletteId = `palette-${group}`;
-    palettes[paletteId] = direction.palettes?.[group] || paletteFor(baseHue, index, energy);
+    // Pinned palette > colour preset > generated from the base hue.
+    palettes[paletteId] = direction.palettes?.[group] || presetPaletteFor(direction.colour?.preset, index) || paletteFor(baseHue, index, energy);
     motifs.push({ id: `motif-${group}`, repeatGroup: group, family, allowedFamilies: [family, ...pool.filter((f) => f !== family).slice(0, 2)], paletteId,
       ...(direction.images?.[group] ? { imageRef: structuredClone(direction.images[group]) } : {}),
       reason: pinned ? "pinned by direction" : `relative energy ${round(energy, 2)} → ${tier} family pool` });
@@ -223,6 +225,7 @@ export function composeEchoVisualScore(timeline, direction = {}, { lyricLines = 
       id: `cue-${section.id}`, sectionId: section.id, start: section.start, end: section.end, motifId: motifByGroup.get(section.repeatGroup).id,
       busy: [round(low, 3), round(high, 3)], density: round(Math.min(maxDensity, 0.4 + 0.55 * energy), 3),
       camera: { mode: energy > 0.66 ? "orbit" : energy < 0.33 ? "hold" : "drift", distance: round(4.8 - 0.8 * energy, 3) },
+      occurrence: section.occurrence,
       reason: `section ${section.index + 1} · ${section.repeatGroup} occurrence ${section.occurrence + 1} · relative energy ${round(energy, 2)}`,
     };
   });
@@ -240,6 +243,7 @@ export function composeEchoVisualScore(timeline, direction = {}, { lyricLines = 
     durationSeconds: timeline.durationSeconds, palettes, motifs, cues, events, phrases,
     phraseSource: direction.phrases ? "direction" : lyricSelection ? { kind: "lyrics", status: lyricSelection.status, reason: lyricSelection.reason } : "none",
     cameraMoves: structuredClone(direction.cameraMoves || []),
+    colour: normalizeDustColour(direction.colour),
     limits: { maxDensity, minCueSeconds: ECHO_VISUAL_SCORE_MIN_CUE_SECONDS },
   };
   score.fingerprint = echoScoreFingerprint({ ...score, fingerprint: null });
@@ -296,6 +300,7 @@ export function validateEchoVisualScore(score, { timeline = null, assets = null 
     if (!ECHO_VISUAL_SCORE_CAMERA_MODES.includes(cue.camera?.mode)) error("camera-mode", `Unknown camera mode ${cue.camera?.mode}.`, ref);
   }
   if (cues.length && cursor < duration - epsilon) warn("cue-tail", `Score ends at ${round(cursor, 3)}s; the tail holds the last motif.`);
+  if (score.colour !== undefined && (!DUST_COLOUR_MODES.includes(score.colour?.mode) || (score.colour.preset && !DUST_COLOUR_PRESETS[score.colour.preset]))) error("colour", "Unknown colour mode or preset.");
   for (const event of score.events || []) {
     if (!finite(event?.at) || event.at < 0 || event.at > duration + epsilon) error("event-time", "Event lies outside the song.", event?.id);
     if (!ECHO_VISUAL_SCORE_EVENT_RESPONSES.includes(event?.response)) error("event-response", `Unknown event response ${event?.response}.`, event?.id);
@@ -325,7 +330,10 @@ export function normalizeDustPlaySettings(input = {}, timeline = null) {
   const identity = timeline?.source?.sourceSha256 || timeline?.fingerprint || "hapa-echo-dust";
   const pulse = ECHO_VISUAL_SCORE_PULSES.includes(input.pulse) ? input.pulse : "normal";
   return { schemaVersion: ECHO_DUST_PLAY_SETTINGS_SCHEMA, seed: Number.isSafeInteger(input.seed) && input.seed >= 0 ? input.seed >>> 0 : seedFromString(identity),
-    particleCount: Math.min(20000, Math.max(500, Math.floor(Number(input.particleCount) || 6000))), pulse, prerollSeconds: finite(input.prerollSeconds) ? clamp(input.prerollSeconds, 0, 5) : 1.5 };
+    particleCount: Math.min(20000, Math.max(500, Math.floor(Number(input.particleCount) || 6000))), pulse, prerollSeconds: finite(input.prerollSeconds) ? clamp(input.prerollSeconds, 0, 5) : 1.5,
+    // Comfort: reduced motion, and bright flashes capped at 3 per second (can only go lower).
+    reducedMotion: input.reducedMotion === true,
+    flashLimitPerSecond: finite(input.flashLimitPerSecond) ? clamp(Math.floor(input.flashLimitPerSecond), 0, DUST_FLASH_LIMIT_PER_SECOND) : DUST_FLASH_LIMIT_PER_SECOND };
 }
 
 function pulseGrid(beats, pulse) {
@@ -446,7 +454,7 @@ export function selectEchoScorePhrases(lines, timeline, { lyricAudioHash = null,
   return { status: phrases.length ? "selected" : "none-readable", reason: `${phrases.length} of ${rows.length} measured lines chosen`, phrases };
 }
 
-const DIRECTION_KEYS = new Set(["families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
+const DIRECTION_KEYS = new Set(["colour", "families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
 
 /** Strict check for a saved or submitted direction (the human intent, not the composed score). */
 export function validateEchoScoreDirection(direction) {
@@ -466,7 +474,11 @@ export function validateEchoScoreDirection(direction) {
   if (direction.phrases !== undefined && (!Array.isArray(direction.phrases) || direction.phrases.length > 32 || direction.phrases.some((p) => !String(p?.text || "").trim() || String(p.text).length > 64 || !finite(p.start) || !finite(p.end) || p.end <= p.start))) error("phrases", "Up to 32 phrases with 1–64 characters and a positive duration.");
   if (direction.cameraMoves !== undefined && (!Array.isArray(direction.cameraMoves) || direction.cameraMoves.length > 64 || direction.cameraMoves.some((m) => !ECHO_VISUAL_SCORE_CAMERA_MODES.includes(m?.mode) || !finite(m.start) || !finite(m.end) || m.end <= m.start))) error("cameraMoves", "Up to 64 camera moves with a known mode and positive duration.");
   const play = direction.playSettings;
-  if (play !== undefined && (!play || typeof play !== "object" || (play.pulse !== undefined && !ECHO_VISUAL_SCORE_PULSES.includes(play.pulse)) || (play.seed !== undefined && (!Number.isSafeInteger(play.seed) || play.seed < 0)))) error("playSettings", "playSettings allows pulse half|normal|double and a non-negative integer seed.");
+  if (play !== undefined && (!play || typeof play !== "object" || (play.pulse !== undefined && !ECHO_VISUAL_SCORE_PULSES.includes(play.pulse)) || (play.seed !== undefined && (!Number.isSafeInteger(play.seed) || play.seed < 0))
+    || (play.reducedMotion !== undefined && typeof play.reducedMotion !== "boolean") || (play.flashLimitPerSecond !== undefined && (!Number.isInteger(play.flashLimitPerSecond) || play.flashLimitPerSecond < 0 || play.flashLimitPerSecond > DUST_FLASH_LIMIT_PER_SECOND)))) error("playSettings", "playSettings allows pulse half|normal|double, a non-negative integer seed, reducedMotion and flashLimitPerSecond 0–3.");
+  const colour = direction.colour;
+  if (colour !== undefined && (!colour || typeof colour !== "object" || Array.isArray(colour) || (colour.mode !== undefined && !DUST_COLOUR_MODES.includes(colour.mode)) || (colour.preset !== undefined && colour.preset !== null && !DUST_COLOUR_PRESETS[colour.preset])
+    || Object.keys(colour).some((k) => !["mode", "preset", "crossfadeSeconds", "liftFlash", "breakDesaturate", "brighterReturns"].includes(k)))) error("colour", `colour allows mode (${DUST_COLOUR_MODES.join("/")}), a preset and the dynamics switches.`);
   return { ok: errors.length === 0, errors };
 }
 
