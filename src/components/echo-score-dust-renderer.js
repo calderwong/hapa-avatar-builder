@@ -80,9 +80,10 @@ export function createScoreDustPainter(surfaceFactory = defaultSurface) {
       glow = surfaceFactory(Math.max(1, Math.round(width * GLOW_SCALE)), Math.max(1, Math.round(height * GLOW_SCALE))); glowCtx = glow?.getContext("2d") || null;
     }
   }
-  function paint(ctx, { performance, state, t, width, height, frameSeconds = 1 / 60, drawFraction = 1, glow: glowOn = true, label = "" }) {
+  /** `view` and `camera` override what is drawn (used by the loop bridge). */
+  function paint(ctx, { performance, state, t, width, height, frameSeconds = 1 / 60, drawFraction = 1, glow: glowOn = true, label = "", view = null, camera: cameraOverride = null }) {
     ensure(width, height);
-    const swarm = performance.swarm, camera = performance.camera(t, state);
+    const swarm = view || performance.swarm, camera = cameraOverride || performance.camera(t, state);
     projected = projectDustSwarm(swarm, { width, height, ...camera }, projected);
     const busy = state?.busy ?? 0.45, intensity = state?.intensity ?? 0.5;
     const target = trailCtx || ctx;

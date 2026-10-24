@@ -45,3 +45,8 @@
 .score-dust-phrases button { background: none; border: 0; color: var(--hapa-neon-cyan, #22d3ee); cursor: pointer; padding: 0 4px 0 0; font: inherit; }
 .score-dust-panel footer { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .score-dust-panel footer input[type="text"] { flex: 1 1 200px; }
+.score-dust-export { border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 6px; padding: 6px 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.score-dust-export legend { font-weight: 700; color: #cbd5e1; }
+.score-dust-export legend span { font-weight: 400; color: #64748b; margin-left: 4px; }
+.score-dust-export select { background: #0f172a; color: #e2e8f0; border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 4px; padding: 2px 4px; }
+.score-dust-export progress { width: 160px; }
