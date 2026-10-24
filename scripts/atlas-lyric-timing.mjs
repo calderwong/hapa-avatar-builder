@@ -336,7 +336,7 @@ export function assemble(atlas, opts) {
   const lineReview = l => {
     const row = p.performanceMap?.lines?.[l.index];
     if (fallbackLines.has(l.index)) return { evidence: 'transcript-timestamps', performanceSupported: row?.supported === true, performanceCoverage: row?.coverage ?? 0, sourceRun: row?.sourceRun || p.transcriptRun, modelAgreementRatio: null, needsReview: true, reason: disagreements.has(l.index) ? 'aligner-disagreed-recognizer-timed' : 'aligner-unavailable-recognizer-timed', ...(disagreements.has(l.index) ? { alignerDisagreement: disagreements.get(l.index) } : {}), humanReviewed: false };
-    const reason = l.needsReview ? 'overlapping-measured-lines-held' : searchLimitedLines.has(l.index) ? 'search-limited-window' : null;
+    const reason = l.needsReview ? (l.reviewReason || 'held-for-review') : searchLimitedLines.has(l.index) ? 'search-limited-window' : null;
     return { modelAgreementRatio: round(l.agreementRatio, 3), maxStartDisagreementSeconds: l.maxStartDisagreementSeconds, needsReview: l.agreementRatio < .6 || Boolean(reason), ...(reason ? { reason } : {}), humanReviewed: false };
   };
   // Every other voice that sang the line keeps its own word timing (aligner words, else recognizer words).

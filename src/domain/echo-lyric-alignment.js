@@ -1,6 +1,7 @@
 import { echoLyricResolvedWordIntervals } from './echo-lyric-template-runtime.js';
 
 const epsilon = 1e-6;
+const MIN_UNEVIDENCED_LINE_SECONDS = 0.2, MIN_PLACEABLE_LINE_SECONDS = 0.05;
 const round = value => Math.round(value * 1e6) / 1e6;
 const norm = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 
@@ -62,7 +63,7 @@ export function assembleEchoLyricIntervals({ lines, alignedWords, windows = [], 
       repairs.push({ line: i + 1, word: w.text, oldStart: w.start, oldEnd: w.end, previousLineEnd: previousEnd, reason: 'overlapping-measured-lines-held' });
       w.matched = false;
     }
-    row.needsReview = true;
+    row.needsReview = true; row.reviewReason = 'overlapping-measured-lines-held';
   }
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i], measured = hits(row);
@@ -75,13 +76,34 @@ export function assembleEchoLyricIntervals({ lines, alignedWords, windows = [], 
     row.end = Math.min(next ? hits(next)[0].start : duration, measured.at(-1).end + .3 * trailing);
     if (measured[0].start < 0 || measured.at(-1).end > duration + epsilon) throw new Error(`Anchor outside audio on line ${i + 1}`);
   }
-  // Allocate a run of missing lines together, rather than giving each the whole same gap.
+  // Allocate a run of missing lines together, rather than giving each the whole same gap. Written
+  // lines with no performance evidence (often headers, production notes or unsung lines) can fall
+  // between two measured lines that touch. They still need a place: reclaim the neighbours'
+  // unmeasured lead-in/tail first (never a measured word); if that is not enough, demote the nearest
+  // measured boundary word to interpolated and hold that line for review. Never abort the song.
   for (let i = 0; i < rows.length;) {
     if (Number.isFinite(rows[i].start)) { i++; continue; }
     let last = i;
     while (last + 1 < rows.length && !Number.isFinite(rows[last + 1].start)) last++;
     let cursor = i ? rows[i - 1].end : 0;
-    const end = rows[last + 1]?.start ?? duration;
+    let end = rows[last + 1]?.start ?? duration;
+    const need = MIN_UNEVIDENCED_LINE_SECONDS * (last - i + 1), prev = rows[i - 1], next = rows[last + 1];
+    for (let guard = 0; end - cursor < need && guard < 64; guard++) {
+      const floorPrev = prev ? Math.max(prev.start + epsilon, hits(prev).at(-1)?.end ?? prev.start + epsilon) : 0;
+      const ceilNext = next ? Math.min(next.end - epsilon, hits(next)[0]?.start ?? next.end - epsilon) : duration;
+      cursor = Math.max(floorPrev, Math.min(cursor, ceilNext - need));
+      end = Math.min(ceilNext, Math.max(end, cursor + need));
+      // Reclaiming lead-ins/tails is preferred; a measured word is demoted only when there is truly no room.
+      if (end - cursor >= MIN_PLACEABLE_LINE_SECONDS * (last - i + 1)) break;
+      const before = prev && hits(prev).at(-1), after = next && hits(next)[0];
+      const [row, word] = before && (!after || before.end - before.start >= after.end - after.start) ? [prev, before] : after ? [next, after] : [null, null];
+      if (!word) break;
+      repairs.push({ line: row.index + 1, word: word.text, oldStart: word.start, oldEnd: word.end, reason: 'demoted-to-place-unevidenced-written-lines', unevidencedLines: [i + 1, last + 1] });
+      word.matched = false; row.needsReview = true; row.reviewReason ??= 'demoted-to-place-unevidenced-written-lines';
+    }
+    if (prev) prev.end = Math.min(prev.end, cursor);
+    if (next) next.start = Math.max(next.start, end);
+    for (let k = i; k <= last; k++) { rows[k].needsReview = true; rows[k].reviewReason ??= 'no-performance-evidence'; }
     if (end - cursor < .001 * (last - i + 1)) throw new Error(`No room for unanchored lines ${i + 1}–${last + 1}`);
     const weights = rows.slice(i, last + 1).map(r => Math.max(1, r.text.length)), total = weights.reduce((a,b) => a+b, 0), span = end - cursor;
     for (let k = i; k <= last; k++) { rows[k].start = cursor; cursor += span * weights[k - i] / total; rows[k].end = k === last ? end : cursor; }

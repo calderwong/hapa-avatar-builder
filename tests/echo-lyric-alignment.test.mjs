@@ -55,3 +55,24 @@ test('timing omissions require exact, unique source receipts and retain canonica
     assert.throws(() => echoLyricRetainedLineIndexes(lines, omissions), /Invalid explicit/);
   assert.throws(() => echoLyricRetainedLineIndexes(['only'], [{lineIndex:0,text:'only',reason:'unsupported'}]), /No supported/);
 });
+
+test('an unsung written line between touching measured lines is placed, never fatal', () => {
+  // Line two has no performance evidence (a "TITLE:" header or unsung line) and its neighbours leave no gap.
+  const result = assemble(['first line here', 'TITLE: never sung', 'next line here'], [
+    [word('first', 1, 1.4), word('line', 1.4, 1.8), word('here', 1.8, 2.2)],
+    [word('TITLE:', null, null, false), word('never', null, null, false), word('sung', null, null, false)],
+    [word('next', 2.2, 2.6), word('line', 2.6, 3), word('here', 3, 3.4)]]);
+  valid(result);
+  assert.ok(result.rows[1].end > result.rows[1].start, 'the unsung line still gets a place');
+  assert.equal(result.rows[1].reviewReason, 'no-performance-evidence');
+  const demoted = result.repairs.filter((r) => r.reason === 'demoted-to-place-unevidenced-written-lines');
+  assert.equal(demoted.length, 1, 'only one measured boundary word gives way');
+  assert.equal(result.rows.flatMap((r) => r.lineWords).filter((w) => w.matched).length, 5);
+});
+
+test('a small existing gap is used without demoting any measured word', () => {
+  const result = assemble(['first', 'unsung', 'next'], [[word('first', 1, 2)], [word('unsung', null, null, false)], [word('next', 2.5, 3)]]);
+  valid(result);
+  assert.equal(result.repairs.length, 0);
+  assert.ok(result.rows[1].start >= 2 - 1e-6 && result.rows[1].end <= 2.5 + 1e-6);
+});

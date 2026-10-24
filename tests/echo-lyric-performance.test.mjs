@@ -67,3 +67,12 @@ test('an existing aligner must corroborate only one recognized occurrence to res
  assert.deepEqual(echoLyricComparePerformanceMaps(a,b,{corroboratingWords:[...evidence,{...evidence[0],start:21.2}]}).conflictingLines,[0]);
  assert.deepEqual(echoLyricComparePerformanceMaps(a,b,{corroboratingWords:[{...evidence[0],lineText:'Different phrase'}]}).conflictingLines,[0]);
 });
+
+test('a window that reaches the song end stays inside the recording after sample rounding', () => {
+  const lines = ['last words at the end'];
+  const duration = 161.24016666666665;
+  const map = echoLyricPerformanceMap(lines, [{ text: 'last', start: 150, end: 151 }, { text: 'words', start: 151, end: 152 }, { text: 'end', start: 160, end: 161.2 }]);
+  const [w] = echoLyricAlignmentWindows(lines, map, duration);
+  assert.ok(Math.round(w.endSeconds * 16000) <= duration * 16000, 'the aligner never sees an excerpt past the last sample');
+  assert.equal(w.endSeconds, 161.24);
+});

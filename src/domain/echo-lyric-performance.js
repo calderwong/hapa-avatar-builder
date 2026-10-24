@@ -127,6 +127,10 @@ export function echoLyricPerformanceMap(lines, transcriptWords) {
   return {schemaVersion:'hapa.echo.lyric-performance-map.v1',policy:'distinctive-monotonic-v1',lines:mapped,passages,supportedLines:mapped.filter(r=>r.supported).length};
 }
 
+// The aligner converts seconds with Math.round(seconds*16000); ending on a whole hundredth inside the
+// recording keeps the excerpt within the source (the exact length can round past its last sample).
+const lastHundredth=duration=>Math.floor(duration*100)/100;
+
 /**
  * Forced-alignment windows (≤ maxSeconds, the aligner's crop limit) for the
  * primary performance of every written line. A window never mixes vocal
@@ -157,7 +161,7 @@ export function echoLyricAlignmentWindows(lines, mapping, duration, {maxSeconds=
     if(previous&&!searchLimited&&!previous.searchLimited&&previous.sourceId===sourceId&&e-previous.startSeconds<=limit){previous.endSeconds=Math.max(previous.endSeconds,e);previous.lines.push(line);}
     else windows.push({startSeconds:s,endSeconds:e,lines:[line],...(sourceId!==undefined?{sourceId}:{}),...(searchLimited?{searchLimited:true}:{})});
   }
-  return windows.map(w=>({...w,startSeconds:Math.floor(w.startSeconds*100)/100,endSeconds:Math.min(duration,Math.ceil(w.endSeconds*100)/100),text:w.lines.map(i=>lines[i]).join('\n'),state:'planned',runId:null}));
+  return windows.map(w=>({...w,startSeconds:Math.floor(w.startSeconds*100)/100,endSeconds:Math.min(lastHundredth(duration),Math.ceil(w.endSeconds*100)/100),text:w.lines.map(i=>lines[i]).join('\n'),state:'planned',runId:null}));
 }
 
 /**
@@ -177,7 +181,7 @@ export function echoLyricPerformanceWindows(lines, mapping, duration, {maxSecond
     if(previous&&previous.sourceId===entry.sourceId&&e-previous.startSeconds<=limit&&s>=previous.entries.at(-1).start-1){previous.endSeconds=Math.max(previous.endSeconds,e);previous.entries.push(entry);}
     else windows.push({kind:'performance',sourceId:entry.sourceId,voice:entry.voice,startSeconds:s,endSeconds:e,entries:[entry]});
   }
-  return windows.map(w=>({...w,startSeconds:Math.floor(w.startSeconds*100)/100,endSeconds:Math.min(duration,Math.ceil(w.endSeconds*100)/100),lines:w.entries.map(x=>x.line),text:w.entries.map(x=>lines[x.line]).join('\n'),state:'planned',runId:null}));
+  return windows.map(w=>({...w,startSeconds:Math.floor(w.startSeconds*100)/100,endSeconds:Math.min(lastHundredth(duration),Math.ceil(w.endSeconds*100)/100),lines:w.entries.map(x=>x.line),text:w.entries.map(x=>lines[x.line]).join('\n'),state:'planned',runId:null}));
 }
 
 export function inspectEchoLyricPassages(timing) {
