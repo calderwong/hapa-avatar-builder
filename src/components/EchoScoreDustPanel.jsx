@@ -3,6 +3,7 @@ import { DUST_FORMATION_FAMILIES } from "../domain/echo-dust-swarm.js";
 import { ECHO_VISUAL_SCORE_EVENT_RESPONSES, ECHO_VISUAL_SCORE_PULSES } from "../domain/echo-visual-score.js";
 import { decodeSongAudio, exportScoreDustVideo, SCORE_DUST_EXPORT_FORMATS } from "./echo-score-dust-export.js";
 import { ensureEchoPreviewRecordingLocalSession } from "../domain/echo-preview-recording.js";
+import { useScoreDustSession } from "./useScoreDustSession.js";
 import "./EchoScoreDustPanel.css";
 
 const EVENT_KINDS = ["lift", "fall", "build", "break", "change"];
@@ -120,7 +121,38 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
   );
 }
 
-export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, exportContext = null }) {
+/** Shared listening: everyone renders locally from the same score, seed and schedule. */
+function ScoreDustListenTogether({ dust, songId, apiBase, controls }) {
+  const session = useScoreDustSession({ apiBase, songId, dust, ...controls });
+  const [joinId, setJoinId] = useState("");
+  const [copied, setCopied] = useState(false);
+  return (
+    <fieldset className="score-dust-export" data-testid="score-dust-listen-together">
+      <legend>Listen together <span>shared timing and direction; each screen renders its own dust</span></legend>
+      {session.role === "none" ? (
+        <>
+          <button type="button" className="hapa-btn" onClick={session.host} disabled={!dust.score} data-testid="score-dust-host">Host session</button>
+          <input type="text" aria-label="Session id" placeholder="Session id or link" value={joinId} onChange={(e) => setJoinId(e.target.value)} />
+          <button type="button" className="hapa-btn" disabled={!joinId.trim()} onClick={() => session.join(joinId.includes("scoreDustSession=") ? new URL(joinId, location.href).searchParams.get("scoreDustSession") : joinId)} data-testid="score-dust-join">Join</button>
+        </>
+      ) : (
+        <>
+          <span className="score-dust-hint" data-testid="score-dust-session-status">
+            {session.role === "host" ? "Hosting" : "Joined"} · r{session.session?.revision} · {session.session?.state}
+            {session.offsetMs !== null ? ` · clock offset ${Math.round(session.offsetMs)} ms (delay ${Math.round(session.delayMs)} ms)` : ""}
+            {session.role === "peer" ? ` · ${session.corrections} correction${session.corrections === 1 ? "" : "s"}` : ""}
+          </span>
+          {session.role === "host" && <button type="button" className="hapa-btn" onClick={() => { navigator.clipboard?.writeText(session.joinLink).then(() => setCopied(true)).catch(() => setCopied(false)); }}>{copied ? "Link copied" : "Copy join link"}</button>}
+          <code className="score-dust-hint" data-testid="score-dust-session-id">{session.session?.id}</code>
+          <button type="button" className="hapa-btn" onClick={session.leave}>Leave</button>
+        </>
+      )}
+      {session.message && <span role="status" className="score-dust-hint">{session.message}</span>}
+    </fieldset>
+  );
+}
+
+export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, exportContext = null, sessionControls = null }) {
   const [note, setNote] = useState("");
   if (!dust?.enabled) return null;
   const { score, validation, settings, direction } = dust;
@@ -213,6 +245,7 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
         </div>
       )}
       {dust.playback && <ScoreDustExport dust={dust} currentTime={currentTime} exportContext={exportContext} />}
+      {sessionControls && <ScoreDustListenTogether dust={dust} songId={exportContext?.songId} apiBase={exportContext?.apiBase || ""} controls={sessionControls} />}
       <footer>
         {dust.kind === "atlas" ? (
           <>

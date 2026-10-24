@@ -7869,7 +7869,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                   </details>
                                 </div>
                                 {usesScoreDust && (
-                                  <EchoScoreDustPanel dust={scoreDust} currentTime={currentTime} exportContext={{
+                                  <EchoScoreDustPanel dust={scoreDust} currentTime={currentTime} sessionControls={{
+                                    playing: isPlaying, playPause: handlePlayPause,
+                                    getActual: () => audioRef.current?.currentTime ?? currentTimeRef.current,
+                                    seek: (seconds) => { currentTimeRef.current = seconds; echoPlaybackEngineRef.current?.seek(seconds); setCurrentTime(seconds); if (audioRef.current) audioRef.current.currentTime = seconds; },
+                                  }} exportContext={{
                                     apiBase: API_BASE, songId: selectedProjectSongId, songTitle: activeProject?.song_title || activeProject?.title || "",
                                     // Atlas master bytes when the score came from Atlas; otherwise the player's current source.
                                     audioUrl: scoreDust.kind === "atlas" && scoreDust.runId ? `${API_BASE}/api/echos/audio-atlas/jobs/${encodeURIComponent(scoreDust.runId)}/audio/master` : (audioRef.current?.currentSrc || audioBlobUrl || ""),

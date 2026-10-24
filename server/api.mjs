@@ -4,6 +4,7 @@ import {readEchoSavedCut} from './echo-saved-cut-reader.mjs';
 import { createSongAudioUpload } from './song-audio-upload.mjs';
 import { createAudioAtlas } from './audio-atlas.mjs';
 import { handleAudioAtlas } from './audio-atlas-routes.mjs';
+import { createScoreDustSessionStore, handleScoreDustSessions } from './echo-score-dust-sessions.mjs';
 import { verifyEchoPlaybackAudioReceipt } from './echo-playback-audio.mjs';
 import { readSongCardPlanRequest } from './song-card-plan-request.mjs';
 import { readEchoPlaybackProxyFrameIndex } from './echo-playback-proxy.mjs';
@@ -1236,6 +1237,8 @@ async function stopOwnedOvercardHost() {
   overcardHostHandle = null;
 }
 let audioAtlasService = null;
+// Ephemeral shared Score Dust listening sessions (process-scoped room clock).
+const scoreDustSessionStore = createScoreDustSessionStore();
 let livingLightService = null;
 function getLivingLightService() {
   return livingLightService ||= createLivingLightService({root:ROOT,storePath:process.env.HAPA_LIVING_LIGHT_AUTHORING_STORE,custodyOwner:avatarCardCustodyService,resolveCut:(songId,cutId)=>readEchoSavedCut({root:ROOT,dataDir:DATA_DIR,variantsRoot:ECHO_DIRECTION_VARIANTS_DIR,songId,cutId}),resolveSong:async songId=>(await readJson(HAPA_SONG_STORE_PATH)).songs.find(song=>song.id===songId)});
@@ -2667,6 +2670,10 @@ async function route(req, res) {
     getLivingLightService();
     const performance = createLivingLightPerformancePort({readSongStore:()=>readJson(HAPA_SONG_STORE_PATH),resolveOptions:{root:ROOT,mediaDir:MEDIA_DIR,songRegistryPath:SONG_REGISTRY_DATA_PATH,songbookPath:DEAR_PAPA_SONGBOOK_PATH,songStorePath:HAPA_SONG_STORE_PATH},preparation:echoPerformancePreparation,preparedStore:echoPreparedPerformanceStore});
     if (await handleLivingLight({req,res,url,service:livingLightService,authorize:()=>caller,bootstrap,readBody,sendJson,performance,sourceEvidence:options=>readLivingLightSourceEvidence({root:ROOT,songStorePath:HAPA_SONG_STORE_PATH,...options})}))return;
+  }
+
+  if (pathname.startsWith('/api/echos/score-dust/sessions')) {
+    if (await handleScoreDustSessions({ req, res, url, store: scoreDustSessionStore, requireAdmin, readBody, sendJson })) return;
   }
 
   if (pathname.startsWith('/api/echos/audio-atlas')) {
