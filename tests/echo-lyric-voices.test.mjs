@@ -100,3 +100,16 @@ test('each line is judged on the evidence that timed it', () => {
   timing.lines[1].alignmentReview.performanceCoverage = .2;
   assert.deepEqual(inspectEchoLyricPassages(timing).unresolvedLines, [1]);
 });
+
+test('sync keeps each line\'s voice and every other voice performance with its own words', async () => {
+  const { normalizeEchoLyricTimingLines } = await import('../src/domain/echo-lyric-sync-safety.js');
+  const [line] = normalizeEchoLyricTimingLines([{ text: 'Join a Navy, Sea the World,', start: 41.44, end: 43.12, voice: 'lead',
+    words: [{ text: 'Join', start: 41.44, end: 41.6, matched: true, evidence: 'recognizer' }],
+    voices: [{ voice: 'backing', relation: 'doubles', sourceId: 'stem-1', sourceRun: 'run-b', start: 41.46, end: 43.1, evidence: 'forced-alignment', coverage: .8,
+      words: [{ text: 'Join', start: 41.46, end: 41.62, matched: true }] }, { voice: 'backing', start: 5, end: 5 }] }]);
+  assert.equal(line.voice, 'lead');
+  assert.equal(line.words[0].evidence, 'recognizer');
+  assert.equal(line.voices.length, 1, 'an empty performance is dropped');
+  assert.deepEqual([line.voices[0].voice, line.voices[0].relation, line.voices[0].words[0].word, line.voices[0].words[0].start], ['backing', 'doubles', 'Join', 41.46]);
+  assert.equal(normalizeEchoLyricTimingLines([{ text: 'plain line', start: 1, end: 2 }])[0].voices, undefined, 'older timing is unchanged');
+});

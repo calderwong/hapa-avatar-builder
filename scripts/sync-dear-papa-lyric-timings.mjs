@@ -2,7 +2,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "node:crypto";
-import { echoLyricHasManualTiming, echoLyricSourceMatches, echoLyricRegistryTrackId } from "../src/domain/echo-lyric-sync-safety.js";
+import { echoLyricHasManualTiming, echoLyricSourceMatches, echoLyricRegistryTrackId, normalizeEchoLyricTimingLines as normalizeTimingLines } from "../src/domain/echo-lyric-sync-safety.js";
 import {
   DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE,
   evaluateEchoLyricTimingPromotion,
@@ -131,38 +131,6 @@ function buildTimedSections(lines = [], duration = 0) {
   return sections;
 }
 
-function normalizeTimingLines(lines = []) {
-  if (!Array.isArray(lines)) return [];
-  return lines
-    .map((line, index) => {
-      const start = Number(line.start ?? line.startTime ?? line.t0 ?? 0);
-      const end = Number(line.end ?? line.endTime ?? line.t1 ?? start);
-      const words = Array.isArray(line.words)
-        ? line.words.map((word, wordIndex) => ({
-            word: String(word.word || word.text || word.token || ""),
-            start: Number(word.start ?? word.startTime ?? start),
-            end: Number(word.end ?? word.endTime ?? end),
-            matched: word.matched ?? undefined,
-            ...(word.evidenceSourceRun?{evidenceSourceRun:word.evidenceSourceRun}:{}),
-            ...(word.recognitionMatches?{recognitionMatches:word.recognitionMatches}:{}),
-            index: Number(word.index ?? wordIndex)
-          })).filter((word) => word.word)
-        : [];
-      return {
-        id: line.id || `timed-line-${index + 1}`,
-        start: Number(start.toFixed(6)),
-        end: Number(end.toFixed(6)),
-        text: line.text || line.line || line.lyric || "",
-        section: line.section || line.section_label || "",
-        section_id: line.section_id || line.sectionId || "",
-        section_label: line.section_label || line.sectionLabel || line.section || "",
-        confidence: Number(line.confidence ?? 0),
-        ...(line.alignmentReview ? { alignmentReview: line.alignmentReview } : {}),
-        words
-      };
-    })
-    .filter((line) => line.text && Number.isFinite(line.start) && Number.isFinite(line.end) && line.end >= line.start);
-}
 
 function readTimingForManifestSong(song = {}) {
   const candidates = [

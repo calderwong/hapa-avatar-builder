@@ -77,8 +77,10 @@ support from 114 to 119 of 124 lines, and the voices together support all 124. S
 to 1.10 on the lead stem, 1.32 on the master), each of which would have failed before. The
 candidate times 539 of 615 written words (87.6 %, 532 by the aligner), agreement 0.929,
 confidence 0.814, every passage accepted, plus 42 backing performances (39 doubles, 2 overlaps,
-1 repeat) with 144 of 192 words aligned on the backing stem. The promotion dry run selects it.
-Not yet applied, synced or listened to.
+1 repeat) with 144 of 192 words aligned on the backing stem. Promoted and synced to the Song
+Card, songbook and Director project on 2026-10-24 (backups under `data/backups/*before-lyric-timing-sync-2026-10-24T21-27-26-282Z*`).
+Sync now carries each line's `voice`, its `voices[]` performances and word `evidence`
+(`normalizeEchoLyricTimingLines`); the first sync run dropped them and was re-run. Not yet listened to.
 
 ## Procedure (one song)
 
