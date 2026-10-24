@@ -87,7 +87,7 @@ async function encodeAudio({ audio, startSeconds, durationSeconds, bridgeSeconds
  * → { blob, mimeType, receipt }
  */
 export async function exportScoreDustVideo({ playback, settings = {}, audio = null, startSeconds = 0, durationSeconds = 15, format = "landscape", width = null, height = null,
-  fps = 30, loopBridgeSeconds = 0, particleCount = null, signal = null, onProgress = () => {} } = {}) {
+  fps = 30, loopBridgeSeconds = 0, particleCount = null, stems = null, signal = null, onProgress = () => {} } = {}) {
   if (typeof VideoEncoder !== "function") throw new Error("This browser has no WebCodecs video encoder.");
   if (!playback?.stateAt) throw new Error("A prepared score playback is required.");
   const size = SCORE_DUST_EXPORT_FORMATS[format] || SCORE_DUST_EXPORT_FORMATS.landscape;
@@ -107,6 +107,8 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
   const bandsAt = audio ? createPcmBandSampler(audio.channels, audio.sampleRate) : null;
   const bands = new Float32Array(32);
   const bandHook = bandsAt ? (t) => bandsAt(t, bands) : null;
+  // Stem envelopes are prepared data, so stem responses stay deterministic in export.
+  const stemsAt = stems ? (t) => stems.at(t) : null;
 
   const bitrate = scoreDustExportBitrate({ width: w, height: h, fps, durationSeconds: length });
   let codec = "vp09.00.10.08", muxCodec = "V_VP9";
@@ -121,7 +123,7 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
   videoEncoder.configure({ codec, width: w, height: h, bitrate, framerate: fps, latencyMode: "quality" });
 
   const paintAt = (t, extra = {}) => {
-    const { state } = performance.advanceTo(t, { bandsAt: bandHook });
+    const { state } = performance.advanceTo(t, { bandsAt: bandHook, stemsAt });
     ctx.fillStyle = "#020409"; ctx.fillRect(0, 0, w, h);
     painter.paint(ctx, { performance, state, t, width: w, height: h, frameSeconds: 1 / fps, ...extra });
     return state;
@@ -142,7 +144,7 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
       const t = start + k / fps, intoBridge = k - (frameCount - bridgeFrames);
       if (bridgeFrames && intoBridge >= 0) {
         const target = bridgeLead[intoBridge], weight = smoothstep((intoBridge + 1) / bridgeFrames);
-        const { state } = performance.advanceTo(t, { bandsAt: bandHook }), live = performance.swarm, camera = performance.camera(t, state);
+        const { state } = performance.advanceTo(t, { bandsAt: bandHook, stemsAt }), live = performance.swarm, camera = performance.camera(t, state);
         const view = { ...target.view, position: new Float32Array(live.count * 3), visibility: new Float32Array(live.count), band: new Float32Array(live.count) };
         for (let i = 0; i < live.position.length; i++) view.position[i] = live.position[i] + (target.view.position[i] - live.position[i]) * weight;
         for (let i = 0; i < live.count; i++) { view.visibility[i] = live.visibility[i] + (target.view.visibility[i] - live.visibility[i]) * weight; view.band[i] = live.band[i] + (target.view.band[i] - live.band[i]) * weight; }
@@ -175,6 +177,6 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
     blob: new Blob([bytes], { type: "video/webm" }), mimeType: "video/webm",
     receipt: { schemaVersion: SCORE_DUST_EXPORT_SCHEMA, scoreFingerprint: playback.score.fingerprint, seed: performance.swarm.seed, particles: count, codec,
       width: w, height: h, fps, frames: frameCount, startSeconds: start, durationSeconds: length, loopBridgeSeconds: bridge, bitrate,
-      audio: audio ? { codec: "opus", blocks: audioBlocks, bands: "pcm-spectrum" } : null, bytes: bytes.length, finalStateFingerprint: performance.swarm.fingerprint() },
+      audio: audio ? { codec: "opus", blocks: audioBlocks, bands: "pcm-spectrum" } : null, stems: stems?.available || [], bytes: bytes.length, finalStateFingerprint: performance.swarm.fingerprint() },
   };
 }

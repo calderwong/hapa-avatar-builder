@@ -8,6 +8,7 @@ import {
   normalizeDustPlaySettings, prepareEchoScorePlayback, reflexOnlyEchoTimeline,
 } from "../domain/echo-visual-score.js";
 import { scoreDustCastFor, scoreDustPictureOption } from "../domain/echo-score-dust-pictures.js";
+import { createStemReflex } from "../domain/echo-score-dust-stems.js";
 
 const NO_DIRECTION = Object.freeze({});
 
@@ -102,13 +103,15 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     }
   }, [client, remote, draft, lyricLines, lyricAudioHash]);
 
-  const playbackKey = composed?.playback ? `${songId}:${timelineInfo.source}:${composed.score.fingerprint}:${composed.settings.seed}:${composed.settings.pulse}` : `${songId}:${timelineInfo.source}:none`;
+  // Separated stems from the prepared performance (null for master-only songs).
+  const stems = useMemo(() => { try { return enabled ? createStemReflex(preparedPerformance) : null; } catch { return null; } }, [enabled, preparedPerformance]);
+  const playbackKey = composed?.playback ? `${songId}:${timelineInfo.source}:${composed.score.fingerprint}:${composed.settings.seed}:${composed.settings.pulse}:${stems?.available.join("+") || "no-stems"}` : `${songId}:${timelineInfo.source}:none`;
   return {
     enabled, status: remote.status, message: remote.message || "", runId: remote.runId || null, kind: timelineInfo.kind, source: timelineInfo.source,
     timeline: timelineInfo.timeline, saved: remote.saved || null, savedInvalid, ledger: remote.ledger || [], direction, dirty: draft !== null,
     score: composed?.score || null, validation: composed?.validation || null, settings: composed?.settings || null, playback: composed?.playback || null, playbackKey,
     setDraft: (update) => setDraft((current) => (typeof update === "function" ? update(current ?? (savedInvalid ? {} : remote.saved?.direction ?? {})) : update)),
     discard: () => { setDraft(null); setSave({ state: "idle", message: "" }); },
-    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures,
+    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures, stems,
   };
 }

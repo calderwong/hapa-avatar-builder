@@ -234,14 +234,14 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
     scatter[i * 3] = sx; scatter[i * 3 + 1] = sy; scatter[i * 3 + 2] = sz;
   }
   const shocks = [];
-  let time = 0, rotation = 0, formation = null, switchedAt = -Infinity, stagger = 0, pendingKick = 0;
+  let time = 0, rotation = 0, formation = null, switchedAt = -Infinity, stagger = 0, pendingKick = 0, sparkle = 0;
 
   /** Return to the seeded initial state at a given simulation time. */
   function reset(startTime = 0) {
     for (let i = 0; i < n * 3; i++) { position[i] = scatter[i] * 2.5; velocity[i] = 0; target[i] = 0; previous[i] = 0; normal[i] = 0; }
     visibility.fill(0); band.fill(0); param.fill(0); flex.fill(0);
     shocks.length = 0;
-    time = Number(startTime) || 0; rotation = 0; formation = null; switchedAt = -Infinity; stagger = 0; pendingKick = 0;
+    time = Number(startTime) || 0; rotation = 0; formation = null; switchedAt = -Infinity; stagger = 0; pendingKick = 0; sparkle = 0;
   }
   reset(0);
 
@@ -295,6 +295,7 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
     const dt = clamp(Number(dtSeconds) || 0, 0, DUST_MAX_STEP_SECONDS);
     if (dt <= 0) return 0;
     time += dt;
+    sparkle = clamp(controls.sparkle ?? 0);
     const hold = clamp(controls.hold ?? 0.7), omega = Math.max(0.1, Number(controls.omega) || 5.5);
     // A firmly held formation is stiff and well damped; a released one floats.
     const stiffnessScale = 0.15 + 0.85 * hold, zeta = 0.22 + 0.5 * hold;
@@ -382,9 +383,17 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
     get time() { return time; },
     get formation() { return formation; },
     get rotation() { return rotation; },
+    get sparkle() { return sparkle; },
     get activeShocks() { return shocks.length; },
     setFormation, kick, shock, step, advanceTo, fingerprint, reset,
   };
+}
+
+/** Deterministic twinkle: with sparkle up, a hashed few grains flare each 1/24 s. */
+export function dustTwinkle(swarm, i) {
+  const level = swarm.sparkle || 0;
+  if (level <= 0.02) return 1;
+  return hashUnit(i, Math.floor((swarm.time || 0) * 24), 31) < 0.14 * level ? 1 + 1.6 * level : 1;
 }
 
 /**
@@ -411,7 +420,7 @@ export function projectDustSwarm(swarm, { width, height, yaw = 0, pitch = 0.22, 
     // Framing compensation keeps shrinking dots luminous instead of vanishing.
     // Nearer dots read brighter than the far side of a formation (depth cue).
     const depthLight = clamp(1 - (z2 - distance) * depthFade, 0.35, 1.25);
-    buffers.alpha[i] = clamp(alpha * swarm.brightness[i] * (0.3 + 0.4 * swarm.band[i]) * depthLight * Math.min(1.6, 1 / Math.max(0.6, radius)));
+    buffers.alpha[i] = clamp(alpha * swarm.brightness[i] * (0.3 + 0.4 * swarm.band[i]) * depthLight * Math.min(1.6, 1 / Math.max(0.6, radius)) * dustTwinkle(swarm, i));
     visible++;
   }
   buffers.visible = visible;

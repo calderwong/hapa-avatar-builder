@@ -12,6 +12,7 @@
 
 import { DUST_FORMATION_FAMILIES, seedFromString, hashUnit } from "./echo-dust-swarm.js";
 import { DUST_COLOUR_MODES, DUST_COLOUR_PRESETS, DUST_FLASH_LIMIT_PER_SECOND, normalizeDustColour, presetPaletteFor } from "./echo-score-dust-colour.js";
+import { DUST_STEM_GROUPS, normalizeStemResponses } from "./echo-score-dust-stems.js";
 
 export const ECHO_MUSICAL_TIMELINE_SCHEMA = "hapa.echo.musical-timeline.v1";
 export const ECHO_VISUAL_SCORE_SCHEMA = "hapa.echo.visual-score.v1";
@@ -244,6 +245,7 @@ export function composeEchoVisualScore(timeline, direction = {}, { lyricLines = 
     phraseSource: direction.phrases ? "direction" : lyricSelection ? { kind: "lyrics", status: lyricSelection.status, reason: lyricSelection.reason } : "none",
     cameraMoves: structuredClone(direction.cameraMoves || []),
     colour: normalizeDustColour(direction.colour),
+    stemResponses: normalizeStemResponses(direction.stemResponses),
     limits: { maxDensity, minCueSeconds: ECHO_VISUAL_SCORE_MIN_CUE_SECONDS },
   };
   score.fingerprint = echoScoreFingerprint({ ...score, fingerprint: null });
@@ -454,7 +456,7 @@ export function selectEchoScorePhrases(lines, timeline, { lyricAudioHash = null,
   return { status: phrases.length ? "selected" : "none-readable", reason: `${phrases.length} of ${rows.length} measured lines chosen`, phrases };
 }
 
-const DIRECTION_KEYS = new Set(["colour", "families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
+const DIRECTION_KEYS = new Set(["colour", "stemResponses", "families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
 
 /** Strict check for a saved or submitted direction (the human intent, not the composed score). */
 export function validateEchoScoreDirection(direction) {
@@ -476,6 +478,8 @@ export function validateEchoScoreDirection(direction) {
   const play = direction.playSettings;
   if (play !== undefined && (!play || typeof play !== "object" || (play.pulse !== undefined && !ECHO_VISUAL_SCORE_PULSES.includes(play.pulse)) || (play.seed !== undefined && (!Number.isSafeInteger(play.seed) || play.seed < 0))
     || (play.reducedMotion !== undefined && typeof play.reducedMotion !== "boolean") || (play.flashLimitPerSecond !== undefined && (!Number.isInteger(play.flashLimitPerSecond) || play.flashLimitPerSecond < 0 || play.flashLimitPerSecond > DUST_FLASH_LIMIT_PER_SECOND)))) error("playSettings", "playSettings allows pulse half|normal|double, a non-negative integer seed, reducedMotion and flashLimitPerSecond 0–3.");
+  const stems = direction.stemResponses;
+  if (stems !== undefined && (!stems || typeof stems !== "object" || Array.isArray(stems) || Object.entries(stems).some(([k, v]) => !DUST_STEM_GROUPS[k] || !finite(v) || v < 0 || v > 1))) error("stemResponses", `stemResponses maps ${Object.keys(DUST_STEM_GROUPS).join("/")} to weights 0–1.`);
   const colour = direction.colour;
   if (colour !== undefined && (!colour || typeof colour !== "object" || Array.isArray(colour) || (colour.mode !== undefined && !DUST_COLOUR_MODES.includes(colour.mode)) || (colour.preset !== undefined && colour.preset !== null && !DUST_COLOUR_PRESETS[colour.preset])
     || Object.keys(colour).some((k) => !["mode", "preset", "crossfadeSeconds", "liftFlash", "breakDesaturate", "brighterReturns"].includes(k)))) error("colour", `colour allows mode (${DUST_COLOUR_MODES.join("/")}), a preset and the dynamics switches.`);

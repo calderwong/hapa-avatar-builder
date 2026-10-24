@@ -2322,8 +2322,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   });
   const scoreDustRef = useRef({ key: "", playback: null, settings: null, source: "reflex-only" });
   useEffect(() => {
-    scoreDustRef.current = { key: scoreDust.playbackKey, playback: scoreDust.playback, settings: scoreDust.settings, source: scoreDust.source };
-  }, [scoreDust.playbackKey, scoreDust.playback, scoreDust.settings, scoreDust.source]);
+    scoreDustRef.current = { key: scoreDust.playbackKey, playback: scoreDust.playback, settings: scoreDust.settings, source: scoreDust.source, stems: scoreDust.stems };
+  }, [scoreDust.playbackKey, scoreDust.playback, scoreDust.settings, scoreDust.source, scoreDust.stems]);
   const preparedBindingsKey = JSON.stringify(activeShowGraph?.directorV2?.modulationBindings || []);
   const preparedModulationResult = useMemo(() => {
     if (!activePreparedPerformance || preparedBindingsKey === "[]") return { timeline: null, error: null };
@@ -3806,7 +3806,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         publishExactStatus({ status: "idle", sourceId: "", error: "" });
         if (scoreDustKey !== scoreDustRef.current.key) {
           scoreDustKey = scoreDustRef.current.key;
-          scoreDustRenderer.setPlayback(scoreDustRef.current.playback, scoreDustRef.current.settings, scoreDustRef.current.source);
+          scoreDustRenderer.setPlayback(scoreDustRef.current.playback, scoreDustRef.current.settings, scoreDustRef.current.source, { stems: scoreDustRef.current.stems });
         }
         scoreDustRenderer.draw(ctx, { width, height, t, fft: f.fft, beatFlash: f.beatFlash, playing: isPlayingRef.current });
       } else if (hasDirectorShowGraph && budgetHoldsAllShaders) {
@@ -4507,7 +4507,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         // Score Dust: persistent particles directed by the visual score.
         if (scoreDustKey !== scoreDustRef.current.key) {
           scoreDustKey = scoreDustRef.current.key;
-          scoreDustRenderer.setPlayback(scoreDustRef.current.playback, scoreDustRef.current.settings, scoreDustRef.current.source);
+          scoreDustRenderer.setPlayback(scoreDustRef.current.playback, scoreDustRef.current.settings, scoreDustRef.current.source, { stems: scoreDustRef.current.stems });
         }
         scoreDustRenderer.draw(ctx, { width, height, t, fft: f.fft, beatFlash: f.beatFlash, playing: isPlayingRef.current });
       } else if (renderMode === "cymatic-rings") {

@@ -5,6 +5,7 @@ import { DUST_COLOUR_MODES, DUST_COLOUR_PRESET_LABELS, DUST_FLASH_LIMIT_PER_SECO
 import { decodeSongAudio, exportScoreDustVideo, SCORE_DUST_EXPORT_FORMATS } from "./echo-score-dust-export.js";
 import { ensureEchoPreviewRecordingLocalSession } from "../domain/echo-preview-recording.js";
 import { useScoreDustSession } from "./useScoreDustSession.js";
+import { DUST_STEM_LABELS } from "../domain/echo-score-dust-stems.js";
 import "./EchoScoreDustPanel.css";
 
 const EVENT_KINDS = ["lift", "fall", "build", "break", "change"];
@@ -91,7 +92,7 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
       let audio = null;
       if (exportContext?.audioUrl) { try { audio = await decodeSongAudio(exportContext.audioUrl, { signal: controller.current.signal }); } catch { audio = null; } }
       const result = await exportScoreDustVideo({ playback, settings: dust.settings, audio, startSeconds: plan.start, durationSeconds: plan.length, loopBridgeSeconds: plan.bridge || 0,
-        format, fps, signal: controller.current.signal,
+        format, fps, stems: dust.stems, signal: controller.current.signal,
         onProgress: ({ phase, frame, frames }) => setJob({ state: "running", progress: frame / Math.max(1, frames), message: phase === "audio" ? "Encoding audio…" : `Rendering frame ${frame} of ${frames}` }) });
       download.current = URL.createObjectURL(result.blob);
       const r = result.receipt;
@@ -255,6 +256,21 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
               <option value={3}>Up to 3 per second</option><option value={2}>Up to 2 per second</option><option value={1}>Up to 1 per second</option><option value={0}>None</option>
             </select></label>
             <span className="score-dust-hint">Flashes never exceed 3 per second. Reduced motion follows your system setting until you change it here.</span>
+          </fieldset>
+          <fieldset data-testid="score-dust-instruments">
+            <legend>Instruments</legend>
+            {Object.entries(DUST_STEM_LABELS).map(([group, label]) => {
+              const available = dust.stems?.available.includes(group);
+              return (
+                <label key={group} title={available ? `From ${dust.stems.roles[group].join(", ")}` : "No separated stem for this instrument"}>
+                  <span style={{ minWidth: 150, opacity: available ? 1 : 0.5 }}>{label}</span>
+                  <input type="range" min="0" max="1" step="0.05" aria-label={`${group} response`} disabled={!available}
+                    value={score.stemResponses?.[group] ?? 1}
+                    onChange={(e) => update((current) => ({ stemResponses: { ...(current.stemResponses || {}), [group]: Number(e.target.value) } }))} />
+                </label>
+              );
+            })}
+            <span className="score-dust-hint">{dust.stems ? `Stems: ${dust.stems.available.join(", ")} (prepared song timing).` : "No separated stems loaded. Choose Audio visuals → Prepared song timing on a song with stems."}</span>
           </fieldset>
           <fieldset>
             <legend>Moments</legend>

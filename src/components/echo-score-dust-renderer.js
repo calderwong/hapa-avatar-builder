@@ -160,7 +160,7 @@ function reflexPlayback(durationSeconds = 3600) {
 /** Live Echo preview host with an adaptive draw budget. */
 export function createEchoScoreDustRenderer() {
   const painter = createScoreDustPainter(), bands = new Float32Array(DUST_BAND_COUNT), images = new Map();
-  let performanceHost = null, source = "reflex-only", previousBeatFlash = 0, lastWall = null;
+  let performanceHost = null, source = "reflex-only", previousBeatFlash = 0, lastWall = null, stemsAt = null;
   let level = 0, ema = 8, over = 0, under = 0;
 
   function targetsFor(motif, count, seed) {
@@ -175,8 +175,9 @@ export function createEchoScoreDustRenderer() {
   }
 
   /** Accept a prepared score playback (or null for reflex-only). */
-  function setPlayback(playback, settings = null, nextSource = "reflex-only") {
+  function setPlayback(playback, settings = null, nextSource = "reflex-only", { stems = null } = {}) {
     source = playback ? nextSource : "reflex-only";
+    stemsAt = playback && stems ? (t) => stems.at(t) : null;
     const live = { ...(settings || {}), particleCount: Math.min(LIVE_PARTICLE_CAP, settings?.particleCount || LIVE_PARTICLE_CAP) };
     performanceHost = createScoreDustPerformance({ playback: playback || reflexPlayback(), settings: live, targetsFor, phraseTargets: (phrase, count, seed) => rasterizePhraseTargets(phrase, count, seed) });
   }
@@ -188,7 +189,7 @@ export function createEchoScoreDustRenderer() {
     dustBandsFromSpectrum(fft, bands);
     const liveKick = beatFlash > 0.6 && previousBeatFlash <= 0.6 ? 0.3 + 0.5 * beatFlash : 0;
     previousBeatFlash = beatFlash;
-    const { state } = performanceHost.advanceTo(t, { bandsAt: () => bands, liveKick });
+    const { state } = performanceHost.advanceTo(t, { bandsAt: () => bands, liveKick, stemsAt });
     const budget = BUDGET_LEVELS[level];
     const next = state?.nextEvent ? ` · next ${state.nextEvent.kind} ${state.nextEvent.in.toFixed(1)}s` : "";
     const visible = painter.paint(ctx, { performance: performanceHost, state, t, width, height, frameSeconds: wallDt || 1 / 60, ...budget,

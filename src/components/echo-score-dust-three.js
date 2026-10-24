@@ -10,7 +10,7 @@
 // moving dots cannot stamp opaque-looking holes into what is behind them.
 import * as THREE from "three";
 import { createScoreDustPerformance } from "../domain/echo-score-dust-performance.js";
-import { dustBandsFromSpectrum, DUST_BAND_COUNT } from "../domain/echo-dust-swarm.js";
+import { dustBandsFromSpectrum, dustTwinkle, DUST_BAND_COUNT } from "../domain/echo-dust-swarm.js";
 import { computeDustColours } from "../domain/echo-score-dust-colour.js";
 
 export const ECHO_SCORE_DUST_STAGE_CONTRACT = Object.freeze({
@@ -94,7 +94,7 @@ export function createEchoScoreDustThreeLayer({ world, particleCount = 3000, det
     const swarm = performanceHost.swarm;
     let r = 0, g = 0, b = 0, sx = 0, sy = 0, sz = 0, lit = 0;
     for (let i = 0; i < drawCount; i++) {
-      const i3 = i * 3, alpha = swarm.visibility[i] * swarm.brightness[i] * (0.35 + 0.5 * swarm.band[i]) * contrast;
+      const i3 = i * 3, alpha = swarm.visibility[i] * swarm.brightness[i] * (0.35 + 0.5 * swarm.band[i]) * contrast * dustTwinkle(swarm, i);
       positions[i3] = swarm.position[i3]; positions[i3 + 1] = swarm.position[i3 + 1]; positions[i3 + 2] = swarm.position[i3 + 2];
       // Shared colours are sRGB; vertex colours are linear.
       colors[i3] = Math.pow(rgb[i3], 2.2) * alpha; colors[i3 + 1] = Math.pow(rgb[i3 + 1], 2.2) * alpha; colors[i3 + 2] = Math.pow(rgb[i3 + 2], 2.2) * alpha;
