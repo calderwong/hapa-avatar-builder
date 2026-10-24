@@ -88,7 +88,7 @@ export async function inspectSongAudio(song,{root=process.cwd()}={}){
   const present=roles.filter(x=>x.state==='available').length;
   sets[format+'_stems']={state:!roles.length?'missing':present===roles.length?'available':present?'partial':'missing',present,expected:roles.length,roles,missing_roles:roles.filter(x=>x.state!=='available').map(x=>x.role)};
  }
- return {id:song.id,title:song.title,wav,mp3,...sets,checked_at:new Date().toISOString(),verification:'readable-file-and-container-header',scope:'registered paths, exact format siblings, and numbered role matches in registered stem folders (512-entry cap); no recursive search',decode_verified:false};
+ return {id:song.id,title:song.title,createdAt:song.createdAt||null,addedAt:song.addedAt||null,wav,mp3,...sets,checked_at:new Date().toISOString(),verification:'readable-file-and-container-header',scope:'registered paths, exact format siblings, and numbered role matches in registered stem folders (512-entry cap); no recursive search',decode_verified:false};
 }
 export async function inspectAudioInventory(songs,{root}={}){
  const start=Date.now(),rows=[];let cursor=0;

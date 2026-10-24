@@ -1225,3 +1225,13 @@ Fourteen images came from Codex built-in GPT Image per Calder’s correction.
 Local H3 loops remain in production; lyric candidates remain held for passage
 review. Original 202 song records and historical cuts are preserved. See the
 [intake evidence and lessons](postmortems/2026-10-23-echo-incremental-intake.md).
+
+
+## October 23 — Echo Album date sorting
+
+Song Directory and Director share a remembered name/newest/oldest menu using
+canonical album entry dates; unknown dates sort last. Live ordering and build
+verified. Fifteen existing navigation/inventory checks pass; the independent
+American Kings protected-cut inventory assertion remains a catalog gap. See
+[sorting behavior and verification](ECHO_ALBUM_SORTING.md). No source song or cut
+is changed, and no motion-loop or human-review gate is closed.

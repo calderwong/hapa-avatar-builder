@@ -11,6 +11,11 @@
       "slug": "hapa-echo-incremental-intake-20261023",
       "title": "October 23 seven-song Echo intake and Codex image evidence",
       "path": "docs/postmortems/2026-10-23-echo-incremental-intake.md"
+    },
+    {
+      "slug": "hapa-echo-album-song-sorting-v1",
+      "title": "Echo Album name and date-added sorting",
+      "path": "docs/ECHO_ALBUM_SORTING.md"
     }
   ]
 }

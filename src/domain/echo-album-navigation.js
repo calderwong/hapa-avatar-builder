@@ -2,6 +2,25 @@ function normalizedSearchText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+// Album entry dates, never cut regeneration or file modification times.
+export function compareEchoSongs(left = {}, right = {}, order = "name") {
+  if (order === "newest" || order === "oldest") {
+    const timestamp = song => {
+      for (const value of [song.addedAt, song.createdAt]) {
+        const time = typeof value === "string" && value.trim() ? Date.parse(value) : NaN;
+        if (Number.isFinite(time)) return time;
+      }
+      return null;
+    };
+    const a = timestamp(left), b = timestamp(right);
+    if (a === null && b !== null) return 1;
+    if (b === null && a !== null) return -1;
+    if (a !== null && b !== null && a !== b) return order === "oldest" ? a - b : b - a;
+  }
+  return String(left.title || "").localeCompare(String(right.title || ""))
+    || String(left.id || "").localeCompare(String(right.id || ""));
+}
+
 export function echoDirectorProject(row = {}) {
   return row?.music_video_project && typeof row.music_video_project === "object"
     ? row.music_video_project

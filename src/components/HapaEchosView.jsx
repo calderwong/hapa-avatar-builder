@@ -1,4 +1,5 @@
 import {createLivingLightRecordVisit,loadLivingLightRecordDestination} from '../domain/living-light-record-visit.js';
+import { compareEchoSongs } from '../domain/echo-album-navigation.js';
 import {livingLightCutMedia} from "../domain/living-light-media.js";
 import SongAudioUpload from './SongAudioUpload.jsx';
 import { matchesFileFilter } from '../domain/audio-atlas-ui.js';
@@ -1811,6 +1812,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const [expandedVideoId, setExpandedVideoId] = useState(null);
   const [activeDirectoryTab, setActiveDirectoryTab] = useState("director");
   const [searchQuery, setSearchQuery] = useState("");
+  const [songSort, setSongSort] = useState(() => {
+    try { const saved = localStorage.getItem('hapa.echo.song-sort'); return ['name', 'newest', 'oldest'].includes(saved) ? saved : 'name'; }
+    catch { return 'name'; }
+  });
+  useEffect(() => { try { localStorage.setItem('hapa.echo.song-sort', songSort); } catch { /* Sorting still works without preference storage. */ } }, [songSort]);
   const [sourceFilter, setSourceFilter] = useState("all");
   const [flowFilter, setFlowFilter] = useState("all");
   const [tagFilter, setTagFilter] = useState("all");
@@ -2087,8 +2093,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     directorProjects.find(p => p.music_video_project.song_id === selectedProjectSongId) || directorProjects[0] || null
   ), [selectedProjectSongId, directorProjects]);
   const visibleDirectorProjects = useMemo(
-    () => filterEchoDirectorProjectRows(directorProjects, searchQuery),
-    [directorProjects, searchQuery],
+    () => filterEchoDirectorProjectRows(directorProjects, searchQuery).sort((left, right) => {
+      const song = row => ({ ...audioInventory.songs[row.music_video_project.song_id], id: row.music_video_project.song_id, title: row.music_video_project.song_title });
+      return compareEchoSongs(song(left), song(right), songSort);
+    }),
+    [directorProjects, searchQuery, audioInventory.songs, songSort],
   );
 
   // ---- Song Card Editions shelf (past mints + awaiting operator confirmation) ----
@@ -5806,7 +5815,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   // The canonical song inventory includes songs absent from the older completeness report.
   const songsReport = audioInventory.summary ? Object.values(audioInventory.songs).map(song => ({
     ...(gapById.get(song.id) || { checklist: {}, score: null, completenessUnavailable: true }),
-    id: song.id, title: song.title,
+    id: song.id, title: song.title, createdAt: song.createdAt, addedAt: song.addedAt,
   })) : legacySongsReport;
 
   const filteredSongs = songsReport.filter(song => {
@@ -5814,7 +5823,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
       song.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       song.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (song.songId && song.songId.toLowerCase().includes(searchQuery.toLowerCase()));
-  });
+  }).sort((left, right) => compareEchoSongs(left, right, songSort));
 
   return (
     <section className="hapa-echos-view" aria-label="Echos Album App View">
@@ -6051,6 +6060,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
             </button>
           </div>
 
+          {(activeDirectoryTab === "songs" || activeDirectoryTab === "director") && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '12px', flexShrink: 0 }}>
+              Sort songs
+              <select aria-label="Sort songs" value={songSort} onChange={event => setSongSort(event.target.value)} title="Uses the saved album entry date. Songs without dates appear last." style={{ background: '#111827', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '6px' }}>
+                <option value="name">Name (A–Z)</option>
+                <option value="newest">Date created / added — newest first</option>
+                <option value="oldest">Date created / added — oldest first</option>
+              </select>
+            </label>
+          )}
           {activeDirectoryTab === "songs" ? (
             <>
               <div className="song-audio-toolbar">
