@@ -371,7 +371,10 @@ export function normalizeDustPlaySettings(input = {}, timeline = null) {
     particleCount: Math.min(20000, Math.max(500, Math.floor(Number(input.particleCount) || 6000))), pulse, prerollSeconds: finite(input.prerollSeconds) ? clamp(input.prerollSeconds, 0, 5) : 1.5,
     // Comfort: reduced motion, and bright flashes capped at 3 per second (can only go lower).
     reducedMotion: input.reducedMotion === true,
-    flashLimitPerSecond: finite(input.flashLimitPerSecond) ? clamp(Math.floor(input.flashLimitPerSecond), 0, DUST_FLASH_LIMIT_PER_SECOND) : DUST_FLASH_LIMIT_PER_SECOND };
+    flashLimitPerSecond: finite(input.flashLimitPerSecond) ? clamp(Math.floor(input.flashLimitPerSecond), 0, DUST_FLASH_LIMIT_PER_SECOND) : DUST_FLASH_LIMIT_PER_SECOND,
+    // Live detail tier: the exact CPU swarm, or the dense GPU swarm (preview only; exports stay CPU).
+    renderer: input.renderer === "gpu" ? "gpu" : "cpu",
+    gpuParticleCount: Math.min(80000, Math.max(20000, Math.floor(Number(input.gpuParticleCount) || 40000))) };
 }
 
 function pulseGrid(beats, pulse) {
@@ -529,7 +532,8 @@ export function validateEchoScoreDirection(direction) {
   if (direction.cameraMoves !== undefined && (!Array.isArray(direction.cameraMoves) || direction.cameraMoves.length > 64 || direction.cameraMoves.some((m) => !ECHO_VISUAL_SCORE_CAMERA_MODES.includes(m?.mode) || !finite(m.start) || !finite(m.end) || m.end <= m.start))) error("cameraMoves", "Up to 64 camera moves with a known mode and positive duration.");
   const play = direction.playSettings;
   if (play !== undefined && (!play || typeof play !== "object" || (play.pulse !== undefined && !ECHO_VISUAL_SCORE_PULSES.includes(play.pulse)) || (play.seed !== undefined && (!Number.isSafeInteger(play.seed) || play.seed < 0))
-    || (play.reducedMotion !== undefined && typeof play.reducedMotion !== "boolean") || (play.flashLimitPerSecond !== undefined && (!Number.isInteger(play.flashLimitPerSecond) || play.flashLimitPerSecond < 0 || play.flashLimitPerSecond > DUST_FLASH_LIMIT_PER_SECOND)))) error("playSettings", "playSettings allows pulse half|normal|double, a non-negative integer seed, reducedMotion and flashLimitPerSecond 0–3.");
+    || (play.reducedMotion !== undefined && typeof play.reducedMotion !== "boolean") || (play.flashLimitPerSecond !== undefined && (!Number.isInteger(play.flashLimitPerSecond) || play.flashLimitPerSecond < 0 || play.flashLimitPerSecond > DUST_FLASH_LIMIT_PER_SECOND))
+    || (play.renderer !== undefined && !["cpu", "gpu"].includes(play.renderer)) || (play.gpuParticleCount !== undefined && (!Number.isInteger(play.gpuParticleCount) || play.gpuParticleCount < 20000 || play.gpuParticleCount > 80000)))) error("playSettings", "playSettings allows pulse half|normal|double, a non-negative integer seed, reducedMotion, flashLimitPerSecond 0–3, renderer cpu|gpu and gpuParticleCount 20000–80000.");
   const stems = direction.stemResponses;
   if (stems !== undefined && (!stems || typeof stems !== "object" || Array.isArray(stems) || Object.entries(stems).some(([k, v]) => !DUST_STEM_GROUPS[k] || !finite(v) || v < 0 || v > 1))) error("stemResponses", `stemResponses maps ${Object.keys(DUST_STEM_GROUPS).join("/")} to weights 0–1.`);
   const colour = direction.colour;

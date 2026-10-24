@@ -6,6 +6,7 @@ import { matchesFileFilter } from '../domain/audio-atlas-ui.js';
 import SongAudioAvailability, { useSongAudioInventory } from "./SongAudioAvailability.jsx";
 import AudioAtlasPanel from "./AudioAtlasPanel.jsx";
 import { createEchoScoreDustRenderer } from "./echo-score-dust-renderer.js";
+import { createEchoScoreDustAutoRenderer } from "./echo-score-dust-gpu.js";
 import { useEchoScoreDust } from "./useEchoScoreDust.js";
 import { scoreDustShotPlacements } from "../domain/echo-score-dust-cut.js";
 import EchoScoreDustPanel from "./EchoScoreDustPanel.jsx";
@@ -3566,7 +3567,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     const horizonHistory = [];
     const particles = [];
     const stars = [];
-    const scoreDustRenderer = createEchoScoreDustRenderer();
+    // CPU by default; the dense GPU tier when the direction's play settings ask for it.
+    const scoreDustRenderer = createEchoScoreDustAutoRenderer({ createCpu: createEchoScoreDustRenderer });
     let scoreDustKey = "";
 
     const publishExactStatus = (next = {}) => {

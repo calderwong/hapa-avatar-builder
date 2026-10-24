@@ -127,7 +127,8 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
 
   // Separated stems from the prepared performance (null for master-only songs).
   const stems = useMemo(() => { try { return enabled ? createStemReflex(preparedPerformance) : null; } catch { return null; } }, [enabled, preparedPerformance]);
-  const playbackKey = composed?.playback ? `${songId}:${timelineInfo.source}:${composed.score.fingerprint}:${composed.settings.seed}:${composed.settings.pulse}:${stems?.available.join("+") || "no-stems"}` : `${songId}:${timelineInfo.source}:none`;
+  // Every play setting (seed, pulse, comfort, renderer tier) rebuilds the live host.
+  const playbackKey = composed?.playback ? `${songId}:${timelineInfo.source}:${composed.score.fingerprint}:${JSON.stringify(composed.settings)}:${stems?.available.join("+") || "no-stems"}` : `${songId}:${timelineInfo.source}:none`;
   return {
     enabled, status: remote.status, message: remote.message || "", runId: remote.runId || null, kind: timelineInfo.kind, source: timelineInfo.source,
     timeline: timelineInfo.timeline, saved: remote.saved || null, savedInvalid, ledger: remote.ledger || [], direction, dirty: draft !== null,

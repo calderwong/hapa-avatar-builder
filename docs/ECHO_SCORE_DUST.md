@@ -569,6 +569,32 @@ keep layering above it with their own blend modes: that is how Score Dust
 mixes with shaders. Verified in the real Echos view: a "Current shot" export
 was placed on its 30–45 s shot, and the timeline names it "Score Dust render".
 
+### P2 batch 4
+
+**Dense GPU tier** (P2 item 16; Look and timing → **Detail → Dense (GPU)**,
+20k–80k particles). `src/components/echo-score-dust-gpu.js` is a WebGL2
+swarm with the CPU swarm's interface, so the song-clock performance drives it
+unchanged through the new `createSwarm` option:
+- state is ping-ponged in float textures (position + band, velocity +
+  visibility);
+- the step shader is the CPU kernel's equations per texel (spring and hold,
+  divergence-free flow, kicks, travelling shocks, stagger, participation);
+- formation targets and per-particle constants come from the same shared
+  helpers (`fillDustFormationTargets`, `dustParticleConstants`);
+- points are projected, sized, coloured (every colour mode, including picture
+  tint), twinkled with the same integer hash, and drawn into a trail buffer
+  with a mip-level bloom, then composited onto the 2D preview canvas.
+
+Measured parity in headless Chromium: same score, seed and 4,000 particles,
+270 fixed steps → mean position difference 2×10⁻⁶ and maximum 1.2×10⁻⁵ against
+the CPU swarm (shape extent 1.36). The GPU tier is still preview only:
+exports, offline frames and receipts stay on the exact CPU swarm. The live
+host (`createEchoScoreDustAutoRenderer`) falls back to CPU, and reports why,
+when WebGL2 float render targets are missing; the panel disables the option
+in that case. Samplers now fill targets for up to 80k grains. The Record
+Garden 3D stage stays on its CPU layer (≤ 8k), because Three.js owns its own
+GL context.
+
 ### Saved directions
 
 Directions, not composed scores, are saved. A direction is the compact human
@@ -819,7 +845,7 @@ real Echo Song is still open.
 
 ## P2 backlog (defined 2026-10-24)
 
-Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★), **batch 2** (◆) and **batch 3** (▲) are done (2026-10-24). See the *P2 batch* sections above.
+Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★), **batch 2** (◆) and **batch 3** (▲) are done; **batch 4** (■) is in progress (2026-10-24). See the *P2 batch* sections above.
 
 | # | Item | Size |
 | --- | --- | --- |
@@ -838,7 +864,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★), *
 | 13 ▲ | Avatar 3D models sampled into shapes (bind pose, material colour) | M |
 | 14 ▲ | SVG and text logos as shapes | S |
 | 15 ▲ | Direction from lyrics, mood and Atlas structure; natural-language cues (local rules, no model provider) | M |
-| 16 | GPU simulation for 20k–80k particles | L |
+| 16 ■ | GPU simulation for 20k–80k particles (live preview tier; exports stay CPU) | L |
 | 17 | Listen together across devices via the phone bridge, with sign-in, host hand-off, reactions | M |
 | 18 | More 3D stages (Tarot Draw visualizer modes, floor reflections) | M |
 | 19 ★ | Reusable named looks applied across songs | S |

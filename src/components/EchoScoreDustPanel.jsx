@@ -4,6 +4,7 @@ import { ECHO_VISUAL_SCORE_CAMERA_MODES, ECHO_VISUAL_SCORE_EVENT_RESPONSES, ECHO
 import { applyDustLook, extractDustLook, BUILTIN_DUST_LOOKS, dustLookSlug } from "../domain/echo-score-dust-looks.js";
 import { DUST_LYRIC_FONTS, normalizeLyricControl } from "../domain/echo-score-dust-lyrics.js";
 import { interpretDustCue, suggestDustDirection, SCORE_DUST_CUE_EXAMPLES } from "../domain/echo-score-dust-director.js";
+import { probeScoreDustGpu } from "./echo-score-dust-gpu.js";
 import { splitSectionAt, mergeSectionBoundary, moveSectionBoundary, editSectionCue, resetSectionCue } from "../domain/echo-score-dust-sections.js";
 import { createAtlasClient } from "../domain/audio-atlas-ui.js";
 import { DUST_COLOUR_MODES, DUST_COLOUR_PRESET_LABELS, DUST_FLASH_LIMIT_PER_SECOND, DUST_BACKGROUND_KINDS, normalizeDustBackground, hexToHsl, hslToHex } from "../domain/echo-score-dust-colour.js";
@@ -169,6 +170,24 @@ function BackgroundControls({ background, update }) {
       {(bg.kind === "gradient" || bg.kind === "palette") && (
         <label>Shape <select aria-label="Background shape" value={bg.shape} onChange={(e) => set({ shape: e.target.value })}><option value="radial">Radial</option><option value="linear">Top to bottom</option></select></label>
       )}
+    </>
+  );
+}
+
+/** Live detail: the exact CPU swarm, or the dense GPU swarm for preview. */
+function DetailTier({ settings, update }) {
+  const gpu = useMemo(() => probeScoreDustGpu(), []);
+  const set = (patch) => update((current) => ({ playSettings: { ...(current.playSettings || {}), ...patch } }));
+  return (
+    <>
+      <label>Detail <select aria-label="Detail tier" value={settings?.renderer || "cpu"} onChange={(e) => set({ renderer: e.target.value })}>
+        <option value="cpu">Exact (CPU, up to 4k live)</option>
+        <option value="gpu" disabled={!gpu.ok}>Dense (GPU){gpu.ok ? "" : " — unavailable"}</option>
+      </select></label>
+      {settings?.renderer === "gpu" && <label>Particles <select aria-label="GPU particle count" value={settings.gpuParticleCount} onChange={(e) => set({ gpuParticleCount: Number(e.target.value) })}>
+        {[20000, 40000, 60000, 80000].map((n) => <option key={n} value={n}>{n.toLocaleString("en-US")}</option>)}
+      </select></label>}
+      <span className="score-dust-hint">{gpu.ok ? "Dense is preview only; exports and recordings stay on the exact CPU swarm." : gpu.reason}</span>
     </>
   );
 }
@@ -556,6 +575,7 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
             <label>Seed <input type="number" min="0" step="1" aria-label="Performance seed" value={settings?.seed ?? 0}
               onChange={(event) => update((current) => ({ playSettings: { ...(current.playSettings || {}), seed: Math.max(0, Math.floor(Number(event.target.value) || 0)) } }))} /></label>
             <button type="button" className="hapa-btn" onClick={() => update((current) => ({ playSettings: { ...(current.playSettings || {}), seed: Math.floor(Math.random() * 2 ** 31) } }))}>Vary</button>
+            <DetailTier settings={settings} update={update} />
           </fieldset>
           <fieldset data-testid="score-dust-colour">
             <legend>Colour</legend>

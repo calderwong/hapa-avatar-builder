@@ -94,9 +94,10 @@ export function scoreDerivedBands(state, out = new Float32Array(DUST_BAND_COUNT)
  * prepareEchoScorePlayback). `targetsFor(motif)` and `phraseTargets(phrase)`
  * are host hooks that rasterise pictures/words; null means "use the family".
  */
-export function createScoreDustPerformance({ playback, settings = {}, count = null, targetsFor = () => null, phraseTargets = () => null } = {}) {
+export function createScoreDustPerformance({ playback, settings = {}, count = null, targetsFor = () => null, phraseTargets = () => null, createSwarm = createDustSwarm } = {}) {
   if (!playback?.stateAt || !playback?.score) throw new TypeError("A prepared score playback is required.");
-  const swarm = createDustSwarm({ count: count ?? settings.particleCount ?? 4000, seed: settings.seed ?? 1 });
+  // The CPU swarm is the exact reference; a GPU swarm with the same interface can be injected for dense live tiers.
+  const swarm = createSwarm({ count: count ?? settings.particleCount ?? 4000, seed: settings.seed ?? 1 });
   const motion = buildScoreDustMotion(playback.score);
   const prerollSteps = Math.round(clamp(settings.prerollSeconds ?? 1.5, 0, 5) * SCORE_DUST_STEP_HZ);
   const gapSteps = SCORE_DUST_RESET_GAP_SECONDS * SCORE_DUST_STEP_HZ;
