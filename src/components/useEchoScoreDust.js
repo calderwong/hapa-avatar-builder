@@ -61,14 +61,14 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     setRemote({ status: "loading", songId });
     (async () => {
       try {
-        const { jobs = [] } = await client.request(`/jobs?songId=${encodeURIComponent(songId)}`);
-        const run = jobs.find((job) => job.state === "complete");
-        if (!run) { if (!cancelled) setRemote({ status: "no-run", songId, message: "No completed Audio Atlas analysis for this Song yet." }); return; }
+        // The server picks the newest run with beats and sections; newer lyric-timing runs measure neither.
+        const { run, reason = "" } = await client.request(`/visual-score-run?songId=${encodeURIComponent(songId)}`);
+        if (!run) { if (!cancelled) setRemote({ status: "no-run", songId, message: reason || "No completed Audio Atlas analysis for this Song yet." }); return; }
         const [value, ledger] = await Promise.all([
           client.request(`/jobs/${encodeURIComponent(run.id)}/query?op=visual-score`),
           client.request(`/jobs/${encodeURIComponent(run.id)}/visual-score-directions`),
         ]);
-        if (!cancelled) setRemote({ status: "atlas", songId, runId: run.id, timeline: value.timeline, ledger: ledger.revisions || [], saved: ledger.latest || null });
+        if (!cancelled) setRemote({ status: "atlas", songId, runId: run.id, runReason: reason, timeline: value.timeline, ledger: ledger.revisions || [], saved: ledger.latest || null });
       } catch (error) {
         if (!cancelled) setRemote({ status: "error", songId, message: String(error?.message || error) });
       }
@@ -130,7 +130,7 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
   // Every play setting (seed, pulse, comfort, renderer tier) rebuilds the live host.
   const playbackKey = composed?.playback ? `${songId}:${timelineInfo.source}:${composed.score.fingerprint}:${JSON.stringify(composed.settings)}:${stems?.available.join("+") || "no-stems"}` : `${songId}:${timelineInfo.source}:none`;
   return {
-    enabled, status: remote.status, message: remote.message || "", runId: remote.runId || null, kind: timelineInfo.kind, source: timelineInfo.source,
+    enabled, status: remote.status, message: remote.message || "", runId: remote.runId || null, runReason: remote.runReason || "", kind: timelineInfo.kind, source: timelineInfo.source,
     timeline: timelineInfo.timeline, saved: remote.saved || null, savedInvalid, ledger: remote.ledger || [], direction, dirty: draft !== null,
     score: composed?.score || null, validation: composed?.validation || null, settings: composed?.settings || null, playback: composed?.playback || null, playbackKey,
     setDraft: (update) => setDraft((current) => (typeof update === "function" ? update(current ?? (savedInvalid ? {} : remote.saved?.direction ?? {})) : update)),

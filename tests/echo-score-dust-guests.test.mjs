@@ -5,7 +5,7 @@ import { createScoreDustSessionStore, handleScoreDustGuests, handleScoreDustSess
 function setup() {
   let clock = 1_000_000;
   const store = createScoreDustSessionStore({ now: () => clock });
-  const session = store.create({ songId: "song-trip", state: "playing", positionSeconds: 10, score: { schemaVersion: "x" }, timeline: { schemaVersion: "y" }, audioUri: "/api/song-registry/audio/song-trip" });
+  const session = store.create({ songId: "song-trip", state: "playing", positionSeconds: 10, score: { schemaVersion: "x" }, timeline: { schemaVersion: "y" }, audioSource: { kind: "atlas-master", runId: "run-trip" } });
   return { store, session, tick: (ms) => { clock += ms; } };
 }
 
@@ -16,9 +16,9 @@ test("invites admit named guests with their own scoped tokens; nothing secret le
   const joined = store.join({ sessionId: session.id, invite: invite.code, name: "  Sam <b> " });
   assert.equal(joined.session.guests[0].name, "Sam b");
   const view = store.guestSession(joined.guestToken);
-  assert.deepEqual([view.you.name, view.you.hasControl, view.score.schemaVersion, view.audioUri], ["Sam b", false, "x", "/api/song-registry/audio/song-trip"]);
+  assert.deepEqual([view.you.name, view.you.hasControl, view.score.schemaVersion, view.audioAvailable], ["Sam b", false, "x", true]);
   const text = JSON.stringify([store.get(session.id), view, joined.session]);
-  assert.ok(!text.includes(invite.code) && !/tokenHash|"hash"|invites"/.test(text), "no codes, tokens or hashes in any view");
+  assert.ok(!text.includes(invite.code) && !/tokenHash|audioKeyHash|"hash"|invites"|audioSource|run-trip/.test(text), "no codes, tokens, hashes or audio source in any view");
   store.join({ sessionId: session.id, invite: invite.code, name: "Ana" });
   assert.throws(() => store.join({ sessionId: session.id, invite: invite.code, name: "Third" }), (e) => e.statusCode === 403, "uses run out");
   assert.throws(() => store.join({ sessionId: session.id, invite: invite.code.replace(/.$/, "A") === invite.code ? "x" : invite.code.replace(/.$/, "A"), name: "X" }), (e) => e.code === "guest_invite_invalid");
@@ -38,6 +38,17 @@ test("invites expire, bad codes are rate limited, revocation is immediate", () =
   assert.throws(() => store.join({ sessionId: session.id, invite: fresh.code, name: "  " }), (e) => e.code === "guest_name_required");
   store.revokeGuest(session.id, guest.guestId);
   assert.throws(() => store.guestSession(guest.guestToken), (e) => e.statusCode === 401);
+});
+
+test("wrong codes for one room, or for made-up rooms, never lock guests out of another room", () => {
+  const { store, session } = setup();
+  const other = store.create({ songId: "song-other" });
+  for (let i = 0; i < 20; i++) assert.throws(() => store.join({ sessionId: other.id, invite: `wrong-${i}`, name: "x" }), (e) => e.statusCode === 403);
+  for (let i = 0; i < 20; i++) assert.throws(() => store.join({ sessionId: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, invite: "x", name: "x" }), (e) => e.statusCode === 403);
+  assert.throws(() => store.join({ sessionId: other.id, invite: "wrong", name: "x" }), (e) => e.statusCode === 429, "the attacked room is throttled");
+  assert.throws(() => store.join({ sessionId: "made-up", invite: "x", name: "x" }), (e) => e.statusCode === 429, "unknown rooms share one throttle");
+  const guest = store.join({ sessionId: session.id, invite: store.createInvite(session.id).code, name: "Kai" });
+  assert.equal(guest.session.guests[0].name, "Kai", "this room still admits its guests");
 });
 
 test("only the guest holding control drives play; the owner takes it back", () => {
@@ -89,4 +100,34 @@ test("guest routes need no admin but do need an invite or token; owner routes st
   assert.equal(await handleScoreDustGuests({ req: { method: "GET", headers: {} }, res: {}, url: new URL("http://x/api/echos/score-dust/guest-origin"), store, readBody: async () => ({}), sendJson: () => {} }), false, "sibling routes are not swallowed");
   const guests = await call(handleScoreDustSessions, "GET", `/api/echos/score-dust/sessions/${session.id}/guests`, null, {}, true);
   assert.equal(guests.payload.guests[0].name, "Lee");
+});
+
+test("guests stream the host's song audio through their own scoped cookie, never an admin route", async () => {
+  const { store, session } = setup();
+  const resolved = [], served = [];
+  const call = async (method, path, headers = {}) => {
+    let sent = null, cookie = null;
+    await handleScoreDustGuests({ req: { method, headers }, res: { setHeader: (name, value) => { if (name === "Set-Cookie") cookie = value; } }, url: new URL(`http://127.0.0.1:8792${path}`), store,
+      readBody: async () => ({}), sendJson: (res, status, payload) => { sent = { status, payload }; }, secure: true,
+      resolveAudio: async (source, songId) => { resolved.push([source, songId]); return "/songs/trip.wav"; }, serveLocalFile: async (file) => { served.push(file); } });
+    return { sent, cookie };
+  };
+  const { guestToken, guestId } = store.join({ sessionId: session.id, invite: store.createInvite(session.id).code, name: "Mo" });
+  const audioPath = `/api/echos/score-dust/guest/audio/${session.id}`;
+  assert.equal((await call("GET", audioPath)).sent.status, 401, "no cookie, no audio");
+  assert.equal((await call("POST", "/api/echos/score-dust/guest/audio-access")).sent.status, 401, "audio access needs the guest token");
+  const access = await call("POST", "/api/echos/score-dust/guest/audio-access", { authorization: `Bearer ${guestToken}` });
+  assert.equal(access.sent.payload.audioUri, audioPath);
+  const [pair, ...attributes] = access.cookie.split("; ");
+  assert.deepEqual(attributes, [`Path=${audioPath}`, "HttpOnly", "SameSite=Strict", "Max-Age=43200", "Secure"], "scoped to this room's audio route");
+  assert.ok(!access.sent.payload.audioUri.includes(pair.split("=")[1]), "the key never rides in a URL");
+  await call("GET", audioPath, { cookie: `other=1; ${pair}` });
+  assert.deepEqual([resolved, served], [[[{ kind: "atlas-master", runId: "run-trip" }, "song-trip"]], ["/songs/trip.wav"]]);
+  assert.equal((await call("GET", `/api/echos/score-dust/guest/audio/${store.create({ songId: "x" }).id}`, { cookie: pair })).sent.status, 401, "a key opens only its own room");
+  store.revokeGuest(session.id, guestId);
+  assert.equal((await call("GET", audioPath, { cookie: pair })).sent.status, 401, "revocation stops audio at once");
+  const silent = store.create({ songId: "song-quiet", audioSource: null });
+  const quietGuest = store.join({ sessionId: silent.id, invite: store.createInvite(silent.id).code, name: "Q" });
+  assert.equal(quietGuest.session.audioAvailable, false);
+  assert.equal((await call("POST", "/api/echos/score-dust/guest/audio-access", { authorization: `Bearer ${quietGuest.guestToken}` })).sent.status, 404);
 });

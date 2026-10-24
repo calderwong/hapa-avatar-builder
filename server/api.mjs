@@ -1240,6 +1240,21 @@ async function stopOwnedOvercardHost() {
 let audioAtlasService = null;
 // Ephemeral shared Score Dust listening sessions (process-scoped room clock).
 const scoreDustSessionStore = createScoreDustSessionStore();
+// Song audio a guest may stream: the session's Atlas master (only for its own
+// Song) or a prepared playback job whose source is still verified.
+async function resolveScoreDustGuestAudio(source, songId) {
+  if (source?.kind === 'atlas-master') {
+    audioAtlasService ||= createAudioAtlas({ root: ROOT, songStore: HAPA_SONG_STORE_PATH });
+    if (audioAtlasService.status(source.runId).song_id !== songId) throw Object.assign(new Error('That analysis belongs to another Song.'), { statusCode: 403, code: 'guest_audio_song_mismatch' });
+    return audioAtlasService.audio(source.runId, 'master');
+  }
+  if (source?.kind === 'playback') {
+    const receipt = echoPerformancePreparation.getPlaybackReceipt(source.jobId);
+    if (!receipt || !await verifyEchoPlaybackAudioReceipt(receipt)) throw Object.assign(new Error('The host\'s prepared audio is no longer available.'), { statusCode: 409, code: 'echo_playback_audio_stale' });
+    return receipt.path;
+  }
+  throw Object.assign(new Error('The host is not sharing song audio for this session.'), { statusCode: 404, code: 'guest_audio_unavailable' });
+}
 let livingLightService = null;
 function getLivingLightService() {
   return livingLightService ||= createLivingLightService({root:ROOT,storePath:process.env.HAPA_LIVING_LIGHT_AUTHORING_STORE,custodyOwner:avatarCardCustodyService,resolveCut:(songId,cutId)=>readEchoSavedCut({root:ROOT,dataDir:DATA_DIR,variantsRoot:ECHO_DIRECTION_VARIANTS_DIR,songId,cutId}),resolveSong:async songId=>(await readJson(HAPA_SONG_STORE_PATH)).songs.find(song=>song.id===songId)});
@@ -2679,7 +2694,8 @@ async function route(req, res) {
 
   // Cross-device guests: invite code or per-guest token, scoped to one session; no admin rights.
   if (pathname.startsWith('/api/echos/score-dust/guest/')) {
-    if (await handleScoreDustGuests({ req, res, url, store: scoreDustSessionStore, readBody, sendJson })) return;
+    if (await handleScoreDustGuests({ req, res, url, store: scoreDustSessionStore, readBody, sendJson, serveLocalFile,
+      secure: Boolean(req.socket?.encrypted), resolveAudio: resolveScoreDustGuestAudio })) return;
   }
 
   if (pathname === '/api/echos/score-dust/guest-origin' && req.method === 'GET') {

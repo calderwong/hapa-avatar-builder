@@ -435,6 +435,33 @@ export function reflexOnlyEchoTimeline(durationSeconds = 600) {
     qualification: { qualityQualified: false, basis: "none", limitations: ["No song structure; visuals follow live audio only."] } });
 }
 
+/** What a completed Atlas run gives Score Dust: beat count and whether it measured sections. */
+export function echoAtlasRunShape(timeline) {
+  return { beats: timeline?.beats?.length || 0, sections: timeline?.coverage?.sections === "present", repeats: timeline?.coverage?.repeats === "present" };
+}
+
+/**
+ * Which completed Atlas run directs Score Dust. Lyric-timing and transcription
+ * runs are newer than most beat analyses but measure no beats or sections, so
+ * the newest run with beats and sections wins, then the newest with beats,
+ * then the newest readable run. `candidates` are newest first:
+ * { id, createdAt, beats, sections, repeats, error? }; `shapeOf(id)` (optional)
+ * fills in shapes lazily so selection stops at the first structured run.
+ */
+export function selectEchoScoreDustRun(candidates = [], shapeOf = null) {
+  const seen = [];
+  for (const candidate of candidates) {
+    const row = { ...candidate, ...(shapeOf ? shapeOf(candidate.id) : {}) };
+    seen.push(row);
+    if (!row.error && row.beats > 0 && row.sections) return { run: row, basis: "beats-and-sections", reason: seen.length === 1 ? "Newest run has beats and sections." : `Newest run with beats and sections; ${seen.length - 1} newer run${seen.length === 2 ? "" : "s"} measured none.`, candidates: seen };
+  }
+  const beats = seen.find((row) => !row.error && row.beats > 0);
+  if (beats) return { run: beats, basis: "beats", reason: "No run measured sections; using the newest run with beats.", candidates: seen };
+  const readable = seen.find((row) => !row.error);
+  if (readable) return { run: readable, basis: "newest", reason: "No run measured beats; Analyze this Song in Audio Atlas with Detect beats to direct it.", candidates: seen };
+  return { run: null, basis: "none", reason: seen.length ? "No completed Audio Atlas run for this Song could be read." : "No completed Audio Atlas analysis for this Song yet.", candidates: seen };
+}
+
 const normalizeLyric = (text) => String(text || "").toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}\s']/gu, " ").replace(/\s+/g, " ").trim();
 const lineTime = (line, key) => { const value = Number(line?.[key] ?? line?.[`${key}Seconds`]); return Number.isFinite(value) ? value : NaN; };
 

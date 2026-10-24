@@ -26,7 +26,7 @@ const hsl = (c, alpha = 1) => `hsl(${c.h} ${Math.round(c.s * 100)}% ${Math.round
 
 function sourceSummary(dust) {
   if (dust.status === "loading") return "Loading the Song's Audio Atlas timeline…";
-  if (dust.kind === "atlas") return `Audio Atlas run ${dust.runId} · ${dust.saved ? `saved direction r${dust.saved.revision}${dust.savedInvalid ? " is invalid and was skipped; using the default" : dust.saved.timelineFingerprint !== dust.timeline?.fingerprint ? " (saved for a different analysis; check motif groups)" : ""}` : "default direction"}${dust.dirty ? " · unsaved edits" : ""}`;
+  if (dust.kind === "atlas") return `Audio Atlas run ${dust.runId}${dust.runReason && !/^Newest run has/.test(dust.runReason) ? ` (${dust.runReason})` : ""} · ${dust.saved ? `saved direction r${dust.saved.revision}${dust.savedInvalid ? " is invalid and was skipped; using the default" : dust.saved.timelineFingerprint !== dust.timeline?.fingerprint ? " (saved for a different analysis; check motif groups)" : ""}` : "default direction"}${dust.dirty ? " · unsaved edits" : ""}`;
   if (dust.kind === "prepared") return "Prepared performance timing (no repeat or lift evidence). Analyze this Song in Audio Atlas with Detect beats for full structure.";
   return `Live reflex only. ${dust.message || "No song structure available."} Analyze this Song in Audio Atlas with Detect beats to direct it.`;
 }

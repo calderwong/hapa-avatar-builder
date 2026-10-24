@@ -1,7 +1,7 @@
 // Shared Score Dust listening from the Echo preview: host a session, join one
 // by id or link, keep a room clock, and correct playback drift.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createRoomClock, sharedPlayCorrection, SHARED_PLAY_CHECK_INTERVAL_MS } from "../domain/echo-score-dust-shared-play.js";
+import { createRoomClock, hostPublishPlan, scoreDustAudioSource, sharedPlayCorrection, SHARED_PLAY_CHECK_INTERVAL_MS } from "../domain/echo-score-dust-shared-play.js";
 import { ensureEchoPreviewRecordingLocalSession } from "../domain/echo-preview-recording.js";
 
 const POLL_MS = 1000;
@@ -30,14 +30,15 @@ export function useScoreDustSession({ apiBase = "", songId, dust, playing, getAc
 
   // withScore: also publish the composed score and timeline, so devices
   // without Atlas access (phone guests) render exactly what the host renders.
+  // Audio is shared as a source the Builder resolves for guests; a blob: or
+  // foreign URL shares none (guests watch without sound) instead of failing.
   const snapshot = ({ withScore = true } = {}) => {
     const { dust: d, playing: p, getActual: actual, audioUri: audio } = controls.current;
-    const path = audio ? (() => { try { const u = new URL(audio, location.href); return u.origin === location.origin ? u.pathname : null; } catch { return null; } })() : null;
     return { songId, runId: d.runId || null, audioIdentity: d.timeline?.source?.sourceSha256 || null, scoreFingerprint: d.score?.fingerprint || null,
       direction: d.direction || {}, playSettings: { seed: d.settings?.seed, pulse: d.settings?.pulse, reducedMotion: d.settings?.reducedMotion, flashLimitPerSecond: d.settings?.flashLimitPerSecond },
       durationSeconds: d.score?.durationSeconds || null,
       state: p ? "playing" : "paused", positionSeconds: Math.max(0, Number(actual?.()) || 0), title: d.timeline?.source?.songId || songId,
-      ...(withScore && d.score && d.timeline ? { score: d.score, timeline: d.timeline } : {}), ...(path ? { audioUri: path } : {}) };
+      ...(withScore && d.score && d.timeline ? { score: d.score, timeline: d.timeline } : {}), audioSource: scoreDustAudioSource(audio, new URL(apiBase || location.href, location.href).origin) };
   };
 
   const host = useCallback(async () => {
@@ -91,26 +92,33 @@ export function useScoreDustSession({ apiBase = "", songId, dust, playing, getAc
     return () => clearInterval(timer);
   }, [following, outputLatencySeconds]);
 
-  // Host: publish play/pause, seeks and direction changes.
+  // Host: publish play/pause, seeks and direction changes. A change counts as
+  // published only once the room accepts it: guest joins and reactions also
+  // advance the revision, so a 409 refetches and the next tick sends again.
   useEffect(() => {
     if (state.role !== "host") return undefined;
+    let inFlight = false;
     const timer = setInterval(() => {
       const session = latest.current, last = lastHostSync.current;
-      if (!session || !last) return;
+      if (inFlight || !session || !last) return;
       const { playing: p, getActual: actual, dust: d } = controls.current, position = Number(actual?.()) || 0;
-      const expected = last.playing ? last.position + (Date.now() - last.at) / 1000 : last.position;
-      const scoreChanged = Boolean(d.score?.fingerprint && d.score.fingerprint !== last.fingerprint);
       const owner = !session.controller || session.controller === "owner";
-      const changed = (owner && (p !== last.playing || Math.abs(position - expected) > 1)) || scoreChanged;
-      if (!changed) return;
-      const body = { ...snapshot({ withScore: scoreChanged }), baseRevision: session.revision };
+      const plan = hostPublishPlan({ last, now: Date.now(), playing: p, position, fingerprint: d.score?.fingerprint || null, owner });
+      if (!plan) return;
+      const body = { ...snapshot({ withScore: plan.scoreChanged }), baseRevision: session.revision };
       delete body.songId;
       if (!owner) { delete body.state; delete body.positionSeconds; }
-      lastHostSync.current = { playing: p, at: Date.now(), position, fingerprint: d.score?.fingerprint };
-      request(`/${session.id}`, { method: "PUT", body: JSON.stringify(body) }).then(accept).catch((error) => {
-        if (error.status === 409) request(`/${session.id}`).then(accept);
-        else setState((s) => ({ ...s, message: error.message }));
-      });
+      inFlight = true;
+      request(`/${session.id}`, { method: "PUT", body: JSON.stringify(body) }).then((next) => {
+        lastHostSync.current = plan.next;
+        accept(next);
+      }).catch((error) => {
+        if (error.status === 409) return request(`/${session.id}`).then(accept);
+        // Any other refusal would repeat every tick; report it once and move on.
+        lastHostSync.current = plan.next;
+        setState((s) => ({ ...s, message: error.message }));
+        return undefined;
+      }).catch(() => {}).finally(() => { inFlight = false; });
     }, 500);
     return () => clearInterval(timer);
   }, [state.role, request, accept]); // eslint-disable-line react-hooks/exhaustive-deps

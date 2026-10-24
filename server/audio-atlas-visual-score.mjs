@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import {
   buildEchoMusicalTimelineFromAtlas, composeEchoVisualScore, validateEchoVisualScore, validateEchoScoreDirection,
-  normalizeDustPlaySettings, ECHO_SCORE_DIRECTION_SCHEMA,
+  normalizeDustPlaySettings, ECHO_SCORE_DIRECTION_SCHEMA, echoAtlasRunShape, selectEchoScoreDustRun,
 } from '../src/domain/echo-visual-score.js';
 import { DUST_LOOK_SCHEMA, dustLookSlug, validateDustLook, mergeDustLooks } from '../src/domain/echo-score-dust-looks.js';
 import { albumDustColour } from '../src/domain/echo-score-dust-album.js';
@@ -22,6 +22,26 @@ export function suggestVisualScoreDirection(result,input={},{songs=[]}={}){
  const suggestion=suggestDustDirection({timeline,mood:typeof input.mood==='string'?input.mood:card?.mood||'',tags,lyricLines,title:card?.title||''});
  const score=composeEchoVisualScore(timeline,suggestion.direction,{lyricLines});
  return {...suggestion,run_id:result.run_id,song_id:result.song_id,validation:validateEchoVisualScore(score,{timeline}),notice:'Suggested locally from mood words, Atlas candidates and lyrics; nothing is saved.'};
+}
+
+/**
+ * The run every Score Dust surface composes from (see selectEchoScoreDustRun).
+ * Completed results are immutable, so shapes are cached by run id + result hash.
+ */
+export function createVisualScoreRunSelector({jobs,result}){
+ const shapes=new Map();
+ return function visualScoreRun(songId){
+  if(typeof songId!=='string'||!songId)throw fail('songId required',400);
+  const complete=jobs(songId).filter(job=>job.state==='complete');
+  const hashes=new Map(complete.map(job=>[job.id,job.result_sha256]));
+  const shapeOf=id=>{
+   const key=`${id}:${hashes.get(id)}`;
+   if(!shapes.has(key)){try{shapes.set(key,echoAtlasRunShape(buildEchoMusicalTimelineFromAtlas(result(id))));}catch(error){shapes.set(key,{error:String(error?.message||error)});}}
+   return shapes.get(key);
+  };
+  const selected=selectEchoScoreDustRun(complete.map(job=>({id:job.id,createdAt:job.created_at})),shapeOf);
+  return {schema_version:'hapa.audio-atlas.visual-score-run.v1',song_id:songId,run:selected.run,basis:selected.basis,reason:selected.reason,candidates:selected.candidates};
+ };
 }
 
 /** Apply a plain-language cue to a direction (the request's, else the latest saved one). */

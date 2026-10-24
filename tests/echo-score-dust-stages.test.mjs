@@ -35,15 +35,16 @@ test("3D stages load a Song's saved score once, and explain when they cannot", a
   const calls = [];
   const client = { request: async (route) => {
     calls.push(route);
-    if (route.startsWith("/jobs?")) return { jobs: [{ id: "run-trip", state: "complete" }] };
+    if (route.startsWith("/visual-score-run?")) return { run: { id: "run-trip", beats: 12, sections: true }, basis: "beats-and-sections" };
     return { timeline, score, validation: { ok: true }, playSettings: { pulse: "half", seed: 4 } };
   } };
   const first = await loadEchoScoreDustForSong({ songId: "song-trip", client });
   assert.equal(first.playback.score.fingerprint, score.fingerprint);
   assert.deepEqual([first.settings.pulse, first.settings.seed, first.runId], ["half", 4, "run-trip"]);
+  assert.deepEqual(calls, ["/visual-score-run?songId=song-trip", "/jobs/run-trip/query?op=visual-score"], "the server picks the run");
   await loadEchoScoreDustForSong({ songId: "song-trip", client });
   assert.equal(calls.length, 2, "cached per Song");
-  const none = await loadEchoScoreDustForSong({ songId: "other", client: { request: async () => ({ jobs: [] }) } });
+  const none = await loadEchoScoreDustForSong({ songId: "other", client: { request: async () => ({ run: null, reason: "" }) } });
   assert.match(none.reason, /no completed Audio Atlas analysis/);
   const broken = await loadEchoScoreDustForSong({ songId: "broken", client: { request: async () => { throw new Error("Atlas offline"); } } });
   assert.equal(broken.playback, null); assert.equal(broken.reason, "Atlas offline");

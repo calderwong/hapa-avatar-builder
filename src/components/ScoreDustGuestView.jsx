@@ -20,6 +20,7 @@ export default function ScoreDustGuestView({ apiBase = "" }) {
   const tokenKey = `score-dust-guest:${sessionId}`;
   const [token, setToken] = useState(() => store.get(tokenKey));
   const [name, setName] = useState(""), [session, setSession] = useState(null), [message, setMessage] = useState(""), [audioOn, setAudioOn] = useState(false);
+  const [audioUri, setAudioUri] = useState(""), [seekDraft, setSeekDraft] = useState(null);
   const clock = useRef(createRoomClock()), canvas = useRef(null), audio = useRef(null), latest = useRef(null);
 
   // Never keep the invite code in the address bar once the page has it.
@@ -97,8 +98,32 @@ export default function ScoreDustGuestView({ apiBase = "" }) {
   }, [audioOn]);
 
   const react = (kind) => call("/reactions", { method: "POST", body: JSON.stringify({ kind }) }).then((b) => setSession(b.session)).catch((error) => setMessage(error.message));
-  const control = (patch) => call("/control", { method: "PUT", body: JSON.stringify({ baseRevision: latest.current?.revision, ...patch }) }).then((b) => { latest.current = b.session; setSession(b.session); }).catch((error) => setMessage(error.message));
+  // Reactions and joins also advance the revision; on a conflict, refresh once and resend.
+  const control = async (patch) => {
+    const send = () => call("/control", { method: "PUT", body: JSON.stringify({ baseRevision: latest.current?.revision, ...patch }) });
+    try {
+      let body;
+      try { body = await send(); }
+      catch (error) {
+        if (error.status !== 409) throw error;
+        latest.current = (await call("/session")).session;
+        body = await send();
+      }
+      latest.current = body.session; setSession(body.session); setMessage("");
+    } catch (error) { setMessage(error.message); }
+  };
+  // The host shares an audio source; this device gets its own audio cookie on request.
+  const startAudio = async () => {
+    try {
+      const uri = audioUri || (await call("/audio-access", { method: "POST" })).audioUri;
+      setAudioUri(uri); setAudioOn(true); setMessage("");
+      const el = audio.current;
+      if (el) { if (el.getAttribute("src") !== `${apiBase}${uri}`) el.src = `${apiBase}${uri}`; await el.play().catch(() => {}); }
+    } catch (error) { setMessage(error.message); }
+  };
   const position = () => { const roomNow = clock.current.roomNowMs(Date.now()); return latest.current && roomNow !== null ? sessionPositionAt(latest.current, roomNow) : 0; };
+  // The slider shows the room position and seeks once, on release, not on every step of a drag.
+  const commitSeek = () => { if (seekDraft === null) return; const to = seekDraft; setSeekDraft(null); control({ positionSeconds: to }); };
 
   if (!sessionId) return <main className="score-dust-guest"><p>This link has no session. Ask the host for a new invite.</p></main>;
   if (!token) {
@@ -125,14 +150,16 @@ export default function ScoreDustGuestView({ apiBase = "" }) {
       {!playback && session && <p className="score-dust-guest-note">Waiting for the host to share the score…</p>}
       <footer>
         <span className="score-dust-guest-reactions">{REACTIONS.map(([kind, label]) => <button key={kind} type="button" aria-label={`React ${kind}`} onClick={() => react(kind)}>{label}</button>)}</span>
-        {session?.audioUri && <button type="button" className="hapa-btn" onClick={() => { setAudioOn(true); audio.current?.play().catch(() => {}); }}>{audioOn ? "Audio on" : "Play audio here"}</button>}
+        {session?.audioAvailable && <button type="button" className="hapa-btn" data-testid="score-dust-guest-audio" onClick={startAudio}>{audioOn ? "Audio on" : "Play audio here"}</button>}
         {you?.hasControl && <>
           <button type="button" className="hapa-btn" data-testid="score-dust-guest-playpause" onClick={() => control({ state: session.state === "playing" ? "paused" : "playing", positionSeconds: position() })}>{session.state === "playing" ? "Pause" : "Play"}</button>
-          <input type="range" min="0" max={Math.floor(session.durationSeconds || 0)} step="1" aria-label="Seek" onChange={(e) => control({ positionSeconds: Number(e.target.value) })} />
+          <input type="range" min="0" max={Math.floor(session.durationSeconds || 0)} step="1" aria-label="Seek" data-testid="score-dust-guest-seek"
+            value={Math.floor(seekDraft ?? position())} onChange={(e) => setSeekDraft(Number(e.target.value))}
+            onPointerUp={commitSeek} onKeyUp={commitSeek} onBlur={commitSeek} />
         </>}
         <span className="score-dust-guest-feed" data-testid="score-dust-guest-feed">{recent.map((r) => `${REACTIONS.find(([k]) => k === r.kind)?.[1] || r.kind} ${r.name}`).join("  ")}</span>
       </footer>
-      {session?.audioUri && <audio ref={audio} src={`${apiBase}${session.audioUri}`} preload="none" />}
+      {session?.audioAvailable && <audio ref={audio} preload="none" />}
       {message && <p role="alert" className="score-dust-guest-note">{message}</p>}
     </main>
   );

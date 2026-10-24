@@ -287,7 +287,15 @@ Song visualizer catalog, the Echo preview list and the renderer table. It does
 not replace **Particle Storm**, so existing Director projects look the same.
 
 When the preview toggle is on (or a cue uses Score Dust), `useEchoScoreDust` loads
-the newest completed Atlas run for the selected Song with its saved direction.
+the Song's Score Dust run with its saved direction. The run is chosen on the
+server (`GET /api/echos/audio-atlas/visual-score-run?songId=…`,
+`selectEchoScoreDustRun`): the newest completed run that measured beats and
+sections, then the newest with beats, then the newest readable run. Lyric-timing
+and transcription runs are usually newer than the beat analysis but measure
+neither. On 2026-10-24 the newest run lacked beats and sections for 186 of 209
+analysed Songs, so "newest" left most Songs with one section and no events;
+with this rule 202 of 209 compose from a run with beats and sections. The panel
+names the run and says when newer runs were passed over.
 It falls back to the prepared performance, then to live-reflex-only, and labels
 which one is active. It composes locally with the same pure composer the API
 and CLI use, with the project's measured lyrics as the phrase source.
@@ -608,12 +616,16 @@ session → **Invite phones and other devices**).
   brackets stripped, 40 characters) and receives a personal 256-bit bearer
   token scoped to that one session. Codes and tokens are stored only as
   SHA-256 hashes and compared in constant time. Twenty failed joins per
-  minute trip a rate limit. A restart revokes everything, because sessions
+  minute trip a rate limit for that one session; wrong codes aimed at made-up
+  session ids share a separate bucket, so they never lock guests out of a
+  real room. A restart revokes everything, because sessions
   are process-scoped.
 - **What guests can do.** Guest routes (`/api/echos/score-dust/guest/join |
   session | reactions | control`) have no admin rights. A guest can:
   - read its session: the host's composed score and musical timeline, timing
-    and the song audio path;
+    and whether song audio is shared (never the audio source itself);
+  - stream the song audio (`POST …/guest/audio-access`, then
+    `GET /api/echos/score-dust/guest/audio/<session>`; see *Guest audio*);
   - react (✦ ♥ 〜 🔥 👏, one every half second, last 50 kept);
   - drive play only while the owner has handed it control.
 
@@ -623,7 +635,26 @@ session → **Invite phones and other devices**).
   renders the host's exact score locally, timed by the room clock, so it
   needs no Atlas access and no audio: visuals use score-derived bands when
   the device has no analyser. *Play audio here* is optional and
-  drift-corrected. It respects the device's reduced-motion setting, and dense
+  drift-corrected. With control, the seek slider shows the room position and
+  seeks once on release; a control refused by a newer revision (a reaction or
+  join landed first) is refreshed and sent once more.
+- **Guest audio.** The host shares an audio *source*, not a URL: the Atlas
+  master of the score's run (`{kind:"atlas-master", runId}`) or the prepared
+  playback job (`{kind:"playback", jobId}`), derived by
+  `scoreDustAudioSource`. A `blob:` or foreign URL shares no audio and the
+  session still works (guests watch without sound). Asking for audio issues a
+  per-guest audio key in an HttpOnly, SameSite=Strict cookie scoped to that
+  session's audio path, so an `<audio>` element streams it with byte ranges and
+  no secret appears in a URL. The Builder resolves the source itself (an Atlas
+  run must belong to the session's Song) and removing the guest stops audio at
+  once. Previously the host shared a raw path: Atlas audio is admin-only, the
+  playback path lost its `jobId`, and `blob:` sources made hosting fail.
+- **Host publishing.** The host's play, pause, seek and direction changes
+  count as published only once the room accepts them. Guest joins and
+  reactions also advance the revision, so a refused update (409) refreshes
+  the session and the next tick sends the same change again
+  (`hostPublishPlan`). Before this, a reaction landing within a second of the
+  host pressing pause left the room playing. It respects the device's reduced-motion setting, and dense
   GPU detail applies when the host chose it and the device supports it.
 - **Hand-off.** While a guest holds control, the owner's own player follows
   the room like a peer, and the hand-off freezes the shared position so the
@@ -636,15 +667,15 @@ the owner's panel; with control handed over, the guest pressed Play and the
 owner's session turned to playing; removing the guest signed it out. Limits:
 the published address is the bridge's LAN address (`HAPA_AVATAR_PUBLIC_HOST`
 overrides it); phones must trust the bridge certificate as for Phone Card;
-song audio is whatever the Builder already serves at that path.
+song audio is streamed through the guest audio route (see *Guest audio*).
 
 **More 3D stages** (P2 item 18).
 - **Tarot Draw.** The middle music visualizer gains a **Score Dust** mode: the
   new **Dust / Anomaly** button sits beside **Mid On/Off**, and the choice is
   saved with Tarot Draw's existing settings. With Mid on and a Song card in the
   drop zone, `loadEchoScoreDustForSong`
-  (`src/components/echo-score-dust-loader.js`) reads the Song's newest
-  completed Atlas run, composed with its latest saved direction by the API
+  (`src/components/echo-score-dust-loader.js`) reads the Song's Score Dust
+  run (newest with beats and sections, chosen by the server), composed with its latest saved direction by the API
   and cached per Song. The shared 3D layer then rises from the middle
   visualizer on the drop-song clock, and the Anomaly fades out underneath.
   The Song is found the way Tarot Draw already maps cards to Songs

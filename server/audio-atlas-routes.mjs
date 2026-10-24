@@ -28,6 +28,8 @@ export async function handleAudioAtlas({req,res,url,atlas,uploads,requireAdmin,r
     let value;
     if(suffix==='/songs'&&req.method==='GET')value={songs:atlas.list()};
     else if(suffix==='/inventory'&&req.method==='GET')value=await atlas.inventory();
+    // The Song's Score Dust run: newest with beats and sections, not merely the newest (lyric runs measure neither).
+    else if(suffix==='/visual-score-run'&&req.method==='GET'){sendJson(res,200,{ok:true,...atlas.visualScoreRun(params.songId)});return true;}
     else if(suffix==='/visual-score-looks'){
       // Named Score Dust looks shared across Songs: GET lists, POST appends a revision or a tombstone.
       if(req.method==='GET'){sendJson(res,200,{ok:true,...atlas.visualScoreLooks()});return true;}
