@@ -1,6 +1,6 @@
 ---
 title: Echo Score Dust — visual score and persistent particle performance
-status: first-pass-prototype; implemented, unit- and browser-verified on synthetic data; human creative review pending
+status: first-pass-prototype; all six research priorities implemented; unit- and browser-verified on synthetic data; human creative review skipped at owner request
 date: 2026-10-24
 owner: hapa-avatar-builder
 ---
@@ -28,13 +28,26 @@ The core idea from the research: **one song is directed on three time scales.**
 | --- | --- | --- |
 | 1. Versioned musical timeline and explicit visual score | `src/domain/echo-visual-score.js` | Implemented |
 | 2. Shared particle targets and immediate beat response | `src/domain/echo-dust-swarm.js` | Implemented |
-| 3. Phrase readability and background contrast | Lyric hook selection, phrase rasterisation, 0.4 s lead, stiff/calm reading hold, face-camera easing, media dimming | Implemented (2D host) |
-| 4. Fixed-step export and loop boundaries | `src/domain/echo-score-dust-performance.js` song-clock simulation; frame-addressed `createEchoScoreDustOfflineRenderer` | Implemented; HyperFrames/recording handoff not yet wired; loop boundaries not started |
-| 5. Stage depth, lighting and reflection contracts | Depth fade only | Not started |
-| 6. Stage budgets and shared-play protocol | Live adaptive draw budget | Budget implemented; shared play not started |
+| 3. Phrase readability and background contrast | Lyric hook selection, phrase rasterisation, 0.4 s lead, stiff/calm reading hold, face-camera easing, media dimming; Avatar picture motifs | Implemented |
+| 4. Fixed-step export and loop boundaries | Song-clock performance; WebCodecs + WebM export with song audio and PCM-spectrum bands; seamless loop bridge; frame-addressed offline renderer | Implemented |
+| 5. Stage depth, lighting and reflection contracts | Record Garden Three.js layer with stage↔dust contract and depth policy | Implemented (Record Garden); other 3D hosts not wired |
+| 6. Stage budgets and shared-play protocol | Adaptive 2D draw budget, 3D detail tiers, "Listen together" sessions with room clock and drift correction | Implemented (local Builder API) |
 
 Saved directions, a score inspector and direction editor in the Echo preview
-(`EchoScoreDustPanel`), and API/CLI parity for both sit on top of these.
+(`EchoScoreDustPanel`), and API/CLI parity sit on top of these.
+
+## Where everything is
+
+| Surface | How to reach it | What it does |
+| --- | --- | --- |
+| Echo preview | Echos Album → Director Workbench → song → Preview → tick **Score Dust preview** | Score Dust replaces the cut's visualizers on screen (preview only) and opens the panel |
+| Score Dust panel | Below *Audio visuals* in the preview | Score strip (click to seek), validation, motif shape/picture per repeating section, hue, pulse, seed, moment responses, lyric hooks, **Save direction** |
+| Export | Panel → **Export video** | 15 s clip, current section, whole song or 8 s seamless loop; landscape/HD/portrait/square, 30/60 fps; saved to **Recordings** + .webm download |
+| Listen together | Panel → **Host session** / **Join** (or open a `?scoreDustSession=<id>` link) | Shared play/pause/seek/direction; each screen renders locally |
+| Record Garden | Echo Record Garden → mode dock → **Score Dust** | 3D dust over the playing record, same score and direction |
+| API | `/api/echos/audio-atlas/jobs/RUN/query?op=visual-score`, `…/visual-score`, `…/visual-score-directions`, `/api/echos/score-dust/sessions` | See parity doc |
+| CLI | `node cli/audio-atlas.mjs visual-score | visual-score-directions | save-visual-score-direction` | Compose, validate, list and save directions |
+
 
 ### Musical timeline (`buildEchoMusicalTimelineFromAtlas`)
 
@@ -179,6 +192,68 @@ same targets. Trail fade is computed from elapsed song time, so trail length
 does not depend on frame rate. Packaging and encoding stay with the existing
 HyperFrames/Living Light owners; this renderer only supplies frames.
 
+### Video export (`exportScoreDustVideo`, panel **Export video**)
+
+Frames render at exact song times through the song-clock performance, are
+encoded with WebCodecs (VP9, VP8 fallback) and muxed with Opus song audio by an
+in-memory WebM writer (`src/domain/webm-muxer.js`: SeekHead, Info with
+Duration, Tracks, keyframe Clusters, Cues). Timestamps come from the frame
+index, never wall time, so a slow machine makes the same file. Deformation in
+exports follows the song's own spectrum: `createPcmBandSampler` computes the
+same 32 log bands from decoded PCM (Hann/FFT, fixed dB window). Bitrate scales
+with pixel count and is capped so long exports fit the Preview Recordings
+store (≤ 120 MiB). The result is uploaded to **Recordings** (existing
+`/api/echo/preview-recordings`) and offered as a .webm download. Exports are
+the Score Dust layer only, on black; they are not composited with the cut's
+video media.
+
+**Seamless loops.** An 8 s loop renders a lead-in before its first frame and
+records that trajectory. Over the last 1.5 s the particles, visibility, bands
+and camera blend (smoothstep) into the state just before frame 0, and the audio
+crossfades with equal-power sine/cosine gains into the audio before the loop
+start, so the last frame flows into the first.
+
+### Picture motifs (cast Avatars)
+
+Each repeating section can show **Picture: _Avatar_** instead of a shape. The
+choices are the Song's cast: explicit song bindings first, then the evergreen
+cast from `ECHO_AVATAR_CAST_REGISTRY`. Each uses the registered seed image, else
+a backgroundless image, else any image asset (`src/domain/echo-score-dust-pictures.js`).
+Transparent (backgroundless) pictures are sampled by their alpha silhouette,
+so dark clothing still forms; opaque pictures use luminance. Picture sections
+face the viewer instead of spinning. The validator checks picture assets
+against the cast that loaded.
+
+### Listen together (shared play)
+
+The packet (`hapa.echo.score-dust.session.v1`) carries the Song, Atlas run,
+master audio identity, score fingerprint, direction, seed/pulse and the play
+schedule. Peers never receive video; each screen renders its own dust from the
+same score. The local Builder API (`/api/echos/score-dust/sessions`) is the
+room clock: every response carries its receive and send times. Clients
+estimate the offset as ((serverReceive − clientSend) + (serverSend −
+clientReceive)) / 2, keep the lowest-delay sample and refresh after ten
+minutes. Peers poll each second and check drift every 2 s. They seek only when
+more than 250 ms off, follow play/pause, and adopt the host's direction only
+when it changes the score. Updates are revisioned, so a stale write cannot
+replace newer state. Sessions live in the Builder process; they are not saved
+and reach only clients that can authenticate to that Builder (loopback today).
+
+### 3D stage host (Record Garden)
+
+`src/components/echo-score-dust-three.js` hosts the same performance as
+Three.js points over the playing record (**Score Dust** in the Record Garden
+mode dock). The stage contract (`ECHO_SCORE_DUST_STAGE_CONTRACT`):
+- the stage provides an anchor, a radius, its scene fog (applied to the dust)
+  and a background luminance for contrast;
+- the dust reports its centroid, mean colour and energy, and the existing
+  visualizer ring takes the dust's colour.
+
+Depth policy for the research's black-dot lead: dust is depth-tested (solid
+set pieces hide it), never writes depth, and blends additively, so luminous
+moving dots cannot stamp dark holes. The reduced detail tier draws 40% of the
+particles.
+
 ### How to open it
 
 **Echos Album → Director Workbench → pick a song blueprint → Preview tab →
@@ -199,7 +274,7 @@ prepared timing or live reflex only, and the panel says which.
 Song visualizer catalog, the Echo preview list and the renderer table. It does
 not replace **Particle Storm**, so existing Director projects look the same.
 
-When a project's visualizer timeline uses Score Dust, `useEchoScoreDust` loads
+When the preview toggle is on (or a cue uses Score Dust), `useEchoScoreDust` loads
 the newest completed Atlas run for the selected Song with its saved direction.
 It falls back to the prepared performance, then to live-reflex-only, and labels
 which one is active. It composes locally with the same pure composer the API
@@ -292,20 +367,44 @@ node cli/audio-atlas.mjs save-visual-score-direction RUN --file=direction.json -
   "lift" is an acoustic energy rise, not a verified drop.
 - Rendering is a CPU kernel on the existing 2D preview canvas, not WebGPU.
   No frame-rate or particle-count claim is made for any hardware.
-- **Black-dot lead (not diagnosed):** the research points to depth-only
-  occluders and depth writes from airborne particles. The 2D host has no depth
-  buffer, so it cannot show that defect. Check depth writes, blending and depth
-  bias in Three.js surfaces (Record Garden, Tarot Draw) before applying the
-  lead there.
+- **Black-dot lead:** the Score Dust 3D layer applies the policy (depth test
+  on, depth write off, additive). Other existing Three.js surfaces (Tarot Draw,
+  other Record Garden effects) were not audited for that defect.
+- Shared play matches cues, formations and transitions, not floating-point
+  trajectories. Live band input still differs per machine.
 
 ## Verification
 
 ```bash
 node --test tests/echo-visual-score.test.mjs tests/echo-dust-swarm.test.mjs \
-  tests/echo-score-dust-performance.test.mjs tests/echo-score-dust-offline.test.mjs \
-  tests/echo-visual-score-directions.test.mjs
+  tests/echo-score-dust-*.test.mjs tests/echo-visual-score-directions.test.mjs
 npm run build
 ```
+
+Third pass adds `tests/echo-score-dust-export.test.mjs`,
+`echo-score-dust-pictures.test.mjs`, `echo-score-dust-shared-play.test.mjs` and
+`echo-score-dust-three.test.mjs` (48 Score Dust tests in all) for:
+- WebM structure (seek head, cues, ordered blocks, OpusHead) and PCM bands;
+- export bitrate caps, cast/picture selection and alpha-silhouette sampling;
+- the room-clock formula and minimum-delay choice, and the 250 ms drift policy;
+- session revisions and routes, and the 3D layer's depth/fog/additive flags,
+  buffers, centroid and tiers.
+
+Third-pass browser proofs (headless Chromium):
+- Exports probed by ffprobe were VP9 + Opus with exact frame counts and
+  durations, and repeat exports matched.
+- The loop seam difference (1.33) is inside the normal frame-to-frame range
+  (median 1.09, max 1.68).
+- A transparent figure formed in dust.
+- Two pages with real audio against the real API stayed within ~0.1 s
+  through join, host seek, pause and resume.
+- Panel export saved into Recordings.
+- A WebGL scene with fog and an occluder hid dust behind the box with no dark
+  holes.
+- The real Echos Album view (with a planted project, Atlas run and a stub
+  Music Viz manifest) showed the toggle, the panel and dust on the preview
+  canvas; strip seeking moved the real player.
+- The Record Garden toggle switched on without errors.
 
 Second pass (32 tests in total across the five files) adds:
 - frame-rate independence (24/30/60 fps) and identical state after seeks or an
@@ -379,6 +478,21 @@ real Echo Song is still open.
   and words lead by 0.4 s with a stiff hold. `cameraMoves` were validated but
   ignored by playback until this pass; check that every validated field is
   also consumed.
+- **Third pass (same day, owner asked to finish everything without review
+  stops):**
+  - The cue picker only accepts final-render-ready shaders, so Score Dust had
+    no way in; the preview toggle is now the entry point.
+  - Export reuses the Preview Recordings store instead of a new one, and an
+    in-browser WebM writer instead of a server encoder (no process-spawning
+    path to guard).
+  - The harness first proved shared play "broken" because the test static
+    server could not range-seek. Blob URLs, as the app uses, fixed the harness,
+    not the product.
+  - The real Echo view crashed on a fixture project without `section_label`.
+    That is a pre-existing assumption in the preview, recorded here and left
+    unchanged.
+  - New guardrail: verify a feature through its real entry point, not only a
+    harness, before calling it accessible.
 - **Candidates:** Decision Card — *keep the reusable score separate from play
   seed/settings*; Lesson Card — *readable particle material must face the
   camera*; Skill candidate — *Atlas run → musical timeline → directed score*;
@@ -386,14 +500,10 @@ real Echo Song is still open.
 
 ## Next steps
 
-1. Hand `createEchoScoreDustOfflineRenderer` to the HyperFrames/Living Light
-   packaging owner and to Echo preview recording, with recorded preview
-   signals as `bandsAt` so exported deformation matches what was heard.
-2. Loop boundaries for card loops (matching start/end states or an authored
-   bridge).
-3. Picture motifs from the Song's cast Avatar art (atlas cells via
-   `direction.images`) after rights/likeness review.
-4. Stage depth/light contracts for Three.js hosts, then a shared-play payload
-   (audio identity, score fingerprint, seed, start time).
-5. Human creative review on real Echo Songs; tune family pools, exposure and
-   phrase limits from that review rather than from synthetic fixtures.
+1. Composite exports with the Director cut's media (today they are the dust
+   layer on black).
+2. Shared play beyond loopback: authenticate LAN peers (for example through the
+   phone bridge) before exposing sessions to other devices.
+3. Make the cue picker accept Score Dust once its fixed-step export is
+   certified as a final renderer; today it stays a preview visualizer.
+4. Tune family pools, exposure and phrase limits on real Echo Songs.
