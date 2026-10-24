@@ -65,7 +65,8 @@ export function sharedPlayCorrection({ session, roomNowMs, actualSeconds, playin
   return Math.abs(error) > SHARED_PLAY_DRIFT_TOLERANCE_SECONDS ? { action: "seek", to: aimed, errorSeconds: error, reason: "drift" } : { action: "none", errorSeconds: error, reason: "within-tolerance" };
 }
 
-const SESSION_KEYS = ["songId", "runId", "audioIdentity", "scoreFingerprint", "direction", "playSettings", "durationSeconds", "state", "positionSeconds", "title"];
+// score/timeline/audioUri let devices without Atlas access (phone guests) render the host's exact score.
+const SESSION_KEYS = ["songId", "runId", "audioIdentity", "scoreFingerprint", "direction", "playSettings", "durationSeconds", "state", "positionSeconds", "title", "score", "timeline", "audioUri"];
 
 /** Validate a create/update request. Peers rebuild the same score from the direction. */
 export function validateSharedPlayInput(input, { partial = false } = {}) {
@@ -77,6 +78,9 @@ export function validateSharedPlayInput(input, { partial = false } = {}) {
   if (input.positionSeconds !== undefined && (!finite(input.positionSeconds) || input.positionSeconds < 0)) errors.push("positionSeconds must be ≥ 0.");
   if (input.durationSeconds !== undefined && input.durationSeconds !== null && (!finite(input.durationSeconds) || input.durationSeconds <= 0)) errors.push("durationSeconds must be positive.");
   if (input.direction !== undefined && (typeof input.direction !== "object" || Array.isArray(input.direction) || JSON.stringify(input.direction).length > 64 * 1024)) errors.push("direction must be an object under 64 KiB.");
+  if (input.score !== undefined && input.score !== null && (typeof input.score !== "object" || Array.isArray(input.score) || JSON.stringify(input.score).length > 1024 * 1024)) errors.push("score must be an object under 1 MiB.");
+  if (input.timeline !== undefined && input.timeline !== null && (typeof input.timeline !== "object" || Array.isArray(input.timeline) || JSON.stringify(input.timeline).length > 2 * 1024 * 1024)) errors.push("timeline must be an object under 2 MiB.");
+  if (input.audioUri !== undefined && input.audioUri !== null && (typeof input.audioUri !== "string" || !/^\/[A-Za-z0-9/_.~%-]{1,512}$/.test(input.audioUri) || input.audioUri.includes(".."))) errors.push("audioUri must be a same-origin path.");
   if (partial && !Number.isSafeInteger(input.baseRevision)) errors.push("baseRevision required for updates.");
   return { ok: errors.length === 0, errors };
 }

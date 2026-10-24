@@ -359,7 +359,8 @@ export function createEchoScoreDustGpuRenderer({ particleCount = 40000, canvasFa
     dustBandsFromSpectrum(fft, bands);
     const liveKick = beatFlash > 0.6 && previousBeatFlash <= 0.6 ? 0.3 + 0.5 * beatFlash : 0;
     previousBeatFlash = beatFlash;
-    const { state } = performanceHost.advanceTo(t, { bandsAt: () => bands, liveKick, stemsAt });
+    // No analyser (e.g. a visuals-only guest device): fall back to score-derived bands.
+    const { state } = performanceHost.advanceTo(t, { bandsAt: fft?.length ? () => bands : null, liveKick, stemsAt });
     paintScoreBackground(ctx, performanceHost, t, state, width, height);
     if (state?.phrase && !state.phrase.burst) { ctx.fillStyle = `rgba(0,0,0,${(0.35 * state.calm).toFixed(3)})`; ctx.fillRect(0, 0, width, height); }
     ensureTrail(width, height);

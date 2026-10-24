@@ -4,7 +4,7 @@ import {readEchoSavedCut} from './echo-saved-cut-reader.mjs';
 import { createSongAudioUpload } from './song-audio-upload.mjs';
 import { createAudioAtlas } from './audio-atlas.mjs';
 import { handleAudioAtlas } from './audio-atlas-routes.mjs';
-import { createScoreDustSessionStore, handleScoreDustSessions } from './echo-score-dust-sessions.mjs';
+import { createScoreDustSessionStore, handleScoreDustSessions, handleScoreDustGuests } from './echo-score-dust-sessions.mjs';
 import { attachScoreDustLoop, publishScoreDustRender } from './echo-score-dust-loops.mjs';
 import { verifyEchoPlaybackAudioReceipt } from './echo-playback-audio.mjs';
 import { readSongCardPlanRequest } from './song-card-plan-request.mjs';
@@ -2675,6 +2675,18 @@ async function route(req, res) {
 
   if (pathname.startsWith('/api/echos/score-dust/sessions')) {
     if (await handleScoreDustSessions({ req, res, url, store: scoreDustSessionStore, requireAdmin, readBody, sendJson })) return;
+  }
+
+  // Cross-device guests: invite code or per-guest token, scoped to one session; no admin rights.
+  if (pathname.startsWith('/api/echos/score-dust/guest/')) {
+    if (await handleScoreDustGuests({ req, res, url, store: scoreDustSessionStore, readBody, sendJson })) return;
+  }
+
+  if (pathname === '/api/echos/score-dust/guest-origin' && req.method === 'GET') {
+    // The LAN address a phone should open (the secure phone bridge when it is running).
+    if (!requireAdmin(req, res)) return;
+    sendJson(res, 200, { ok: true, origin: publicPhoneBridgeOrigin(req), secure: httpsBridgeActive });
+    return;
   }
 
   if (pathname === '/api/echos/score-dust/renders' && req.method === 'POST') {

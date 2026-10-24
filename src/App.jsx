@@ -231,6 +231,7 @@ const TarotDraw3DView = lazy(() => import("./components/TarotDraw3DView.jsx"));
 const HapaEchosView = lazy(() => import("./components/HapaEchosView.jsx"));
 const EchoRecordGarden3DView = lazy(() => import("./components/EchoRecordGarden3DView.jsx"));
 const PhoneCardMobileView = lazy(() => import("./components/PhoneCardMobileView.jsx"));
+const ScoreDustGuestView = lazy(() => import("./components/ScoreDustGuestView.jsx"));
 
 const EMPTY_TAROT_DRAW_PROJECTION = {
   cards: [],
@@ -585,6 +586,14 @@ function createDisplayMindPack(avatar) {
 }
 
 export default function App({ overcardAdapter }) {
+  if (globalThis.location?.pathname === "/score-dust-guest") {
+    // Invite-only Score Dust guest page (phones and other devices).
+    return (
+      <Suspense fallback={<div className="empty-state"><Loader2 size={22} /><span>Loading Score Dust</span></div>}>
+        <ScoreDustGuestView apiBase={API_BASE} />
+      </Suspense>
+    );
+  }
   if (globalThis.location?.pathname === "/phone-card") {
     return (
       <Suspense fallback={<div className="empty-state"><Loader2 size={22} /><span>Loading Phone Card</span></div>}>

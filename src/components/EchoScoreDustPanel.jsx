@@ -479,9 +479,50 @@ function AttachLoop({ job, exportContext }) {
   );
 }
 
+const REACTION_LABELS = { spark: "✦", heart: "♥", wave: "〜", fire: "🔥", clap: "👏" };
+
+/** Owner tools for phones and other computers: invite link + QR, guests, hand-off, reactions. */
+function InviteDevices({ session }) {
+  const [invite, setInvite] = useState(null), [qr, setQr] = useState(""), [message, setMessage] = useState("");
+  const create = async () => {
+    try {
+      const value = await session.invite({ ttlMinutes: 60, maxUses: 5 });
+      setInvite(value); setMessage("");
+      const QRCode = (await import("qrcode")).default;
+      setQr(await QRCode.toDataURL(value.link, { margin: 1, width: 180 }));
+    } catch (error) { setMessage(error.message); }
+  };
+  const s = session.session || {}, guests = s.guests || [], recent = (s.reactions || []).filter((r) => Date.now() - r.atRoomMs < 15000 || (s.reactions || []).indexOf(r) >= (s.reactions || []).length - 5);
+  return (
+    <div className="score-dust-invite" data-testid="score-dust-invite">
+      <button type="button" className="hapa-btn" onClick={create} data-testid="score-dust-invite-create">{invite ? "New invite link" : "Invite phones and other devices"}</button>
+      {invite && (
+        <span className="score-dust-hint">
+          <a href={invite.link} target="_blank" rel="noreferrer" data-testid="score-dust-invite-link">Open link</a> · works for {invite.usesLeft} sign-ins until {new Date(invite.expiresAtRoomMs).toLocaleTimeString()} ·{" "}
+          <button type="button" className="score-dust-chip" onClick={() => navigator.clipboard?.writeText(invite.link)}>Copy</button>
+        </span>
+      )}
+      {qr && <img src={qr} alt="QR code for the guest link" width={120} height={120} className="score-dust-qr" />}
+      <span className="score-dust-hint">Guests sign in with a name, see the same dust, can react, and can drive play only if you hand them control.{s.controller && s.controller !== "owner" ? ` ${guests.find((g) => g.id === s.controller)?.name || "A guest"} has control.` : ""}</span>
+      {guests.length > 0 && (
+        <ul className="score-dust-phrases" data-testid="score-dust-guests">{guests.map((g) => (
+          <li key={g.id}>{g.online ? "●" : "○"} {g.name}
+            {s.controller === g.id
+              ? <button type="button" className="score-dust-chip" onClick={() => session.handControl("owner")}>Take control back</button>
+              : <button type="button" className="score-dust-chip" onClick={() => session.handControl(g.id)}>Give control</button>}
+            <button type="button" className="score-dust-chip" onClick={() => session.revokeGuest(g.id)}>Remove</button>
+          </li>
+        ))}</ul>
+      )}
+      {recent.length > 0 && <span className="score-dust-hint" data-testid="score-dust-reactions">{recent.map((r) => `${REACTION_LABELS[r.kind] || r.kind} ${r.name}`).join("  ")}</span>}
+      {message && <span role="alert" className="score-dust-hint">{message}</span>}
+    </div>
+  );
+}
+
 /** Shared listening: everyone renders locally from the same score, seed and schedule. */
-function ScoreDustListenTogether({ dust, songId, apiBase, controls }) {
-  const session = useScoreDustSession({ apiBase, songId, dust, ...controls });
+function ScoreDustListenTogether({ dust, songId, apiBase, controls, audioUri = null }) {
+  const session = useScoreDustSession({ apiBase, songId, dust, audioUri, ...controls });
   const [joinId, setJoinId] = useState("");
   const [copied, setCopied] = useState(false);
   return (
@@ -503,6 +544,7 @@ function ScoreDustListenTogether({ dust, songId, apiBase, controls }) {
           {session.role === "host" && <button type="button" className="hapa-btn" onClick={() => { navigator.clipboard?.writeText(session.joinLink).then(() => setCopied(true)).catch(() => setCopied(false)); }}>{copied ? "Link copied" : "Copy join link"}</button>}
           <code className="score-dust-hint" data-testid="score-dust-session-id">{session.session?.id}</code>
           <button type="button" className="hapa-btn" onClick={session.leave}>Leave</button>
+          {session.role === "host" && <InviteDevices session={session} />}
         </>
       )}
       {session.message && <span role="status" className="score-dust-hint">{session.message}</span>}
@@ -646,7 +688,7 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
         </div>
       )}
       {dust.playback && <ScoreDustExport dust={dust} currentTime={currentTime} exportContext={exportContext} />}
-      {sessionControls && <ScoreDustListenTogether dust={dust} songId={exportContext?.songId} apiBase={exportContext?.apiBase || ""} controls={sessionControls} />}
+      {sessionControls && <ScoreDustListenTogether dust={dust} songId={exportContext?.songId} apiBase={exportContext?.apiBase || ""} controls={sessionControls} audioUri={exportContext?.audioUrl || null} />}
       <footer>
         {dust.kind === "atlas" ? (
           <>

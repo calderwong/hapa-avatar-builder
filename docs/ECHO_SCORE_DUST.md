@@ -595,6 +595,49 @@ in that case. Samplers now fill targets for up to 80k grains. The Record
 Garden 3D stage stays on its CPU layer (≤ 8k), because Three.js owns its own
 GL context.
 
+**Listen together across devices** (P2 item 17; Listen together → Host
+session → **Invite phones and other devices**).
+- **Invites.** The owner, an admin or local-UI caller, creates an expiring,
+  limited-use invite: 60 minutes and 5 sign-ins by default, at most 240
+  minutes and 20. The panel shows a link and QR code for the LAN address of
+  the secure phone bridge (`https://<lan-ip>:8792/score-dust-guest?session=…#invite=…`).
+  The code is a 256-bit random value carried in the URL fragment, so it never
+  reaches server logs or Referer headers; the guest page also removes it from
+  the address bar.
+- **Sign-in.** A guest enters a display name (control characters and angle
+  brackets stripped, 40 characters) and receives a personal 256-bit bearer
+  token scoped to that one session. Codes and tokens are stored only as
+  SHA-256 hashes and compared in constant time. Twenty failed joins per
+  minute trip a rate limit. A restart revokes everything, because sessions
+  are process-scoped.
+- **What guests can do.** Guest routes (`/api/echos/score-dust/guest/join |
+  session | reactions | control`) have no admin rights. A guest can:
+  - read its session: the host's composed score and musical timeline, timing
+    and the song audio path;
+  - react (✦ ♥ 〜 🔥 👏, one every half second, last 50 kept);
+  - drive play only while the owner has handed it control.
+
+  The owner can take control back or remove a guest at any time; removal
+  signs the guest out at once.
+- **The guest page** (`/score-dust-guest`, `ScoreDustGuestView.jsx`)
+  renders the host's exact score locally, timed by the room clock, so it
+  needs no Atlas access and no audio: visuals use score-derived bands when
+  the device has no analyser. *Play audio here* is optional and
+  drift-corrected. It respects the device's reduced-motion setting, and dense
+  GPU detail applies when the host chose it and the device supports it.
+- **Hand-off.** While a guest holds control, the owner's own player follows
+  the room like a peer, and the hand-off freezes the shared position so the
+  next controller starts where the room is.
+
+Proof (headless Chromium, two separate browser contexts, real app): the owner
+hosted and invited; a phone-sized guest with no local-UI rights opened the
+HTTPS bridge link, signed in and rendered dust; its heart reaction appeared on
+the owner's panel; with control handed over, the guest pressed Play and the
+owner's session turned to playing; removing the guest signed it out. Limits:
+the published address is the bridge's LAN address (`HAPA_AVATAR_PUBLIC_HOST`
+overrides it); phones must trust the bridge certificate as for Phone Card;
+song audio is whatever the Builder already serves at that path.
+
 ### Saved directions
 
 Directions, not composed scores, are saved. A direction is the compact human
@@ -865,7 +908,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★), *
 | 14 ▲ | SVG and text logos as shapes | S |
 | 15 ▲ | Direction from lyrics, mood and Atlas structure; natural-language cues (local rules, no model provider) | M |
 | 16 ■ | GPU simulation for 20k–80k particles (live preview tier; exports stay CPU) | L |
-| 17 | Listen together across devices via the phone bridge, with sign-in, host hand-off, reactions | M |
+| 17 ■ | Listen together across devices via the phone bridge, with sign-in, host hand-off, reactions | M |
 | 18 | More 3D stages (Tarot Draw visualizer modes, floor reflections) | M |
 | 19 ★ | Reusable named looks applied across songs | S |
 | 20 ★ | Comfort and safety: reduced motion; at most 3 bright flashes per second | S |

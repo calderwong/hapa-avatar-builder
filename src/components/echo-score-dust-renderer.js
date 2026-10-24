@@ -212,7 +212,8 @@ export function createEchoScoreDustRenderer() {
     dustBandsFromSpectrum(fft, bands);
     const liveKick = beatFlash > 0.6 && previousBeatFlash <= 0.6 ? 0.3 + 0.5 * beatFlash : 0;
     previousBeatFlash = beatFlash;
-    const { state } = performanceHost.advanceTo(t, { bandsAt: () => bands, liveKick, stemsAt });
+    // No analyser (e.g. a visuals-only guest device): fall back to score-derived bands.
+    const { state } = performanceHost.advanceTo(t, { bandsAt: fft?.length ? () => bands : null, liveKick, stemsAt });
     paintScoreBackground(ctx, performanceHost, t, state, width, height);
     const budget = BUDGET_LEVELS[level];
     const next = state?.nextEvent ? ` · next ${state.nextEvent.kind} ${state.nextEvent.in.toFixed(1)}s` : "";
