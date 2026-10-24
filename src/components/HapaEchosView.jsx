@@ -2,11 +2,12 @@ import {createLivingLightRecordVisit,loadLivingLightRecordDestination} from '../
 import { compareEchoSongs } from '../domain/echo-album-navigation.js';
 import {livingLightCutMedia} from "../domain/living-light-media.js";
 import SongAudioUpload from './SongAudioUpload.jsx';
-import { matchesFileFilter, createAtlasClient } from '../domain/audio-atlas-ui.js';
+import { matchesFileFilter } from '../domain/audio-atlas-ui.js';
 import SongAudioAvailability, { useSongAudioInventory } from "./SongAudioAvailability.jsx";
 import AudioAtlasPanel from "./AudioAtlasPanel.jsx";
-import { buildEchoMusicalTimelineFromPerformance, composeEchoVisualScore, normalizeDustPlaySettings, prepareEchoScorePlayback } from "../domain/echo-visual-score.js";
 import { createEchoScoreDustRenderer } from "./echo-score-dust-renderer.js";
+import { useEchoScoreDust } from "./useEchoScoreDust.js";
+import EchoScoreDustPanel from "./EchoScoreDustPanel.jsx";
 import { echoTimelineMediaInstances, hyperFramesMediaOpacityState } from "../domain/echo-media-presentation.js";
 import { prepareEchoAudioPlayback } from '../domain/echo-audio-playback.js';
 import { transitionLivingLightAudition } from '../domain/living-light-audition.js';
@@ -2306,39 +2307,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const activeVisualSignalSolo = activePreparedPerformance && visualSignalSolo.key === preparedAudioKey
     && (visualSignalSolo.role === "__silence__" || visualSignalRoles.includes(visualSignalSolo.role)) ? visualSignalSolo.role : "";
   const visualSignalIsolation = useMemo(() => echoVisualSignalIsolation(activePreparedPerformance, activeVisualSignalSolo), [activePreparedPerformance, activeVisualSignalSolo]);
-  // Score Dust reads whole-song structure once (Audio Atlas first, prepared
-  // performance second) and leaves per-frame reflexes to the canvas loop.
+  // Score Dust: whole-song structure from the Audio Atlas (prepared performance
+  // second), an editable direction, and per-frame reflexes in the canvas loop.
   const usesScoreDust = useMemo(() => (activeProject?.visualizer_timeline || []).some((item) => item?.visualizer_id === "builtin:score-dust"), [activeProject]);
+  const scoreDust = useEchoScoreDust({
+    enabled: usesScoreDust, songId: selectedProjectSongId, apiBase: API_BASE, preparedPerformance: activePreparedPerformance,
+    lyricLines: Array.isArray(activeProject?.timed_lyrics) ? activeProject.timed_lyrics : null, lyricAudioHash: activeProject?.lyrics?.audioHash || null,
+    durationSeconds: Number(activeProject?.duration) || 600,
+  });
   const scoreDustRef = useRef({ key: "", playback: null, settings: null, source: "reflex-only" });
   useEffect(() => {
-    if (!usesScoreDust || !selectedProjectSongId) return undefined;
-    // Never let the previous Song's score play over this one while it loads.
-    scoreDustRef.current = { key: `${selectedProjectSongId}:loading`, playback: null, settings: null, source: "loading" };
-    let cancelled = false;
-    const install = (playback, settings, source) => {
-      if (!cancelled) scoreDustRef.current = { key: `${selectedProjectSongId}:${source}:${playback?.score?.fingerprint || "none"}`, playback, settings, source };
-    };
-    const fallback = () => {
-      try {
-        if (!activePreparedPerformance) return install(null, null, "reflex-only");
-        const timeline = buildEchoMusicalTimelineFromPerformance(activePreparedPerformance);
-        install(prepareEchoScorePlayback(composeEchoVisualScore(timeline), timeline), normalizeDustPlaySettings({}, timeline), "prepared-performance");
-      } catch {
-        install(null, null, "reflex-only");
-      }
-    };
-    const { request } = createAtlasClient(API_BASE);
-    request(`/jobs?songId=${encodeURIComponent(selectedProjectSongId)}`)
-      .then(async ({ jobs = [] }) => {
-        const run = jobs.find((job) => job.state === "complete");
-        if (!run || cancelled) return fallback();
-        const value = await request(`/jobs/${encodeURIComponent(run.id)}/query?op=visual-score`);
-        if (!value.validation?.ok) return fallback();
-        install(prepareEchoScorePlayback(value.score, value.timeline, { pulse: value.playSettings?.pulse }), value.playSettings, `atlas ${run.id}`);
-      })
-      .catch(fallback);
-    return () => { cancelled = true; };
-  }, [usesScoreDust, selectedProjectSongId, activePreparedPerformance]);
+    scoreDustRef.current = { key: scoreDust.playbackKey, playback: scoreDust.playback, settings: scoreDust.settings, source: scoreDust.source };
+  }, [scoreDust.playbackKey, scoreDust.playback, scoreDust.settings, scoreDust.source]);
   const preparedBindingsKey = JSON.stringify(activeShowGraph?.directorV2?.modulationBindings || []);
   const preparedModulationResult = useMemo(() => {
     if (!activePreparedPerformance || preparedBindingsKey === "[]") return { timeline: null, error: null };
@@ -3580,7 +3560,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     const horizonHistory = [];
     const particles = [];
     const stars = [];
-    const scoreDust = createEchoScoreDustRenderer();
+    const scoreDustRenderer = createEchoScoreDustRenderer();
     let scoreDustKey = "";
 
     const publishExactStatus = (next = {}) => {
@@ -4513,9 +4493,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         // Score Dust: persistent particles directed by the visual score.
         if (scoreDustKey !== scoreDustRef.current.key) {
           scoreDustKey = scoreDustRef.current.key;
-          scoreDust.setPlayback(scoreDustRef.current.playback, scoreDustRef.current.settings, scoreDustRef.current.source);
+          scoreDustRenderer.setPlayback(scoreDustRef.current.playback, scoreDustRef.current.settings, scoreDustRef.current.source);
         }
-        scoreDust.draw(ctx, { width, height, t, fft: f.fft, beatFlash: f.beatFlash, playing: isPlayingRef.current });
+        scoreDustRenderer.draw(ctx, { width, height, t, fft: f.fft, beatFlash: f.beatFlash, playing: isPlayingRef.current });
       } else if (renderMode === "cymatic-rings") {
         // Cymatic Rings
         const cxC = width / 2, cyC = height / 2;
@@ -4696,7 +4676,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     render();
     return () => {
       disposed = true;
-      scoreDust.dispose();
+      scoreDustRenderer.dispose();
       cancelAnimationFrame(animFrame);
       window.clearTimeout(cadenceTimer);
       pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
@@ -7873,6 +7853,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                     <span data-testid="echo-visual-signal-summary">{activeVisualSignalSolo === "__silence__" ? "All audio influence muted." : activeVisualSignalSolo ? `Only ${activeVisualSignalSolo.replaceAll("-", " ")} drives audio-reactive channels.` : "All prepared buses drive their assigned channels."}</span>
                                   </details>
                                 </div>
+                                {usesScoreDust && (
+                                  <EchoScoreDustPanel dust={scoreDust} currentTime={currentTime} onSeek={(seconds) => {
+                                    currentTimeRef.current = seconds;
+                                    echoPlaybackEngineRef.current?.seek(seconds);
+                                    setCurrentTime(seconds);
+                                    if (audioRef.current) audioRef.current.currentTime = seconds;
+                                  }} />
+                                )}
                                 <fieldset data-testid="echo-preview-quality" disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current}
                                   style={{ margin: '8px 0', padding: '8px 12px', border: '1px solid rgba(255,255,255,.18)', borderRadius: 6, minWidth: 0, fontSize: 13 }}>
                                   <legend>Preview quality</legend>

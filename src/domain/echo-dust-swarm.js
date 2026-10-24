@@ -220,12 +220,20 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
     lag[i] = hashUnit(i, s, 5);
     const [sx, sy, sz] = normalize3(hashUnit(i, s, 6) - 0.5, hashUnit(i, s, 7) - 0.5, hashUnit(i, s, 8) - 0.5);
     scatter[i * 3] = sx; scatter[i * 3 + 1] = sy; scatter[i * 3 + 2] = sz;
-    position[i * 3] = sx * 2.5; position[i * 3 + 1] = sy * 2.5; position[i * 3 + 2] = sz * 2.5;
   }
   const shocks = [];
   let time = 0, rotation = 0, formation = null, switchedAt = -Infinity, stagger = 0, pendingKick = 0;
 
-  function setFormation(spec = "sphere", { scale = 1, flexibility = null, stagger: staggerSeconds = 0.35 } = {}) {
+  /** Return to the seeded initial state at a given simulation time. */
+  function reset(startTime = 0) {
+    for (let i = 0; i < n * 3; i++) { position[i] = scatter[i] * 2.5; velocity[i] = 0; target[i] = 0; previous[i] = 0; normal[i] = 0; }
+    visibility.fill(0); band.fill(0); param.fill(0); flex.fill(0);
+    shocks.length = 0;
+    time = Number(startTime) || 0; rotation = 0; formation = null; switchedAt = -Infinity; stagger = 0; pendingKick = 0;
+  }
+  reset(0);
+
+  function setFormation(spec = "sphere", { scale = 1, flexibility = null, stagger: staggerSeconds = 0.35, snap = false, rotation: snapRotation = null } = {}) {
     previous.set(target);
     const points = typeof spec === "object" && spec?.position ? spec : null;
     const family = points ? "points" : String(spec);
@@ -248,8 +256,19 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
       normal[i * 3] = p[3]; normal[i * 3 + 1] = p[4]; normal[i * 3 + 2] = p[5];
       param[i] = p[6];
     }
-    if (formation === null) previous.set(target);
-    formation = family; switchedAt = time; stagger = Math.max(0, staggerSeconds);
+    if (formation === null || snap) previous.set(target);
+    if (snap) {
+      // Start already in place (export preroll), at the requested rotation.
+      if (Number.isFinite(snapRotation)) rotation = snapRotation;
+      const cr = Math.cos(rotation), sr = Math.sin(rotation);
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3, x = target[i3], z = target[i3 + 2];
+        position[i3] = x * cr - z * sr; position[i3 + 1] = target[i3 + 1]; position[i3 + 2] = x * sr + z * cr;
+        velocity[i3] = velocity[i3 + 1] = velocity[i3 + 2] = 0;
+        visibility[i] = 1;
+      }
+    }
+    formation = family; switchedAt = time; stagger = snap ? 0 : Math.max(0, staggerSeconds);
     return family;
   }
 
@@ -270,7 +289,8 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
     const participation = clamp(controls.participation ?? 1), halo = Number(controls.halo ?? 0.12);
     const bands = controls.bands || null, kickNow = pendingKick * calm * 1.6;
     pendingKick = 0;
-    if (controls.face) {
+    if (Number.isFinite(controls.rotation)) rotation = controls.rotation;
+    else if (controls.face) {
       // Readable material faces the viewer: ease the spin back to a whole turn.
       const offset = rotation - Math.round(rotation / TAU) * TAU;
       rotation -= offset * (1 - Math.exp(-dt / 0.3));
@@ -348,7 +368,7 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
     get formation() { return formation; },
     get rotation() { return rotation; },
     get activeShocks() { return shocks.length; },
-    setFormation, kick, shock, step, advanceTo, fingerprint,
+    setFormation, kick, shock, step, advanceTo, fingerprint, reset,
   };
 }
 
@@ -356,7 +376,7 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
  * Perspective projection for a 2D canvas host. Fills reusable buffers so the
  * frame loop allocates nothing. Small dots receive compensating brightness.
  */
-export function projectDustSwarm(swarm, { width, height, yaw = 0, pitch = 0.22, distance = 4.4, fov = 0.9, pointSize = 1.5 } = {}, out = null) {
+export function projectDustSwarm(swarm, { width, height, yaw = 0, pitch = 0.22, distance = 4.4, fov = 0.9, pointSize = 1.5, depthFade = 0.22 } = {}, out = null) {
   const n = swarm.count;
   const buffers = out && out.x.length >= n ? out : { x: new Float32Array(n), y: new Float32Array(n), radius: new Float32Array(n), alpha: new Float32Array(n), depth: new Float32Array(n), visible: 0 };
   const focal = (height / 2) / Math.tan(fov / 2), cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
@@ -374,7 +394,9 @@ export function projectDustSwarm(swarm, { width, height, yaw = 0, pitch = 0.22, 
     buffers.radius[i] = radius;
     buffers.depth[i] = z2;
     // Framing compensation keeps shrinking dots luminous instead of vanishing.
-    buffers.alpha[i] = clamp(alpha * swarm.brightness[i] * (0.3 + 0.4 * swarm.band[i]) * Math.min(1.6, 1 / Math.max(0.6, radius)));
+    // Nearer dots read brighter than the far side of a formation (depth cue).
+    const depthLight = clamp(1 - (z2 - distance) * depthFade, 0.35, 1.25);
+    buffers.alpha[i] = clamp(alpha * swarm.brightness[i] * (0.3 + 0.4 * swarm.band[i]) * depthLight * Math.min(1.6, 1 / Math.max(0.6, radius)));
     visible++;
   }
   buffers.visible = visible;

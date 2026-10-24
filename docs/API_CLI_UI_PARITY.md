@@ -35,12 +35,13 @@ reviews, Songs or Director projects.
 
 | Surface | Behavior |
 | --- | --- |
-| UI | **Score Dust** (`builtin:score-dust`) in the Echo preview visualizer list loads the newest completed Atlas run's score for the selected Song, falls back to the prepared performance, then to an explicit live-reflex-only mode. The canvas footer names the source, cue, formation and next event. |
+| UI | **Score Dust** (`builtin:score-dust`) in the Echo preview visualizer list loads the newest completed Atlas run's timeline and saved direction for the selected Song, falls back to the prepared performance, then to an explicit live-reflex-only mode. The **Score Dust** panel shows the score strip, validation, motif/look/moment/lyric-hook controls and **Save direction rN**; the canvas footer names the source, cue, formation and next event. |
 | API | `GET /api/echos/audio-atlas/jobs/RUN/query?op=visual-score[&pulse=half\|normal\|double&seed=N]` returns `timeline`, `score`, `validation` and `playSettings`. `POST /api/echos/audio-atlas/jobs/RUN/visual-score` accepts `{direction?, score?, assets?, playSettings?}` to compose a directed score or validate a supplied one. |
-| CLI | `node cli/audio-atlas.mjs visual-score RUN [--direction=FILE] [--score=FILE] [--assets=a,b] [--pulse=…] [--seed=N]`. |
+| CLI | `node cli/audio-atlas.mjs visual-score RUN [--direction=FILE] [--score=FILE] [--lyrics=FILE] [--saved=false] [--assets=a,b] [--pulse=…] [--seed=N]`; `visual-score-directions RUN`; `save-visual-score-direction RUN --file=FILE --base-revision=N [--note=…]`. |
+| Saved directions | `GET /api/echos/audio-atlas/jobs/RUN/visual-score-directions` lists the Song's append-only ledger; `POST` with `{baseRevision, direction, note?, lyricLines?}` appends one validated revision (409 on a stale base). Without a request direction, UI, API and CLI all compose from the latest saved revision. |
 
 Schemas: `hapa.echo.musical-timeline.v1`, `hapa.echo.visual-score.v1`,
-`hapa.echo.dust-play-settings.v1`. See `docs/ECHO_SCORE_DUST.md`,
+`hapa.echo.dust-play-settings.v1`, `hapa.echo.visual-score-direction.v1`. See `docs/ECHO_SCORE_DUST.md`,
 `tests/echo-visual-score.test.mjs` and `tests/echo-dust-swarm.test.mjs`.
 
 ## Per-Card Hypercore custody parity

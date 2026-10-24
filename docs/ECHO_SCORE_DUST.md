@@ -1,6 +1,6 @@
 ---
 title: Echo Score Dust — visual score and persistent particle performance
-status: first-pass-prototype; implemented and unit-verified; human creative review pending
+status: first-pass-prototype; implemented, unit- and browser-verified on synthetic data; human creative review pending
 date: 2026-10-24
 owner: hapa-avatar-builder
 ---
@@ -28,10 +28,13 @@ The core idea from the research: **one song is directed on three time scales.**
 | --- | --- | --- |
 | 1. Versioned musical timeline and explicit visual score | `src/domain/echo-visual-score.js` | Implemented |
 | 2. Shared particle targets and immediate beat response | `src/domain/echo-dust-swarm.js` | Implemented |
-| 3. Phrase readability and background contrast | Phrase rasterisation, calm control, face-camera easing, media dimming | Implemented (2D host) |
-| 4. Fixed-step export and loop boundaries | `advanceTo()` fixed 1/60 s stepping, seeded determinism, 1.5 s preroll setting | Kernel ready; not yet wired into Echo recording/export |
-| 5. Stage depth, lighting and reflection contracts | — | Not started |
-| 6. Stage budgets and shared-play protocol | — | Not started |
+| 3. Phrase readability and background contrast | Lyric hook selection, phrase rasterisation, 0.4 s lead, stiff/calm reading hold, face-camera easing, media dimming | Implemented (2D host) |
+| 4. Fixed-step export and loop boundaries | `src/domain/echo-score-dust-performance.js` song-clock simulation; frame-addressed `createEchoScoreDustOfflineRenderer` | Implemented; HyperFrames/recording handoff not yet wired; loop boundaries not started |
+| 5. Stage depth, lighting and reflection contracts | Depth fade only | Not started |
+| 6. Stage budgets and shared-play protocol | Live adaptive draw budget | Budget implemented; shared play not started |
+
+Saved directions, a score inspector and direction editor in the Echo preview
+(`EchoScoreDustPanel`), and API/CLI parity for both sit on top of these.
 
 ### Musical timeline (`buildEchoMusicalTimelineFromAtlas`)
 
@@ -71,13 +74,32 @@ The default composer is deterministic for a timeline + direction and records a
   (`lift → shock`, `fall/break → calm`, `build → gather`, `change → kick`).
 
 `direction` lets a human or agent pin `families`, `palettes`, `baseHue`,
-`images` (atlas cell refs), `phrases`, `eventResponses` and `cameraMoves`.
+`images` (atlas cell refs), `phrases`, `lyricPhrases` (`auto`/`off`),
+`eventResponses`, `cameraMoves` and `playSettings`. `validateEchoScoreDirection`
+checks it strictly (unknown keys, families, responses, sizes). Authored camera
+moves override the cue camera during their span; a `push` closes in over it.
+
+**Lyric hooks.** With no explicit phrases, `selectEchoScorePhrases` picks a
+few words from the Song's measured `timed_lyrics`, the way the research
+describes sparse, selected phrases rather than a full transcript:
+
+- repeated lines first (hooks), one-off lines capped at a quarter of the
+  picks and only in energetic sections;
+- at most 8 phrases, about 12% of the song, 8 s apart, never overlapping;
+- never inside a lift's run-up or hit (2.5 s before to 1 s after), because
+  that moment belongs to the shapes;
+- long lines use their own word timings for a 3–5 word window or are skipped;
+  timing is never invented;
+- refused (`audio-mismatch`) when the lyric timing names different master
+  audio bytes than the Atlas run.
+
+Each phrase records its source line, repeat count and reason.
 
 The validator rejects, before playback: wrong schema or timeline fingerprint,
 **absent image assets**, **cues shorter than 0.5 s**, overlapping/out-of-song
 cues, **missing motif/palette references**, unknown families or camera modes,
-zero-length phrases and **overlapping camera moves with different
-instructions**. Gaps, short phrases and unchecked assets are warnings.
+zero-length or overlapping phrases and **overlapping camera moves with
+different instructions**. Gaps, short phrases and unchecked assets are warnings.
 
 Play settings (`hapa.echo.dust-play-settings.v1`: seed, particle count, pulse
 `half|normal|double`, preroll) are kept outside the score. The default seed is
@@ -121,21 +143,100 @@ seek, so jumping never fires every drop.
 Formation families: ring, helix, sheet, sphere, gem, attractor, spiral,
 fountain, dandelion, sunflower, mobius, shell, jellyfish, snowflake.
 
+### Song-clock performance (`createScoreDustPerformance`)
+
+The dust is simulated on a fixed 1/60 s grid of **song time**, never wall time:
+
+- Live preview at 24, 30 or 60 fps evaluates the same steps, so frame rate
+  does not change the result.
+- A backward seek or a jump of more than 2 s restarts from the seeded state
+  with the play settings' preroll (default 1.5 s), with the formation snapped
+  into place. A seek to *t*, a second seek to *t* and an export that starts at
+  *t* therefore land on identical state.
+- Pausing holds the exact frame; trails fade to it.
+- Formation spin and camera yaw are closed-form, piecewise functions of song
+  time (`buildScoreDustMotion`), so a seek lands on the same view that
+  continuous playback reaches. Readable phrases stop spinning and ease to face
+  the viewer, and the camera levels its pitch.
+- Scheduled beats kick on the exact step that crosses them, and shocks launch
+  at the exact lift step.
+- Words start forming 0.4 s before the phrase, because the score knows they
+  are coming. While words are read they are held stiff (they resolve in about
+  half a second), every particle participates, and kicks and flow are calmed.
+- Band input is a host hook. The live preview passes the analyser's 32 bands
+  (or prepared/replayed signals). Offline export defaults to
+  `scoreDerivedBands`, a deterministic envelope from intensity and beat phase.
+  It is a stand-in, not a spectrum.
+
+### Offline export (`createEchoScoreDustOfflineRenderer`)
+
+This follows Living Light's frame-addressed contract (`director-offline.js`):
+`frameCount`, `frameTime(i)`, `prepareFrame(i, {signal})`, `paintFrame(i,
+target)`, `dispose`, `diagnostics`. Every picture is evaluated at an exact
+integer song time with a fixed simulation step, however long a frame takes to
+draw. Atlas-cell images are preloaded before frame 0 so every frame sees the
+same targets. Trail fade is computed from elapsed song time, so trail length
+does not depend on frame rate. Packaging and encoding stay with the existing
+HyperFrames/Living Light owners; this renderer only supplies frames.
+
 ### Echo preview host
 
 `builtin:score-dust` (**Score Dust**) is a new built-in visualizer in the
 Song visualizer catalog, the Echo preview list and the renderer table. It does
 not replace **Particle Storm**, so existing Director projects look the same.
 
-When a project's visualizer timeline uses Score Dust, the view loads the newest
-completed Atlas run for the selected Song (`op=visual-score`), falls back to the
-prepared performance, then to live-reflex-only, and labels which one is active.
-`src/components/echo-score-dust-renderer.js` joins score state with the live
-FFT: scheduled beats kick, `shock` events launch fronts, `anticipation`
-tightens the formation and pushes the camera in before a lift, phrases become
-camera-facing particle words with the underlying media dimmed, and trails are a
-decaying history of light on a transparent layer so video beneath stays
-visible. Live hosting is capped at 4,000 particles on the CPU 2D canvas.
+When a project's visualizer timeline uses Score Dust, `useEchoScoreDust` loads
+the newest completed Atlas run for the selected Song with its saved direction.
+It falls back to the prepared performance, then to live-reflex-only, and labels
+which one is active. It composes locally with the same pure composer the API
+and CLI use, with the project's measured lyrics as the phrase source.
+
+`src/components/echo-score-dust-renderer.js` hosts the performance:
+- `anticipation` tightens the formation and pushes the camera in before a lift;
+- phrases become camera-facing particle words with the underlying media dimmed;
+- trails are a decaying history of light on a transparent layer, so video
+  beneath stays visible;
+- a quarter-size glow copy gives cheap bloom, nearer dots are brighter (depth
+  fade), and exposure is normalised by particle count.
+
+Live hosting is capped at 4,000 particles on the CPU 2D canvas. An adaptive
+budget steps the drawn share down to 75% and then 50% (dropping the glow) when
+frame cost stays above 14 ms, and back up when it relaxes. The simulation
+itself is never thinned, so state stays deterministic.
+
+**Score Dust panel** (below *Audio visuals* in the preview). Edits preview
+immediately; **Save direction rN** appends a revision.
+- A score strip shows each section in its motif colour and family, the repeat
+  group, downbeat bars, lifts/falls, phrase bars and the playhead. Click it to
+  seek.
+- Validation errors and notes are listed.
+- Per-repeat-group formation pins with palette swatches.
+- Base hue, beat pulse (`half`/`normal`/`double`, with BPM, and a hint when
+  tempo is ambiguous), and a seed with **Vary**.
+- Event responses per moment kind.
+- Lyric hooks on/off, with the chosen phrases listed; click one to seek to it.
+
+### Saved directions
+
+Directions, not composed scores, are saved. A direction is the compact human
+or agent intent; the score is recomposed from timeline + direction + lyrics.
+The ledger is append-only NDJSON per Song
+(`data/echo-visual-score-directions/`, ignored by Git, owned by Builder). Each
+revision records `revision`, `baseRevision`, author, note, `runId`,
+`timelineFingerprint`, `scoreFingerprint`, validation and the direction.
+- A save must name the latest revision it edited (`baseRevision`); a stale
+  base is refused with 409.
+- A save is refused if the direction or the score composed from it is invalid.
+- Earlier revisions are never rewritten. A torn final line is reported as
+  `ignoredLines`, never repaired.
+- Without a request direction, every surface uses the Song's latest saved
+  direction. If that revision no longer validates, it is skipped (reported as
+  `default (saved rN is invalid)`) and never breaks a read.
+- Repeat-group names belong to one analysis. When the latest direction was
+  saved against a different timeline fingerprint, the API reports
+  `direction_timeline_matches: false` and the panel says so.
+- The ledger has its own lock, because an Atlas analysis holds the Atlas writer
+  lock for minutes; saving still works while a run is in progress.
 
 The renderer-truth table routes it as a built-in canvas renderer, so the
 picker lists it as a preview visualizer, not **Final render ready**; fixed-step
@@ -149,9 +250,12 @@ approximation; the 3D Tarot cockpit is otherwise unchanged.
 See `docs/API_CLI_UI_PARITY.md` → *Echo Score Dust visual-score parity*.
 
 ```bash
-node cli/audio-atlas.mjs visual-score RUN
-node cli/audio-atlas.mjs visual-score RUN --direction=direction.json --pulse=half
+node cli/audio-atlas.mjs visual-score RUN                       # latest saved direction (or default)
+node cli/audio-atlas.mjs visual-score RUN --saved=false         # ignore saved direction
+node cli/audio-atlas.mjs visual-score RUN --direction=direction.json --lyrics=timed-lyrics.json --pulse=half
 node cli/audio-atlas.mjs visual-score RUN --score=edited-score.json --assets=atlas-cell-1
+node cli/audio-atlas.mjs visual-score-directions RUN
+node cli/audio-atlas.mjs save-visual-score-direction RUN --file=direction.json --base-revision=0 --note="group B as jellyfish"
 ```
 
 ```json
@@ -183,11 +287,39 @@ node cli/audio-atlas.mjs visual-score RUN --score=edited-score.json --assets=atl
 ## Verification
 
 ```bash
-node --test tests/echo-visual-score.test.mjs tests/echo-dust-swarm.test.mjs
+node --test tests/echo-visual-score.test.mjs tests/echo-dust-swarm.test.mjs \
+  tests/echo-score-dust-performance.test.mjs tests/echo-score-dust-offline.test.mjs \
+  tests/echo-visual-score-directions.test.mjs
 npm run build
 ```
 
-17 new tests cover timeline projection without mutation, repeat grouping,
+Second pass (32 tests in total across the five files) adds:
+- frame-rate independence (24/30/60 fps) and identical state after seeks or an
+  export start;
+- pause holding the exact frame, continuity of the closed-form spin/yaw, and
+  phrases facing the camera;
+- shocks and word formations inside the performance, and bounded, deterministic
+  score-derived bands;
+- sparse lyric hook selection that never invents timing and refuses mismatched
+  audio, plus strict direction validation;
+- authored camera moves and the phrase-overlap check;
+- the offline frame contract and identical state across two renders;
+- the saved-direction ledger: append, conflict, invalid-save refusal, saved
+  default, torn-line reporting, an invalid or foreign saved revision, saving
+  under an Atlas lock, and the HTTP routes.
+
+Browser proofs (headless Chromium, not committed):
+- The real API server in static mode hosted the real hook, panel and renderer
+  against a planted synthetic Atlas run. Default load → edit motif and pulse
+  ("unsaved edits") → **Save direction r1** → reload all worked, with r1 then
+  the default. (The final tweak that skips an invalid saved revision in the
+  hook was verified by build and unit tests, not re-run in the browser.)
+- Two independent offline renders of 70 frames across a lift and a phrase were
+  byte-identical (about 26 ms per frame for 6,000 particles at 640×360 in
+  software rendering, slower than real time, which is why export must not
+  depend on live frame rate).
+
+First pass: 17 tests cover timeline projection without mutation, repeat grouping,
 tempo alternatives, composer determinism and pinning, every validator
 rejection class, now/next queries and seek-safe crossings, pulse grids, play
 settings, fallbacks, the read-only API/CLI projection, formation geometry,
@@ -223,6 +355,16 @@ real Echo Song is still open.
   the camera (`face` control). Keep this as a lesson.
 - **New guardrail:** text and other high-information formations must face the
   viewer and suppress kick/flow while they are read.
+- **Second pass (same day):** the first live host used wall-clock steps, so
+  preview could never equal export, and a seek kept stale momentum. The fix
+  was not a faster encoder. It was making the picture a function of song
+  time and reusing Living Light's frame-addressed offline contract instead of
+  inventing one. Reading the UI also showed three things: one-off lines
+  crowded out hooks, a phrase stole a lift's run-up, and words were still
+  forming 1.6 s in. Phrase selection now avoids lift windows and caps one-offs,
+  and words lead by 0.4 s with a stiff hold. `cameraMoves` were validated but
+  ignored by playback until this pass; check that every validated field is
+  also consumed.
 - **Candidates:** Decision Card — *keep the reusable score separate from play
   seed/settings*; Lesson Card — *readable particle material must face the
   camera*; Skill candidate — *Atlas run → musical timeline → directed score*;
@@ -230,9 +372,14 @@ real Echo Song is still open.
 
 ## Next steps
 
-1. Drive Echo preview recording from `advanceTo()` with fixed timestamps and
-   preroll so exports do not depend on live frame rate (research priority 4).
-2. Let a director save authored scores as Atlas-adjacent, append-only records
-   with revisions (today scores are composed on read or supplied per request).
-3. Stage depth/light contracts for Three.js hosts, then stage budgets and a
-   shared-play payload (audio identity, score fingerprint, seed, start time).
+1. Hand `createEchoScoreDustOfflineRenderer` to the HyperFrames/Living Light
+   packaging owner and to Echo preview recording, with recorded preview
+   signals as `bandsAt` so exported deformation matches what was heard.
+2. Loop boundaries for card loops (matching start/end states or an authored
+   bridge).
+3. Picture motifs from the Song's cast Avatar art (atlas cells via
+   `direction.images`) after rights/likeness review.
+4. Stage depth/light contracts for Three.js hosts, then a shared-play payload
+   (audio identity, score fingerprint, seed, start time).
+5. Human creative review on real Echo Songs; tune family pools, exposure and
+   phrase limits from that review rather than from synthetic fixtures.

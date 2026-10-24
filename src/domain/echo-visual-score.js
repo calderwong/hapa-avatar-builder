@@ -15,6 +15,7 @@ import { DUST_FORMATION_FAMILIES, seedFromString, hashUnit } from "./echo-dust-s
 export const ECHO_MUSICAL_TIMELINE_SCHEMA = "hapa.echo.musical-timeline.v1";
 export const ECHO_VISUAL_SCORE_SCHEMA = "hapa.echo.visual-score.v1";
 export const ECHO_DUST_PLAY_SETTINGS_SCHEMA = "hapa.echo.dust-play-settings.v1";
+export const ECHO_SCORE_DIRECTION_SCHEMA = "hapa.echo.visual-score-direction.v1";
 export const ECHO_VISUAL_SCORE_MIN_CUE_SECONDS = 0.5;
 export const ECHO_VISUAL_SCORE_CAMERA_MODES = Object.freeze(["hold", "drift", "orbit", "push"]);
 export const ECHO_VISUAL_SCORE_EVENT_RESPONSES = Object.freeze(["shock", "kick", "calm", "gather", "none"]);
@@ -189,7 +190,7 @@ function paletteFor(baseHue, groupIndex, energy) {
  * score. `direction` lets a human or agent pin families, hues, phrases and
  * event responses; everything chosen records its reason.
  */
-export function composeEchoVisualScore(timeline, direction = {}) {
+export function composeEchoVisualScore(timeline, direction = {}, { lyricLines = null, lyricAudioHash = null } = {}) {
   if (timeline?.schemaVersion !== ECHO_MUSICAL_TIMELINE_SCHEMA) throw new Error("A musical timeline is required to compose a visual score.");
   const seed = seedFromString(timeline.fingerprint);
   const baseHue = finite(direction.baseHue) ? direction.baseHue : Math.floor(hashUnit(seed, 1) * 360);
@@ -227,11 +228,17 @@ export function composeEchoVisualScore(timeline, direction = {}) {
   });
   const events = timeline.events.map((event) => ({ id: `event-${event.id}`, sourceEventId: event.id, kind: event.kind, at: event.at,
     response: direction.eventResponses?.[event.kind] || DEFAULT_RESPONSE[event.kind] || "none", reason: `Atlas ${event.kind} candidate${event.deltaDb === null ? "" : ` (${event.deltaDb} dB)`}` }));
-  const phrases = (direction.phrases || []).map((phrase, index) => ({ id: phrase.id || `phrase-${index}`, text: String(phrase.text || ""), start: Number(phrase.start), end: Number(phrase.end), burst: phrase.burst === true }));
+  // Explicit phrases win; otherwise pick a few hooks from measured lyric timing.
+  const lyricSelection = !direction.phrases && direction.lyricPhrases !== "off" && Array.isArray(lyricLines)
+    ? selectEchoScorePhrases(lyricLines, timeline, { lyricAudioHash, events }) : null;
+  const phrases = direction.phrases
+    ? direction.phrases.map((phrase, index) => ({ id: phrase.id || `phrase-${index}`, text: String(phrase.text || ""), start: Number(phrase.start), end: Number(phrase.end), burst: phrase.burst === true }))
+    : lyricSelection?.phrases || [];
   const score = {
     schemaVersion: ECHO_VISUAL_SCORE_SCHEMA, version: 1, revision: Number.isSafeInteger(direction.revision) ? direction.revision : 0,
     author: direction.author || "hapa-score-composer", timelineRef: { schemaVersion: timeline.schemaVersion, fingerprint: timeline.fingerprint, sourceSha256: timeline.source.sourceSha256, runId: timeline.source.runId },
     durationSeconds: timeline.durationSeconds, palettes, motifs, cues, events, phrases,
+    phraseSource: direction.phrases ? "direction" : lyricSelection ? { kind: "lyrics", status: lyricSelection.status, reason: lyricSelection.reason } : "none",
     cameraMoves: structuredClone(direction.cameraMoves || []),
     limits: { maxDensity, minCueSeconds: ECHO_VISUAL_SCORE_MIN_CUE_SECONDS },
   };
@@ -293,6 +300,8 @@ export function validateEchoVisualScore(score, { timeline = null, assets = null 
     if (!finite(event?.at) || event.at < 0 || event.at > duration + epsilon) error("event-time", "Event lies outside the song.", event?.id);
     if (!ECHO_VISUAL_SCORE_EVENT_RESPONSES.includes(event?.response)) error("event-response", `Unknown event response ${event?.response}.`, event?.id);
   }
+  const phraseOrder = [...(score.phrases || [])].filter((p) => finite(p?.start) && finite(p?.end)).sort((a, b) => a.start - b.start);
+  for (let i = 1; i < phraseOrder.length; i++) if (phraseOrder[i].start < phraseOrder[i - 1].end - epsilon) error("phrase-overlap", "Phrases must not overlap; only one can be read at a time.", phraseOrder[i].id);
   for (const phrase of score.phrases || []) {
     const text = String(phrase?.text || "").trim();
     if (!text || text.length > 64) error("phrase-text", "Phrase text must be 1–64 characters.", phrase?.id);
@@ -343,9 +352,12 @@ export function prepareEchoScorePlayback(score, timeline, { pulse = "normal" } =
     const e = upperBound(eventTimes, t), nextEvent = events[e] || null;
     const until = nextEvent ? nextEvent.at - t : null;
     const phrase = score.phrases.find((p) => t >= p.start && t < p.end) || null;
+    const move = (score.cameraMoves || []).find((m) => t >= m.start && t < m.end) || null;
+    // Authored camera moves override the cue camera; a push closes in over its span.
+    const camera = move ? { mode: move.mode, distance: round(cue.camera.distance - (move.mode === "push" ? 1.2 * (t - move.start) / (move.end - move.start) : 0), 4), moveId: move.id || null } : cue.camera;
     return {
       t, cue, motif, palette: score.palettes[motif.paletteId], intensity,
-      busy: cue.busy[0] + (cue.busy[1] - cue.busy[0]) * intensity, density: cue.density, camera: cue.camera,
+      busy: cue.busy[0] + (cue.busy[1] - cue.busy[0]) * intensity, density: cue.density, camera,
       beat: { index: b, last, next, period, phase: last !== null && period ? clamp((t - last) / period) : 0 },
       nextEvent: nextEvent ? { ...nextEvent, in: round(until, 4) } : null,
       // Prepare before a lift instead of reacting after it sounds.
@@ -373,3 +385,88 @@ export function reflexOnlyEchoTimeline(durationSeconds = 600) {
     intensity: intensityFrom([], []), coverage: { beats: "unknown", sections: "unknown", repeats: "unknown", events: "unknown" },
     qualification: { qualityQualified: false, basis: "none", limitations: ["No song structure; visuals follow live audio only."] } });
 }
+
+const normalizeLyric = (text) => String(text || "").toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}\s']/gu, " ").replace(/\s+/g, " ").trim();
+const lineTime = (line, key) => { const value = Number(line?.[key] ?? line?.[`${key}Seconds`]); return Number.isFinite(value) ? value : NaN; };
+
+/**
+ * Pick a few readable hook phrases from measured lyric lines, the way a
+ * director would: repeated lines first, short enough to read, spaced apart,
+ * and only a small share of the song. Timing is never invented; long lines
+ * use their own word timings for a 3–5 word window or are skipped.
+ */
+export function selectEchoScorePhrases(lines, timeline, { lyricAudioHash = null, events = [], max = 8, maxShare = 0.12, minGapSeconds = 8 } = {}) {
+  const strip = (v) => String(v || "").replace(/^sha256:/, "").toLowerCase();
+  if (lyricAudioHash && timeline.source?.sourceSha256 && strip(lyricAudioHash) !== strip(timeline.source.sourceSha256)) {
+    return { status: "audio-mismatch", reason: "Lyric timing belongs to different master audio bytes than this Atlas run.", phrases: [] };
+  }
+  const duration = timeline.durationSeconds;
+  const rows = (lines || []).map((line, index) => ({ line, index, start: lineTime(line, "start"), end: lineTime(line, "end"), text: String(line?.text || "").trim() }))
+    .filter((row) => row.text && row.end > row.start && row.start >= 0 && row.end <= duration + 1e-3);
+  if (!rows.length) return { status: "unavailable", reason: "No measured lyric lines inside this recording.", phrases: [] };
+  const counts = new Map();
+  for (const row of rows) counts.set(normalizeLyric(row.text), (counts.get(normalizeLyric(row.text)) || 0) + 1);
+  const sectionAt = (t) => timeline.sections.find((s) => t >= s.start && t < s.end) || timeline.sections.at(-1);
+  const candidates = rows.flatMap((row) => {
+    let { text, start, end } = row;
+    const words = text.split(/\s+/);
+    if (words.length > 6 || text.length > 40) {
+      const timed = (row.line.words || []).map((w) => ({ text: String(w?.text ?? w?.word ?? "").trim(), start: lineTime(w, "start"), end: lineTime(w, "end") })).filter((w) => w.text && w.end > w.start);
+      if (timed.length < 3) return [];
+      const window = timed.slice(0, Math.min(5, timed.length));
+      text = window.map((w) => w.text).join(" "); start = window[0].start; end = window.at(-1).end;
+      if (!(end > start) || text.length > 40) return [];
+    }
+    const repeats = counts.get(normalizeLyric(row.text)) || 1, section = sectionAt((start + end) / 2), n = text.split(/\s+/).length;
+    const value = 3 * (repeats - 1) + (section?.meanIntensity ?? 0.5) + (n >= 2 && n <= 5 ? 1 : 0) + (section?.occurrence > 0 ? 0.5 : 0);
+    return [{ row, text, start, end, repeats, value, key: normalizeLyric(row.text) }];
+  }).sort((a, b) => b.value - a.value || a.start - b.start);
+  const shocks = (events || []).filter((e) => e.response === "shock").map((e) => e.at);
+  const hooks = candidates.some((c) => c.repeats > 1), oneOffLimit = hooks ? Math.max(1, Math.floor(max / 4)) : max;
+  const chosen = [], perText = new Map();
+  let shown = 0, oneOffs = 0;
+  for (const c of candidates) {
+    if (chosen.length >= max) break;
+    if ((perText.get(c.key) || 0) >= 3) continue;
+    // Lifts belong to the shapes: keep words out of the run-up and the hit.
+    if (shocks.some((at) => c.start < at + 1 && c.end > at - 2.5)) continue;
+    if (c.repeats === 1 && (oneOffs >= oneOffLimit || (sectionAt((c.start + c.end) / 2)?.meanIntensity ?? 0.5) < 0.45)) continue;
+    if (shown + (c.end - c.start) > maxShare * duration) continue;
+    if (chosen.some((p) => Math.abs((p.start + p.end) / 2 - (c.start + c.end) / 2) < minGapSeconds || (c.start < p.end && p.start < c.end))) continue;
+    chosen.push(c); perText.set(c.key, (perText.get(c.key) || 0) + 1); shown += c.end - c.start;
+    if (c.repeats === 1) oneOffs++;
+  }
+  const phrases = chosen.sort((a, b) => a.start - b.start).map((c) => {
+    const readable = 0.4 + 0.06 * c.text.length;
+    // A phrase that lands on a lift, or is too quick to read, becomes a burst.
+    const burst = shocks.some((at) => at >= c.start - 0.25 && at <= c.end + 0.3) || c.end - c.start < readable;
+    return { id: `lyric-${c.row.line?.id ?? c.row.index}`, text: c.text, start: round(c.start, 4), end: round(c.end, 4), burst,
+      source: { kind: "lyric-line", lineId: c.row.line?.id ?? null, lineIndex: c.row.index, repeats: c.repeats, reason: c.repeats > 1 ? `repeated ${c.repeats}× in the lyrics` : "short line in an energetic section" } };
+  });
+  return { status: phrases.length ? "selected" : "none-readable", reason: `${phrases.length} of ${rows.length} measured lines chosen`, phrases };
+}
+
+const DIRECTION_KEYS = new Set(["families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
+
+/** Strict check for a saved or submitted direction (the human intent, not the composed score). */
+export function validateEchoScoreDirection(direction) {
+  const errors = [];
+  const error = (code, message) => errors.push({ code, message });
+  if (!direction || typeof direction !== "object" || Array.isArray(direction)) return { ok: false, errors: [{ code: "direction", message: "Direction must be an object." }] };
+  if (JSON.stringify(direction).length > 64 * 1024) error("direction-size", "Direction exceeds 64 KiB.");
+  for (const key of Object.keys(direction)) if (!DIRECTION_KEYS.has(key)) error("direction-key", `Unknown direction field ${key}.`);
+  const map = (value, label) => { if (value === undefined) return {}; if (!value || typeof value !== "object" || Array.isArray(value)) { error(label, `${label} must map repeat groups to values.`); return {}; } return value; };
+  for (const [group, family] of Object.entries(map(direction.families, "families"))) if (!DUST_FORMATION_FAMILIES.includes(family)) error("families", `Unknown family ${family} for ${group}.`);
+  for (const [group, colors] of Object.entries(map(direction.palettes, "palettes"))) if (!Array.isArray(colors) || !colors.length || colors.length > 5 || colors.some((c) => !finite(c?.h) || c.h < 0 || c.h >= 360 || !finite(c?.s) || c.s < 0 || c.s > 1 || !finite(c?.l) || c.l < 0 || c.l > 1)) error("palettes", `Palette for ${group} needs 1–5 valid colors.`);
+  for (const [group, ref] of Object.entries(map(direction.images, "images"))) if (!ref?.assetId || typeof ref.assetId !== "string" || (ref.url !== undefined && typeof ref.url !== "string")) error("images", `Image for ${group} needs an assetId.`);
+  for (const [kind, response] of Object.entries(map(direction.eventResponses, "eventResponses"))) if (!Object.values(TRANSITION_KINDS).includes(kind) || !ECHO_VISUAL_SCORE_EVENT_RESPONSES.includes(response)) error("eventResponses", `Invalid response ${response} for ${kind}.`);
+  if (direction.baseHue !== undefined && (!finite(direction.baseHue) || direction.baseHue < 0 || direction.baseHue >= 360)) error("baseHue", "baseHue must be within [0, 360).");
+  if (direction.maxDensity !== undefined && (!finite(direction.maxDensity) || direction.maxDensity <= 0 || direction.maxDensity > 1)) error("maxDensity", "maxDensity must be within (0, 1].");
+  if (direction.lyricPhrases !== undefined && !["auto", "off"].includes(direction.lyricPhrases)) error("lyricPhrases", "lyricPhrases must be auto or off.");
+  if (direction.phrases !== undefined && (!Array.isArray(direction.phrases) || direction.phrases.length > 32 || direction.phrases.some((p) => !String(p?.text || "").trim() || String(p.text).length > 64 || !finite(p.start) || !finite(p.end) || p.end <= p.start))) error("phrases", "Up to 32 phrases with 1–64 characters and a positive duration.");
+  if (direction.cameraMoves !== undefined && (!Array.isArray(direction.cameraMoves) || direction.cameraMoves.length > 64 || direction.cameraMoves.some((m) => !ECHO_VISUAL_SCORE_CAMERA_MODES.includes(m?.mode) || !finite(m.start) || !finite(m.end) || m.end <= m.start))) error("cameraMoves", "Up to 64 camera moves with a known mode and positive duration.");
+  const play = direction.playSettings;
+  if (play !== undefined && (!play || typeof play !== "object" || (play.pulse !== undefined && !ECHO_VISUAL_SCORE_PULSES.includes(play.pulse)) || (play.seed !== undefined && (!Number.isSafeInteger(play.seed) || play.seed < 0)))) error("playSettings", "playSettings allows pulse half|normal|double and a non-negative integer seed.");
+  return { ok: errors.length === 0, errors };
+}
+
