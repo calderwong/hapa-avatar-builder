@@ -4,6 +4,8 @@ import {readEchoSavedCut} from './echo-saved-cut-reader.mjs';
 import { createSongAudioUpload } from './song-audio-upload.mjs';
 import { createAudioAtlas } from './audio-atlas.mjs';
 import { handleAudioAtlas } from './audio-atlas-routes.mjs';
+import { createScoreDustSessionStore, handleScoreDustSessions, handleScoreDustGuests } from './echo-score-dust-sessions.mjs';
+import { attachScoreDustLoop, publishScoreDustRender } from './echo-score-dust-loops.mjs';
 import { verifyEchoPlaybackAudioReceipt } from './echo-playback-audio.mjs';
 import { readSongCardPlanRequest } from './song-card-plan-request.mjs';
 import { readEchoPlaybackProxyFrameIndex } from './echo-playback-proxy.mjs';
@@ -1236,6 +1238,8 @@ async function stopOwnedOvercardHost() {
   overcardHostHandle = null;
 }
 let audioAtlasService = null;
+// Ephemeral shared Score Dust listening sessions (process-scoped room clock).
+const scoreDustSessionStore = createScoreDustSessionStore();
 let livingLightService = null;
 function getLivingLightService() {
   return livingLightService ||= createLivingLightService({root:ROOT,storePath:process.env.HAPA_LIVING_LIGHT_AUTHORING_STORE,custodyOwner:avatarCardCustodyService,resolveCut:(songId,cutId)=>readEchoSavedCut({root:ROOT,dataDir:DATA_DIR,variantsRoot:ECHO_DIRECTION_VARIANTS_DIR,songId,cutId}),resolveSong:async songId=>(await readJson(HAPA_SONG_STORE_PATH)).songs.find(song=>song.id===songId)});
@@ -2667,6 +2671,46 @@ async function route(req, res) {
     getLivingLightService();
     const performance = createLivingLightPerformancePort({readSongStore:()=>readJson(HAPA_SONG_STORE_PATH),resolveOptions:{root:ROOT,mediaDir:MEDIA_DIR,songRegistryPath:SONG_REGISTRY_DATA_PATH,songbookPath:DEAR_PAPA_SONGBOOK_PATH,songStorePath:HAPA_SONG_STORE_PATH},preparation:echoPerformancePreparation,preparedStore:echoPreparedPerformanceStore});
     if (await handleLivingLight({req,res,url,service:livingLightService,authorize:()=>caller,bootstrap,readBody,sendJson,performance,sourceEvidence:options=>readLivingLightSourceEvidence({root:ROOT,songStorePath:HAPA_SONG_STORE_PATH,...options})}))return;
+  }
+
+  if (pathname.startsWith('/api/echos/score-dust/sessions')) {
+    if (await handleScoreDustSessions({ req, res, url, store: scoreDustSessionStore, requireAdmin, readBody, sendJson })) return;
+  }
+
+  // Cross-device guests: invite code or per-guest token, scoped to one session; no admin rights.
+  if (pathname.startsWith('/api/echos/score-dust/guest/')) {
+    if (await handleScoreDustGuests({ req, res, url, store: scoreDustSessionStore, readBody, sendJson })) return;
+  }
+
+  if (pathname === '/api/echos/score-dust/guest-origin' && req.method === 'GET') {
+    // The LAN address a phone should open (the secure phone bridge when it is running).
+    if (!requireAdmin(req, res)) return;
+    sendJson(res, 200, { ok: true, origin: publicPhoneBridgeOrigin(req), secure: httpsBridgeActive });
+    return;
+  }
+
+  if (pathname === '/api/echos/score-dust/renders' && req.method === 'POST') {
+    // Publish a Score Dust export as video media the Director cut can place on shots.
+    if (!requireAdmin(req, res)) return;
+    try {
+      sendJson(res, 201, { ok: true, ...await publishScoreDustRender({ recordings: previewRecordingStore, mediaDir: MEDIA_DIR }, await readBody(req)) });
+    } catch (error) {
+      sendJson(res, error.statusCode || 500, { ok: false, error: error.code || 'score_dust_render_failed', message: error.message });
+    }
+    return;
+  }
+
+  if (pathname === '/api/echos/score-dust/loops' && req.method === 'POST') {
+    // Attach a Score Dust loop export to a Tarot card's loops or a Song Card's media.
+    if (!requireAdmin(req, res)) return;
+    try {
+      const value = await attachScoreDustLoop({ recordings: previewRecordingStore, mediaDir: MEDIA_DIR,
+        tarot: { read: readTarotStore, write: writeTarotStore }, songs: { read: readHapaSongStore, write: writeHapaSongStore } }, await readBody(req));
+      sendJson(res, 201, { ok: true, ...value });
+    } catch (error) {
+      sendJson(res, error.statusCode || 500, { ok: false, error: error.code || 'score_dust_loop_failed', message: error.message });
+    }
+    return;
   }
 
   if (pathname.startsWith('/api/echos/audio-atlas')) {

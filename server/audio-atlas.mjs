@@ -11,7 +11,7 @@ import {createAtlasTextSearch} from './audio-atlas-text-search.mjs';
 import {validateTimingReference, timingEvaluation} from '../src/domain/audio-atlas-references.js';
 import { buildAtlasContract, summarizeAtlasContract, CONTRACT_VERSION } from './audio-atlas-contract.mjs';
 import { inspectAudioInventory } from './audio-atlas-inventory.mjs';
-import { atlasVisualScore, createVisualScoreDirectionStore, saveVisualScoreDirection } from './audio-atlas-visual-score.mjs';
+import { atlasVisualScore, createVisualScoreDirectionStore, createVisualScoreLookStore, saveVisualScoreDirection, suggestVisualScoreDirection, interpretVisualScoreCue } from './audio-atlas-visual-score.mjs';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -115,7 +115,7 @@ export function runWorker(root,manifest,{signal,onOutput,onSpawn=()=>{},python,w
 }
 
 /** Derived analysis owner under the existing Builder. Song/media identity stays in the song store. */
-export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'),songStore=path.join(root,'data/hapa-songs-store.json'),visualScoreDirectionDir=path.join(root,'data/echo-visual-score-directions'),python=process.env.HAPA_PYTHON||'python3',runner=runWorker}={}) {
+export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'),songStore=path.join(root,'data/hapa-songs-store.json'),visualScoreDirectionDir=path.join(root,'data/echo-visual-score-directions'),visualScoreLookDir=path.join(root,'data/echo-visual-score-looks'),python=process.env.HAPA_PYTHON||'python3',runner=runWorker}={}) {
   const active=new Map();
   const lock=()=>acquireOwnedFileLock({lockPath:path.join(storage,'.writer.lock'),schemaVersion:'hapa.audio-atlas.lock.v1',staleLegacyMs:120000});
   const jobFile=id=>path.join(storage,'jobs',`${safeId(id)}.json`);
@@ -322,9 +322,12 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
   // The direction ledger has its own lock: an Atlas analysis holds the writer lock for minutes.
   const directionLock=()=>{fs.mkdirSync(visualScoreDirectionDir,{recursive:true});return acquireOwnedFileLock({lockPath:path.join(visualScoreDirectionDir,'.writer.lock'),schemaVersion:'hapa.echo.visual-score-directions.lock.v1',staleLegacyMs:120000});};
   const directionStore=createVisualScoreDirectionStore({dir:visualScoreDirectionDir,lock:directionLock,release:releaseOwnedFileLock});
-  function visualScore(id,input={}){const r=result(id);return atlasVisualScore(r,input,{saved:directionStore.list(r.song_id).latest});}
+  const songCards=()=>{try{return songs();}catch{return [];}};
+  function visualScore(id,input={}){const r=result(id);return atlasVisualScore(r,input,{saved:directionStore.list(r.song_id).latest,songs:songCards});}
   function visualScoreDirections(id){return directionStore.list(result(id).song_id);}
-  function saveVisualScoreDirectionFor(id,input={}){return saveVisualScoreDirection(result(id),directionStore,input);}
+  function saveVisualScoreDirectionFor(id,input={}){return saveVisualScoreDirection(result(id),directionStore,input,{songs:songCards});}
+  const lookLock=()=>{fs.mkdirSync(visualScoreLookDir,{recursive:true});return acquireOwnedFileLock({lockPath:path.join(visualScoreLookDir,'.writer.lock'),schemaVersion:'hapa.echo.visual-score-looks.lock.v1',staleLegacyMs:120000});};
+  const lookStore=createVisualScoreLookStore({dir:visualScoreLookDir,lock:lookLock,release:releaseOwnedFileLock});
   function query(id,options={}){
     const {op='brief',asset='master',start,end,q='',kind='',limit=100,offset=0,view='original',detail='summary',channel=0}=options;
     if(op==='visual-score')return visualScore(id,options);
@@ -402,5 +405,5 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
   }
   const textSearch=createAtlasTextSearch({root,storage,result,lock,atomic,runner,runtimeIdentity,checkAnalysis:()=>{descriptions.ensureNoOrphans();if(jobs().some(j=>j.state==='orphaned'))throw fail('An orphaned analysis worker remains alive',409);}});
   const descriptions=createAtlasDescriptions({root,storage,result,lock,atomic,runner,runtimeIdentity,checkAnalysis:()=>{textSearch.ensureNoOrphans();if(jobs().some(j=>j.state==='orphaned'))throw fail('An orphaned analysis worker remains alive',409);}});
-  return {visualScore,visualScoreDirections,saveVisualScoreDirection:saveVisualScoreDirectionFor,derived:id=>{const r=result(id);return {notes:deriveNotes(r),activity:r.assets.map(a=>deriveActivity(r,a)),descriptions:descriptions.export(id)};},describe:descriptions.start,descriptions:descriptions.get,waitDescription:descriptions.wait,cancelDescription:descriptions.cancel,reviewDescription:descriptions.review,searchText:textSearch.start,textSearches:textSearch.get,cancelTextSearch:textSearch.cancel,contract:id=>buildAtlasContract(result(id)),inventory:()=>inspectAudioInventory(songs(),{root}),audio,list,jobs,status,start,wait,cancel,result,query,review,reviews,reference,noiseReference,close:async()=>{for(const h of active.values())h.controller.abort();await Promise.allSettled([descriptions.close(),textSearch.close(),...[...active.values()].map(h=>h.promise)]);}};
+  return {visualScoreSuggest:(id,input={})=>suggestVisualScoreDirection(result(id),input,{songs:songCards}),visualScoreCue:(id,input={})=>{const r=result(id);return interpretVisualScoreCue(r,input,{saved:directionStore.list(r.song_id).latest});},visualScore,visualScoreDirections,saveVisualScoreDirection:saveVisualScoreDirectionFor,visualScoreLooks:lookStore.list,saveVisualScoreLook:lookStore.save,derived:id=>{const r=result(id);return {notes:deriveNotes(r),activity:r.assets.map(a=>deriveActivity(r,a)),descriptions:descriptions.export(id)};},describe:descriptions.start,descriptions:descriptions.get,waitDescription:descriptions.wait,cancelDescription:descriptions.cancel,reviewDescription:descriptions.review,searchText:textSearch.start,textSearches:textSearch.get,cancelTextSearch:textSearch.cancel,contract:id=>buildAtlasContract(result(id)),inventory:()=>inspectAudioInventory(songs(),{root}),audio,list,jobs,status,start,wait,cancel,result,query,review,reviews,reference,noiseReference,close:async()=>{for(const h of active.values())h.controller.abort();await Promise.allSettled([descriptions.close(),textSearch.close(),...[...active.values()].map(h=>h.promise)]);}};
 }

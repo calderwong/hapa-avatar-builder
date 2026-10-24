@@ -11,6 +11,10 @@
 // score so one score can be replayed with controlled variation.
 
 import { DUST_FORMATION_FAMILIES, seedFromString, hashUnit } from "./echo-dust-swarm.js";
+import { applySectionEdits, validateSectionEdits } from "./echo-score-dust-sections.js";
+import { normalizeLyricControl, validateLyricControl, chosenLyricPhrases, wordByWordPhrases, styleLyricPhrase } from "./echo-score-dust-lyrics.js";
+import { DUST_COLOUR_MODES, DUST_COLOUR_PRESETS, DUST_FLASH_LIMIT_PER_SECOND, normalizeDustColour, presetPaletteFor, albumPaletteFor, validateAlbumColourSpec, normalizeDustBackground, validateDustBackground } from "./echo-score-dust-colour.js";
+import { DUST_STEM_GROUPS, normalizeStemResponses } from "./echo-score-dust-stems.js";
 
 export const ECHO_MUSICAL_TIMELINE_SCHEMA = "hapa.echo.musical-timeline.v1";
 export const ECHO_VISUAL_SCORE_SCHEMA = "hapa.echo.visual-score.v1";
@@ -20,6 +24,30 @@ export const ECHO_VISUAL_SCORE_MIN_CUE_SECONDS = 0.5;
 export const ECHO_VISUAL_SCORE_CAMERA_MODES = Object.freeze(["hold", "drift", "orbit", "push"]);
 export const ECHO_VISUAL_SCORE_EVENT_RESPONSES = Object.freeze(["shock", "kick", "calm", "gather", "none"]);
 export const ECHO_VISUAL_SCORE_PULSES = Object.freeze(["half", "normal", "double"]);
+
+/**
+ * Place an authored camera move. The new move wins its span: overlapping moves
+ * are trimmed or split around it, so authored moves never conflict.
+ */
+export function placeCameraMove(moves = [], move, { duration = Infinity } = {}) {
+  const start = Math.max(0, Number(move.start)), end = Math.min(duration, Number(move.end));
+  if (!ECHO_VISUAL_SCORE_CAMERA_MODES.includes(move.mode) || !(end - start > 0.05)) return [...moves];
+  const kept = [];
+  for (const m of moves) {
+    if (m.id && m.id === move.id) continue;
+    if (m.end <= start || m.start >= end) { kept.push(m); continue; }
+    if (m.start < start - 0.05) kept.push({ ...m, end: start });
+    if (m.end > end + 0.05) kept.push({ ...m, id: m.start < start - 0.05 ? null : m.id, start: end });
+  }
+  const placed = { id: move.id || null, mode: move.mode, start: round(start, 3), end: round(end, 3) };
+  const taken = new Set();
+  return [...kept, placed].sort((a, b) => a.start - b.start).map((m) => {
+    let id = m.id || `camera-${Math.round(m.start * 1000)}`;
+    for (let n = 2; taken.has(id); n++) id = `${m.id || `camera-${Math.round(m.start * 1000)}`}-${n}`;
+    taken.add(id);
+    return { ...m, id };
+  });
+}
 
 const TRANSITION_KINDS = Object.freeze({
   energy_rise_candidate: "lift",
@@ -209,7 +237,8 @@ export function composeEchoVisualScore(timeline, direction = {}, { lyricLines = 
     if (!pinned && family === previousFamily) family = pool[(pool.indexOf(family) + 1) % pool.length];
     previousFamily = family;
     const paletteId = `palette-${group}`;
-    palettes[paletteId] = direction.palettes?.[group] || paletteFor(baseHue, index, energy);
+    // Pinned palette > colour preset > generated from the base hue.
+    palettes[paletteId] = direction.palettes?.[group] || (direction.colour?.preset === "album" ? albumPaletteFor(direction.colour.album, index) : presetPaletteFor(direction.colour?.preset, index)) || paletteFor(baseHue, index, energy);
     motifs.push({ id: `motif-${group}`, repeatGroup: group, family, allowedFamilies: [family, ...pool.filter((f) => f !== family).slice(0, 2)], paletteId,
       ...(direction.images?.[group] ? { imageRef: structuredClone(direction.images[group]) } : {}),
       reason: pinned ? "pinned by direction" : `relative energy ${round(energy, 2)} → ${tier} family pool` });
@@ -223,23 +252,33 @@ export function composeEchoVisualScore(timeline, direction = {}, { lyricLines = 
       id: `cue-${section.id}`, sectionId: section.id, start: section.start, end: section.end, motifId: motifByGroup.get(section.repeatGroup).id,
       busy: [round(low, 3), round(high, 3)], density: round(Math.min(maxDensity, 0.4 + 0.55 * energy), 3),
       camera: { mode: energy > 0.66 ? "orbit" : energy < 0.33 ? "hold" : "drift", distance: round(4.8 - 0.8 * energy, 3) },
+      occurrence: section.occurrence,
       reason: `section ${section.index + 1} · ${section.repeatGroup} occurrence ${section.occurrence + 1} · relative energy ${round(energy, 2)}`,
     };
   });
+  // Per-section edits (split/merge/move boundaries, one-occurrence overrides).
+  const edited = direction.sections ? applySectionEdits({ cues, motifs, palettes, maxDensity, minCueSeconds: ECHO_VISUAL_SCORE_MIN_CUE_SECONDS }, direction.sections) : null;
   const events = timeline.events.map((event) => ({ id: `event-${event.id}`, sourceEventId: event.id, kind: event.kind, at: event.at,
     response: direction.eventResponses?.[event.kind] || DEFAULT_RESPONSE[event.kind] || "none", reason: `Atlas ${event.kind} candidate${event.deltaDb === null ? "" : ` (${event.deltaDb} dB)`}` }));
-  // Explicit phrases win; otherwise pick a few hooks from measured lyric timing.
-  const lyricSelection = !direction.phrases && direction.lyricPhrases !== "off" && Array.isArray(lyricLines)
-    ? selectEchoScorePhrases(lyricLines, timeline, { lyricAudioHash, events }) : null;
+  // Explicit phrases win; otherwise lyric control picks hooks automatically
+  // or shows exactly the chosen lines, optionally one word at a time.
+  const lyricControl = normalizeLyricControl(direction.lyrics, direction.lyricPhrases);
+  const lyricSelection = !direction.phrases && lyricControl.pick !== "off" && Array.isArray(lyricLines)
+    ? (lyricControl.pick === "chosen" ? chosenLyricPhrases(lyricLines, timeline, lyricControl.lines, { lyricAudioHash, events }) : selectEchoScorePhrases(lyricLines, timeline, { lyricAudioHash, events, max: lyricControl.max })) : null;
+  const lyricPhrases = lyricSelection ? (lyricControl.wordByWord ? wordByWordPhrases(lyricSelection.phrases, lyricLines) : lyricSelection.phrases) : [];
   const phrases = direction.phrases
-    ? direction.phrases.map((phrase, index) => ({ id: phrase.id || `phrase-${index}`, text: String(phrase.text || ""), start: Number(phrase.start), end: Number(phrase.end), burst: phrase.burst === true }))
-    : lyricSelection?.phrases || [];
+    ? direction.phrases.map((phrase, index) => ({ id: phrase.id || `phrase-${index}`, text: String(phrase.text || ""), start: Number(phrase.start), end: Number(phrase.end), burst: phrase.burst === true, ...(direction.lyrics?.font ? { font: lyricControl.font } : {}) }))
+    : lyricPhrases.map((phrase) => styleLyricPhrase(phrase, lyricControl));
   const score = {
     schemaVersion: ECHO_VISUAL_SCORE_SCHEMA, version: 1, revision: Number.isSafeInteger(direction.revision) ? direction.revision : 0,
     author: direction.author || "hapa-score-composer", timelineRef: { schemaVersion: timeline.schemaVersion, fingerprint: timeline.fingerprint, sourceSha256: timeline.source.sourceSha256, runId: timeline.source.runId },
-    durationSeconds: timeline.durationSeconds, palettes, motifs, cues, events, phrases,
-    phraseSource: direction.phrases ? "direction" : lyricSelection ? { kind: "lyrics", status: lyricSelection.status, reason: lyricSelection.reason } : "none",
+    durationSeconds: timeline.durationSeconds, palettes: edited?.palettes || palettes, motifs: edited?.motifs || motifs, cues: edited?.cues || cues, events, phrases,
+    ...(edited ? { sectionEdits: edited.report } : {}),
+    phraseSource: direction.phrases ? "direction" : lyricSelection ? { kind: "lyrics", pick: lyricControl.pick, status: lyricSelection.status, reason: lyricSelection.reason, wordByWord: lyricControl.wordByWord, ...(lyricSelection.skipped?.length ? { skipped: lyricSelection.skipped } : {}) } : "none",
     cameraMoves: structuredClone(direction.cameraMoves || []),
+    colour: normalizeDustColour(direction.colour),
+    background: normalizeDustBackground(direction.background),
+    stemResponses: normalizeStemResponses(direction.stemResponses),
     limits: { maxDensity, minCueSeconds: ECHO_VISUAL_SCORE_MIN_CUE_SECONDS },
   };
   score.fingerprint = echoScoreFingerprint({ ...score, fingerprint: null });
@@ -275,6 +314,7 @@ export function validateEchoVisualScore(score, { timeline = null, assets = null 
     if (!palettes[motif.paletteId]) error("missing-palette", `Palette ${motif.paletteId} is not defined.`, motif.id);
     if (motif.imageRef) {
       if (!motif.imageRef.assetId) error("image-ref", "Image references need an assetId.", motif.id);
+      else if (selfContainedImage(motif.imageRef)) { /* carries its own pixels */ }
       else if (assetSet && !assetSet.has(motif.imageRef.assetId)) error("absent-asset", `Image asset ${motif.imageRef.assetId} is not available.`, motif.id);
       else if (!assetSet) warn("asset-unchecked", "Image asset availability was not checked.", motif.id);
     }
@@ -295,7 +335,10 @@ export function validateEchoVisualScore(score, { timeline = null, assets = null 
     if (!finite(cue.density) || cue.density <= 0 || cue.density > (score.limits?.maxDensity ?? 1) + epsilon) error("density", "Density must be within (0, limits.maxDensity].", ref);
     if (!ECHO_VISUAL_SCORE_CAMERA_MODES.includes(cue.camera?.mode)) error("camera-mode", `Unknown camera mode ${cue.camera?.mode}.`, ref);
   }
+  for (const skipped of score.sectionEdits?.skipped || []) warn("section-edit-skipped", `Section ${skipped.op} at ${typeof skipped.at === "number" ? `${round(skipped.at, 2)}s` : skipped.at} was skipped: ${skipped.reason}.`);
   if (cues.length && cursor < duration - epsilon) warn("cue-tail", `Score ends at ${round(cursor, 3)}s; the tail holds the last motif.`);
+  if (score.colour !== undefined && (!DUST_COLOUR_MODES.includes(score.colour?.mode) || (score.colour.preset && !DUST_COLOUR_PRESETS[score.colour.preset] && !(score.colour.preset === "album" && validateAlbumColourSpec(score.colour.album))))) error("colour", "Unknown colour mode or preset.");
+  if (score.background !== undefined && !validateDustBackground(score.background)) error("background", "Unknown background kind, shape or colour.");
   for (const event of score.events || []) {
     if (!finite(event?.at) || event.at < 0 || event.at > duration + epsilon) error("event-time", "Event lies outside the song.", event?.id);
     if (!ECHO_VISUAL_SCORE_EVENT_RESPONSES.includes(event?.response)) error("event-response", `Unknown event response ${event?.response}.`, event?.id);
@@ -308,7 +351,7 @@ export function validateEchoVisualScore(score, { timeline = null, assets = null 
     if (!finite(phrase?.start) || !finite(phrase?.end) || phrase.end <= phrase.start) { error("phrase-range", "Phrase needs a positive duration; zero-length words are not displayable.", phrase?.id); continue; }
     if (phrase.start < -epsilon || phrase.end > duration + epsilon) error("phrase-bounds", "Phrase lies outside the song.", phrase.id);
     const readable = 0.4 + 0.06 * text.length;
-    if (!phrase.burst && phrase.end - phrase.start < readable) warn("phrase-short", `Phrase shows for ${round(phrase.end - phrase.start, 2)}s; about ${round(readable, 2)}s is needed to read it.`, phrase.id);
+    if (!phrase.burst && !phrase.wordOf && phrase.end - phrase.start < readable) warn("phrase-short", `Phrase shows for ${round(phrase.end - phrase.start, 2)}s; about ${round(readable, 2)}s is needed to read it.`, phrase.id);
   }
   const moves = [...(score.cameraMoves || [])].sort((a, b) => a.start - b.start);
   for (const [index, move] of moves.entries()) {
@@ -325,7 +368,13 @@ export function normalizeDustPlaySettings(input = {}, timeline = null) {
   const identity = timeline?.source?.sourceSha256 || timeline?.fingerprint || "hapa-echo-dust";
   const pulse = ECHO_VISUAL_SCORE_PULSES.includes(input.pulse) ? input.pulse : "normal";
   return { schemaVersion: ECHO_DUST_PLAY_SETTINGS_SCHEMA, seed: Number.isSafeInteger(input.seed) && input.seed >= 0 ? input.seed >>> 0 : seedFromString(identity),
-    particleCount: Math.min(20000, Math.max(500, Math.floor(Number(input.particleCount) || 6000))), pulse, prerollSeconds: finite(input.prerollSeconds) ? clamp(input.prerollSeconds, 0, 5) : 1.5 };
+    particleCount: Math.min(20000, Math.max(500, Math.floor(Number(input.particleCount) || 6000))), pulse, prerollSeconds: finite(input.prerollSeconds) ? clamp(input.prerollSeconds, 0, 5) : 1.5,
+    // Comfort: reduced motion, and bright flashes capped at 3 per second (can only go lower).
+    reducedMotion: input.reducedMotion === true,
+    flashLimitPerSecond: finite(input.flashLimitPerSecond) ? clamp(Math.floor(input.flashLimitPerSecond), 0, DUST_FLASH_LIMIT_PER_SECOND) : DUST_FLASH_LIMIT_PER_SECOND,
+    // Live detail tier: the exact CPU swarm, or the dense GPU swarm (preview only; exports stay CPU).
+    renderer: input.renderer === "gpu" ? "gpu" : "cpu",
+    gpuParticleCount: Math.min(80000, Math.max(20000, Math.floor(Number(input.gpuParticleCount) || 40000))) };
 }
 
 function pulseGrid(beats, pulse) {
@@ -446,7 +495,23 @@ export function selectEchoScorePhrases(lines, timeline, { lyricAudioHash = null,
   return { status: phrases.length ? "selected" : "none-readable", reason: `${phrases.length} of ${rows.length} measured lines chosen`, phrases };
 }
 
-const DIRECTION_KEYS = new Set(["families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
+/**
+ * Picture motifs: an Avatar image ({assetId, url}), a text logo
+ * ({kind: "text", text ≤ 24, font?}) or an inline SVG logo
+ * ({kind: "svg", url: data:image/svg+xml…, ≤ 32 KiB}). Returns a problem or null.
+ */
+export function imageRefProblem(ref) {
+  if (!ref || typeof ref !== "object" || Array.isArray(ref) || typeof ref.assetId !== "string" || !ref.assetId) return "needs an assetId.";
+  if (ref.url !== undefined && typeof ref.url !== "string") return "url must be a string.";
+  if (ref.kind === "text") return typeof ref.text === "string" && ref.text.trim() && ref.text.length <= 24 ? null : "text logos need 1–24 characters.";
+  if (ref.kind === "model") return typeof ref.url === "string" && ref.url ? null : "3D models need a url.";
+  if (ref.kind === "svg") return /^data:image\/svg\+xml[;,]/.test(ref.url || "") && ref.url.length <= 32 * 1024 ? null : "SVG logos must be an inline data:image/svg+xml URL of at most 32 KiB.";
+  return ref.kind === undefined ? null : `unknown kind ${ref.kind}.`;
+}
+/** Text and inline SVG logos carry their own pixels; no asset lookup is needed. */
+const selfContainedImage = (ref) => ref?.kind === "text" || ref?.kind === "svg";
+
+const DIRECTION_KEYS = new Set(["colour", "background", "sections", "lyrics", "stemResponses", "families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
 
 /** Strict check for a saved or submitted direction (the human intent, not the composed score). */
 export function validateEchoScoreDirection(direction) {
@@ -458,7 +523,7 @@ export function validateEchoScoreDirection(direction) {
   const map = (value, label) => { if (value === undefined) return {}; if (!value || typeof value !== "object" || Array.isArray(value)) { error(label, `${label} must map repeat groups to values.`); return {}; } return value; };
   for (const [group, family] of Object.entries(map(direction.families, "families"))) if (!DUST_FORMATION_FAMILIES.includes(family)) error("families", `Unknown family ${family} for ${group}.`);
   for (const [group, colors] of Object.entries(map(direction.palettes, "palettes"))) if (!Array.isArray(colors) || !colors.length || colors.length > 5 || colors.some((c) => !finite(c?.h) || c.h < 0 || c.h >= 360 || !finite(c?.s) || c.s < 0 || c.s > 1 || !finite(c?.l) || c.l < 0 || c.l > 1)) error("palettes", `Palette for ${group} needs 1–5 valid colors.`);
-  for (const [group, ref] of Object.entries(map(direction.images, "images"))) if (!ref?.assetId || typeof ref.assetId !== "string" || (ref.url !== undefined && typeof ref.url !== "string")) error("images", `Image for ${group} needs an assetId.`);
+  for (const [group, ref] of Object.entries(map(direction.images, "images"))) { const problem = imageRefProblem(ref); if (problem) error("images", `Image for ${group}: ${problem}`); }
   for (const [kind, response] of Object.entries(map(direction.eventResponses, "eventResponses"))) if (!Object.values(TRANSITION_KINDS).includes(kind) || !ECHO_VISUAL_SCORE_EVENT_RESPONSES.includes(response)) error("eventResponses", `Invalid response ${response} for ${kind}.`);
   if (direction.baseHue !== undefined && (!finite(direction.baseHue) || direction.baseHue < 0 || direction.baseHue >= 360)) error("baseHue", "baseHue must be within [0, 360).");
   if (direction.maxDensity !== undefined && (!finite(direction.maxDensity) || direction.maxDensity <= 0 || direction.maxDensity > 1)) error("maxDensity", "maxDensity must be within (0, 1].");
@@ -466,7 +531,18 @@ export function validateEchoScoreDirection(direction) {
   if (direction.phrases !== undefined && (!Array.isArray(direction.phrases) || direction.phrases.length > 32 || direction.phrases.some((p) => !String(p?.text || "").trim() || String(p.text).length > 64 || !finite(p.start) || !finite(p.end) || p.end <= p.start))) error("phrases", "Up to 32 phrases with 1–64 characters and a positive duration.");
   if (direction.cameraMoves !== undefined && (!Array.isArray(direction.cameraMoves) || direction.cameraMoves.length > 64 || direction.cameraMoves.some((m) => !ECHO_VISUAL_SCORE_CAMERA_MODES.includes(m?.mode) || !finite(m.start) || !finite(m.end) || m.end <= m.start))) error("cameraMoves", "Up to 64 camera moves with a known mode and positive duration.");
   const play = direction.playSettings;
-  if (play !== undefined && (!play || typeof play !== "object" || (play.pulse !== undefined && !ECHO_VISUAL_SCORE_PULSES.includes(play.pulse)) || (play.seed !== undefined && (!Number.isSafeInteger(play.seed) || play.seed < 0)))) error("playSettings", "playSettings allows pulse half|normal|double and a non-negative integer seed.");
+  if (play !== undefined && (!play || typeof play !== "object" || (play.pulse !== undefined && !ECHO_VISUAL_SCORE_PULSES.includes(play.pulse)) || (play.seed !== undefined && (!Number.isSafeInteger(play.seed) || play.seed < 0))
+    || (play.reducedMotion !== undefined && typeof play.reducedMotion !== "boolean") || (play.flashLimitPerSecond !== undefined && (!Number.isInteger(play.flashLimitPerSecond) || play.flashLimitPerSecond < 0 || play.flashLimitPerSecond > DUST_FLASH_LIMIT_PER_SECOND))
+    || (play.renderer !== undefined && !["cpu", "gpu"].includes(play.renderer)) || (play.gpuParticleCount !== undefined && (!Number.isInteger(play.gpuParticleCount) || play.gpuParticleCount < 20000 || play.gpuParticleCount > 80000)))) error("playSettings", "playSettings allows pulse half|normal|double, a non-negative integer seed, reducedMotion, flashLimitPerSecond 0–3, renderer cpu|gpu and gpuParticleCount 20000–80000.");
+  const stems = direction.stemResponses;
+  if (stems !== undefined && (!stems || typeof stems !== "object" || Array.isArray(stems) || Object.entries(stems).some(([k, v]) => !DUST_STEM_GROUPS[k] || !finite(v) || v < 0 || v > 1))) error("stemResponses", `stemResponses maps ${Object.keys(DUST_STEM_GROUPS).join("/")} to weights 0–1.`);
+  const colour = direction.colour;
+  if (colour !== undefined && (!colour || typeof colour !== "object" || Array.isArray(colour) || (colour.mode !== undefined && !DUST_COLOUR_MODES.includes(colour.mode)) || (colour.preset !== undefined && colour.preset !== null && !DUST_COLOUR_PRESETS[colour.preset] && colour.preset !== "album")
+    || (colour.album !== undefined && !validateAlbumColourSpec(colour.album))
+    || Object.keys(colour).some((k) => !["mode", "preset", "album", "crossfadeSeconds", "liftFlash", "breakDesaturate", "brighterReturns"].includes(k)))) error("colour", `colour allows mode (${DUST_COLOUR_MODES.join("/")}), a preset (or "album" with an album spec) and the dynamics switches.`);
+  for (const message of validateSectionEdits(direction.sections)) error("sections", message);
+  for (const message of validateLyricControl(direction.lyrics)) error("lyrics", message);
+  if (!validateDustBackground(direction.background)) error("background", "background allows kind black|solid|gradient|palette, #rrggbb colour/colour2 and shape linear|radial.");
   return { ok: errors.length === 0, errors };
 }
 

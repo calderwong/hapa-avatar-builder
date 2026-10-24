@@ -1,0 +1,152 @@
+// Score Dust as a Three.js layer in an Echo 3D stage (Record Garden).
+//
+// Stage ↔ dust contract (research priority 5):
+// - the stage provides an anchor object, a radius, its scene fog (applied to
+//   the dust material) and a background luminance for contrast;
+// - the dust reports its centroid, mean colour and energy so the stage can
+//   answer with light/colour.
+// Depth policy for the "black dot" lead: dust is depth-tested (solid set
+// pieces hide it) but never writes depth, and blends additively, so luminous
+// moving dots cannot stamp opaque-looking holes into what is behind them.
+import * as THREE from "three";
+import { createScoreDustPerformance } from "../domain/echo-score-dust-performance.js";
+import { dustBandsFromSpectrum, dustTwinkle, DUST_BAND_COUNT } from "../domain/echo-dust-swarm.js";
+import { computeDustColours } from "../domain/echo-score-dust-colour.js";
+import { createImageTargetCache, rasterizePhraseTargets } from "./echo-score-dust-renderer.js";
+
+export const ECHO_SCORE_DUST_STAGE_CONTRACT = Object.freeze({
+  schemaVersion: "hapa.echo.score-dust.stage-contract.v1",
+  stageProvides: ["anchor Object3D", "radius (scene units)", "scene fog (material fog: true)", "backgroundLuminance 0..1"],
+  dustReports: ["centroid (world)", "meanColor (hex)", "energy 0..1", "visible particles"],
+  depth: { depthTest: true, depthWrite: false, blending: "additive", renderOrder: 5 },
+  budget: { full: 1, reduced: 0.4 },
+});
+const FORMATION_RADIUS = 1.25;
+const clamp = (value, min = 0, max = 1) => Math.min(max, Math.max(min, value));
+
+function discTexture() {
+  const make = typeof OffscreenCanvas === "function" ? (s) => new OffscreenCanvas(s, s) : typeof document !== "undefined" ? (s) => Object.assign(document.createElement("canvas"), { width: s, height: s }) : null;
+  if (!make) return null;
+  const canvas = make(64), ctx = canvas.getContext("2d");
+  // Crisp core with a short falloff: grains stay sharp; glow comes from density.
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, "rgba(255,255,255,1)"); g.addColorStop(0.55, "rgba(255,255,255,0.9)"); g.addColorStop(0.8, "rgba(255,255,255,0.25)"); g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+export function createEchoScoreDustThreeLayer({ world, particleCount = 3000, detailTier = "full" } = {}) {
+  if (!world?.isObject3D) throw new TypeError("A Three.js world is required.");
+  const n = Math.max(200, Math.min(8000, Math.floor(particleCount)));
+  const root = new THREE.Group();
+  root.name = "EchoScoreDustLayer";
+  root.visible = false;
+  world.add(root);
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(n * 3), colors = new Float32Array(n * 3);
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3).setUsage(THREE.DynamicDrawUsage));
+  const map = discTexture();
+  const material = new THREE.PointsMaterial({ size: 0.03, sizeAttenuation: true, vertexColors: true, map, alphaTest: 0, transparent: true,
+    depthTest: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: true, toneMapped: false });
+  material.name = "EchoScoreDustMaterial";
+  const points = new THREE.Points(geometry, material);
+  points.name = "EchoScoreDustPoints";
+  points.frustumCulled = false;
+  points.renderOrder = 5;
+  root.add(points);
+  // Floor reflection (P2 item 18): the same geometry, mirrored and flattened
+  // onto the floor plane as a soft glow pool; no extra simulation or buffers.
+  const reflectionMaterial = material.clone();
+  reflectionMaterial.name = "EchoScoreDustReflectionMaterial";
+  reflectionMaterial.transparent = true;
+  const reflection = new THREE.Points(geometry, reflectionMaterial);
+  reflection.name = "EchoScoreDustReflection";
+  reflection.frustumCulled = false;
+  reflection.renderOrder = 4;
+  reflection.visible = false;
+  world.add(reflection);
+
+  let performanceHost = null, playbackKey = "", target = null, drawCount = n, disposed = false;
+  const bands = new Float32Array(DUST_BAND_COUNT), rgb = new Float32Array(n * 3), targetPosition = new THREE.Vector3(), centroid = new THREE.Vector3();
+  const pictures = createImageTargetCache();
+  const report = { active: false, centroid: new THREE.Vector3(), meanColor: 0x56f0cf, energy: 0, visible: 0, formation: null, cueId: null };
+
+  function setPlayback(playback, settings = {}, key = "") {
+    if (key && key === playbackKey) return;
+    playbackKey = key;
+    // Same words and pictures as the 2D hosts.
+    performanceHost = playback ? createScoreDustPerformance({ playback, settings: { ...settings, particleCount: n }, count: n, targetsFor: pictures.targetsFor,
+      phraseTargets: (phrase, count, seed) => rasterizePhraseTargets(phrase, count, seed) }) : null;
+  }
+  function setTarget(next) { target = next?.isObject3D ? next : null; return target; }
+  function setDetailTier(tier = "full") {
+    drawCount = tier === "reduced" ? Math.floor(n * ECHO_SCORE_DUST_STAGE_CONTRACT.budget.reduced) : n;
+    geometry.setDrawRange(0, drawCount);
+    return tier;
+  }
+
+  /** Advance on the song clock and refresh buffers. Returns the dust → stage report. */
+  function update({ active = true, currentTime = 0, fft = null, reducedMotion = false, radius = 0.8, heightOffset = 0.3, stage = {}, floorY = null, reflectionOpacity = 0.35 } = {}) {
+    report.active = false;
+    reflection.visible = false;
+    if (disposed || !active || !target || !performanceHost) { root.visible = false; return report; }
+    root.visible = true;
+    target.getWorldPosition(targetPosition);
+    root.parent?.worldToLocal(targetPosition);
+    root.position.copy(targetPosition);
+    root.position.y += heightOffset + radius * 0.6;
+    const scale = radius / FORMATION_RADIUS;
+    root.scale.setScalar(scale);
+    if (fft?.length) dustBandsFromSpectrum(fft, bands); else bands.fill(0);
+    const { state } = performanceHost.advanceTo(currentTime, { bandsAt: fft?.length ? () => bands : null });
+    root.rotation.y = reducedMotion || performanceHost.reducedMotion ? 0 : performanceHost.camera(currentTime, state).yaw;
+    // Same colour modes, crossfades, flash gate and desaturation as the 2D preview.
+    computeDustColours(performanceHost.swarm, performanceHost.style(currentTime, state), rgb, { rotation: performanceHost.swarm.rotation });
+    // Contrast: brighter dust over bright stages, never blown out over dark ones.
+    const contrast = 0.8 + 0.6 * clamp(stage.backgroundLuminance ?? 0.15);
+    const swarm = performanceHost.swarm;
+    let r = 0, g = 0, b = 0, sx = 0, sy = 0, sz = 0, lit = 0;
+    for (let i = 0; i < drawCount; i++) {
+      const i3 = i * 3, alpha = swarm.visibility[i] * swarm.brightness[i] * (0.35 + 0.5 * swarm.band[i]) * contrast * dustTwinkle(swarm, i);
+      positions[i3] = swarm.position[i3]; positions[i3 + 1] = swarm.position[i3 + 1]; positions[i3 + 2] = swarm.position[i3 + 2];
+      // Shared colours are sRGB; vertex colours are linear.
+      colors[i3] = Math.pow(rgb[i3], 2.2) * alpha; colors[i3 + 1] = Math.pow(rgb[i3 + 1], 2.2) * alpha; colors[i3 + 2] = Math.pow(rgb[i3 + 2], 2.2) * alpha;
+      if (alpha > 0.05) { r += rgb[i3]; g += rgb[i3 + 1]; b += rgb[i3 + 2]; sx += positions[i3]; sy += positions[i3 + 1]; sz += positions[i3 + 2]; lit++; }
+    }
+    geometry.attributes.position.needsUpdate = true;
+    geometry.attributes.color.needsUpdate = true;
+    material.size = 0.045 * (0.8 + 0.4 * state.intensity);
+    if (lit) {
+      centroid.set(sx / lit, sy / lit, sz / lit);
+      root.localToWorld(report.centroid.copy(centroid));
+      report.meanColor = new THREE.Color().setRGB(r / lit, g / lit, b / lit, THREE.SRGBColorSpace).getHex();
+    }
+    const floor = floorY === "target" ? targetPosition.y : floorY;
+    if (Number.isFinite(floor)) {
+      // Mirror about the floor (in the root's parent space), squashed to a thin pool just above it.
+      reflection.visible = true;
+      reflection.position.set(root.position.x, floor + 0.004, root.position.z);
+      reflection.rotation.copy(root.rotation);
+      reflection.scale.set(root.scale.x, -root.scale.y * 0.12, root.scale.z);
+      reflectionMaterial.size = material.size * 1.6;
+      reflectionMaterial.opacity = clamp(reflectionOpacity) * (0.6 + 0.4 * clamp(state.intensity));
+    }
+    Object.assign(report, { active: true, energy: clamp(state.intensity), visible: lit, formation: swarm.formation, cueId: state.cue?.id || null, reflection: reflection.visible });
+    return report;
+  }
+
+  setDetailTier(detailTier);
+  return {
+    root, points, reflection, contract: ECHO_SCORE_DUST_STAGE_CONTRACT,
+    metrics: Object.freeze({ particles: n, drawables: 2, materials: 2, textures: map ? 1 : 0, lights: 0, depthWrite: false, reflectionSharesGeometry: true }),
+    get playbackKey() { return playbackKey; },
+    setPlayback, setTarget, setDetailTier, update,
+    dispose() {
+      if (disposed) return;
+      disposed = true; root.removeFromParent(); reflection.removeFromParent(); geometry.dispose(); material.dispose(); reflectionMaterial.dispose(); map?.dispose(); pictures.clear(); performanceHost = null;
+    },
+  };
+}

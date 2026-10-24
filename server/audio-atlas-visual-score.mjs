@@ -8,6 +8,41 @@ import {
   buildEchoMusicalTimelineFromAtlas, composeEchoVisualScore, validateEchoVisualScore, validateEchoScoreDirection,
   normalizeDustPlaySettings, ECHO_SCORE_DIRECTION_SCHEMA,
 } from '../src/domain/echo-visual-score.js';
+import { DUST_LOOK_SCHEMA, dustLookSlug, validateDustLook, mergeDustLooks } from '../src/domain/echo-score-dust-looks.js';
+import { albumDustColour } from '../src/domain/echo-score-dust-album.js';
+import { suggestDustDirection, interpretDustCue } from '../src/domain/echo-score-dust-director.js';
+
+function songCardFor(songs,songId){const list=typeof songs==='function'?songs():songs||[];return list.find(s=>[s?.id,s?.songId,s?.cardId].includes(songId))||null;}
+
+/** A starting direction from the Song's mood/tags, Atlas structure and lyrics (local rules, no provider). */
+export function suggestVisualScoreDirection(result,input={},{songs=[]}={}){
+ const timeline=buildEchoMusicalTimelineFromAtlas(result),card=songCardFor(songs,result.song_id);
+ const lyricLines=parseValue(input.lyricLines,'lyricLines',{array:true});
+ const tags=Array.isArray(input.tags)?input.tags.map(String):typeof input.tags==='string'&&input.tags?input.tags.split(','):card?.tags||[];
+ const suggestion=suggestDustDirection({timeline,mood:typeof input.mood==='string'?input.mood:card?.mood||'',tags,lyricLines,title:card?.title||''});
+ const score=composeEchoVisualScore(timeline,suggestion.direction,{lyricLines});
+ return {...suggestion,run_id:result.run_id,song_id:result.song_id,validation:validateEchoVisualScore(score,{timeline}),notice:'Suggested locally from mood words, Atlas candidates and lyrics; nothing is saved.'};
+}
+
+/** Apply a plain-language cue to a direction (the request's, else the latest saved one). */
+export function interpretVisualScoreCue(result,input={},{saved=null}={}){
+ const timeline=buildEchoMusicalTimelineFromAtlas(result);
+ if(typeof input.text!=='string'||!input.text.trim()||input.text.length>2000)throw fail('text must be a cue of 1–2000 characters');
+ const base=parseValue(input.direction,'direction')||(saved&&validateEchoScoreDirection(saved.direction).ok?saved.direction:{});
+ const lyricLines=parseValue(input.lyricLines,'lyricLines',{array:true});
+ const before=composeEchoVisualScore(timeline,validateEchoScoreDirection(base).ok?base:{},{lyricLines});
+ const value=interpretDustCue(input.text,{timeline,score:before,direction:base});
+ const check=validateEchoScoreDirection(value.direction);
+ const score=check.ok?composeEchoVisualScore(timeline,value.direction,{lyricLines}):null;
+ return {...value,run_id:result.run_id,song_id:result.song_id,directionValidation:check,validation:score?validateEchoVisualScore(score,{timeline}):null,notice:'Interpreted locally; nothing is saved. Save the returned direction to keep it.'};
+}
+
+/** "album" without a stored spec resolves from the Song store, then composes like any preset. */
+function withAlbumColour(direction,songs,songId){
+ if(direction?.colour?.preset!=='album'||direction.colour.album)return direction;
+ const album=albumDustColour(typeof songs==='function'?songs():songs||[],songId);
+ return album?{...direction,colour:{...direction.colour,album}}:direction;
+}
 
 const fail=(message,statusCode=422)=>Object.assign(new Error(`Visual score: ${message}`),{statusCode});
 const MAX_INPUT_BYTES=64*1024;
@@ -55,14 +90,14 @@ export function createVisualScoreDirectionStore({dir,lock,release}){
  * → timeline, score, validation and play settings. Without a request direction
  * the Song's latest saved direction is used, so UI, API and CLI agree.
  */
-export function atlasVisualScore(result,input={},{saved=null}={}){
+export function atlasVisualScore(result,input={},{saved=null,songs=[]}={}){
  const timeline=buildEchoMusicalTimelineFromAtlas(result);
  const requested=parseValue(input.direction,'direction');
  const useSaved=input.useSaved!==false&&input.useSaved!=='false';
  if(requested){const check=validateEchoScoreDirection(requested);if(!check.ok)throw fail(`invalid direction: ${check.errors.map(e=>e.message).join(' ')}`);}
  // A saved revision that no longer validates is reported and skipped, never fatal to reads.
  const savedUsable=Boolean(useSaved&&saved&&validateEchoScoreDirection(saved.direction).ok);
- const direction=requested||(savedUsable?saved.direction:{});
+ const direction=withAlbumColour(requested||(savedUsable?saved.direction:{}),songs,result.song_id);
  const lyricLines=parseValue(input.lyricLines,'lyricLines',{array:true});
  if(lyricLines&&lyricLines.length>MAX_LYRIC_LINES)throw fail(`at most ${MAX_LYRIC_LINES} lyric lines`);
  const supplied=parseValue(input.score,'score');
@@ -79,9 +114,10 @@ export function atlasVisualScore(result,input={},{saved=null}={}){
 }
 
 /** Validate a direction against the run it was authored on, then append it. */
-export function saveVisualScoreDirection(result,store,input={}){
- const direction=parseValue(input.direction,'direction');
- if(!direction)throw fail('direction required');
+export function saveVisualScoreDirection(result,store,input={},{songs=[]}={}){
+ const parsed=parseValue(input.direction,'direction');
+ if(!parsed)throw fail('direction required');
+ const direction=withAlbumColour(parsed,songs,result.song_id);
  if(!Number.isSafeInteger(input.baseRevision)||input.baseRevision<0)throw fail('baseRevision must be the latest revision you edited (0 for the first)');
  const projection=atlasVisualScore(result,{...input,direction,useSaved:false});
  if(!projection.validation.ok)throw fail(`composed score is invalid: ${projection.validation.errors.map(e=>e.code).join(', ')}`);
@@ -90,4 +126,46 @@ export function saveVisualScoreDirection(result,store,input={}){
  return store.append(result.song_id,{baseRevision:input.baseRevision,author,note,runId:result.run_id,
   timelineFingerprint:projection.timeline.fingerprint,scoreFingerprint:projection.score.fingerprint,
   validation:{ok:true,warnings:projection.validation.warnings.length},direction});
+}
+
+/**
+ * Append-only ledger of named looks shared by every Song. The latest row per
+ * name wins; a deletion is a tombstone row, so earlier looks stay recoverable.
+ */
+export function createVisualScoreLookStore({dir,lock,release}){
+ const file=path.join(dir,'looks.ndjson');
+ function rows(){
+  if(!fs.existsSync(file))return {rows:[],ignoredLines:0};
+  let ignoredLines=0;const out=[];
+  for(const line of fs.readFileSync(file,'utf8').split('\n')){
+   if(!line.trim())continue;
+   try{const row=JSON.parse(line);if(row.schemaVersion===DUST_LOOK_SCHEMA&&dustLookSlug(row.name))out.push(row);else ignoredLines++;}catch{ignoredLines++;}
+  }
+  return {rows:out,ignoredLines};
+ }
+ function list(){
+  const {rows:all,ignoredLines}=rows(),latest=new Map();
+  for(const row of all)latest.set(row.slug,row);
+  const saved=[...latest.values()].filter(row=>!row.deleted&&validateDustLook(row).ok);
+  return {looks:mergeDustLooks(saved),saved:saved.length,revisions:all.length,ignoredLines};
+ }
+ function save(input={}){
+  const deleted=input.deleted===true||input.deleted==='true';
+  const name=typeof input.name==='string'?input.name.trim():'';
+  const look=deleted?{}:parseValue(input.look,'look');
+  const check=validateDustLook({name,look});
+  if(!check.ok)throw fail(`invalid look: ${check.errors.map(e=>e.message).join(' ')}`);
+  const slug=dustLookSlug(name),lease=lock();
+  try{
+   const current=rows().rows.filter(row=>row.slug===slug),revision=(current.at(-1)?.revision||0)+1;
+   if(deleted&&(!current.length||current.at(-1).deleted))throw fail(`No saved look named ${name}`,404);
+   const row={schemaVersion:DUST_LOOK_SCHEMA,slug,name,revision,author:typeof input.author==='string'&&input.author.trim()?input.author.trim().slice(0,80):'operator',
+    note:typeof input.note==='string'?input.note.slice(0,500):'',...(deleted?{deleted:true}:{look}),createdAt:new Date().toISOString()};
+   fs.mkdirSync(dir,{recursive:true});
+   const fd=fs.openSync(file,'a',0o600);
+   try{fs.writeSync(fd,`${JSON.stringify(row)}\n`);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+   return row;
+  }finally{release(lease);}
+ }
+ return {list,save};
 }

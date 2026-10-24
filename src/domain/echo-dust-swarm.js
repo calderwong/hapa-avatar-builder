@@ -15,6 +15,8 @@ export const DUST_MAX_STEP_SECONDS = 1 / 30;
 export const DUST_FIXED_STEP_SECONDS = 1 / 60;
 export const DUST_VISIBILITY_TAU_SECONDS = 0.35;
 export const DUST_MAX_PARTICLES = 20000;
+/** The GPU live tier (echo-score-dust-gpu.js) runs up to this many; samplers fill targets for it. */
+export const DUST_MAX_GPU_PARTICLES = 80000;
 export const DUST_SHOCK_SPEED = 2.6;
 
 const TAU = Math.PI * 2;
@@ -145,20 +147,29 @@ const FAMILY_FLEXIBILITY = { sheet: 0.9, fountain: 0.8, dandelion: 0.75, jellyfi
  * host). Pixels need not come from a canvas; any {width,height,data} works.
  * Outline points get low flexibility so strokes stay legible.
  */
-export function sampleDustTargetsFromPixels(image, { count = 2000, seed = 1, threshold = 0.3, scale = 1.4 } = {}) {
+export function sampleDustTargetsFromPixels(image, { count = 2000, seed = 1, threshold = 0.3, scale = 1.4, mode = "auto" } = {}) {
   const { width, height, data } = image || {};
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || !data || data.length < width * height * 4) {
     throw new TypeError("RGBA pixels with integer width and height are required.");
   }
+  // Backgroundless pictures (meaningful transparency) use their alpha
+  // silhouette, so dark clothing still forms; opaque pictures use luminance.
+  let transparent = 0;
+  for (let i = 3; i < width * height * 4; i += 16) if (data[i] < 26) transparent++;
+  const useAlpha = mode === "alpha" || (mode === "auto" && transparent > (width * height) / 4 * 0.05);
   const lit = (x, y) => {
     if (x < 0 || y < 0 || x >= width || y >= height) return 0;
     const o = (y * width + x) * 4, alpha = data[o + 3] / 255;
-    return ((0.2126 * data[o] + 0.7152 * data[o + 1] + 0.0722 * data[o + 2]) / 255) * alpha;
+    const luma = (0.2126 * data[o] + 0.7152 * data[o + 1] + 0.0722 * data[o + 2]) / 255;
+    // Logos: any opaque colour forms, near-black reads as a cut-out hole.
+    if (mode === "logo") return alpha >= 0.5 && luma >= 0.06 ? Math.max(threshold, alpha) : 0;
+    if (useAlpha) return alpha >= 0.5 ? Math.max(threshold, alpha) : 0;
+    return luma * alpha;
   };
   const candidates = [];
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (lit(x, y) >= threshold) candidates.push(y * width + x);
-  const total = Math.max(0, Math.min(DUST_MAX_PARTICLES, count | 0));
-  const points = { count: 0, position: new Float32Array(total * 3), normal: new Float32Array(total * 3), param: new Float32Array(total), flex: new Float32Array(total), edge: new Uint8Array(total) };
+  const total = Math.max(0, Math.min(DUST_MAX_GPU_PARTICLES, count | 0));
+  const points = { count: 0, position: new Float32Array(total * 3), normal: new Float32Array(total * 3), param: new Float32Array(total), flex: new Float32Array(total), edge: new Uint8Array(total), color: new Uint8Array(total * 3) };
   if (!candidates.length || !total) return points;
   const span = Math.max(width, height), half = scale / 2;
   for (let i = 0; i < total; i++) {
@@ -174,6 +185,55 @@ export function sampleDustTargetsFromPixels(image, { count = 2000, seed = 1, thr
     points.param[i] = clamp((points.position[i * 3] + half) / scale);
     points.flex[i] = edge ? 0.15 : 0.45;
     points.edge[i] = edge ? 1 : 0;
+    // Keep the picture's own colour for "from the picture" colouring.
+    const o = index * 4;
+    points.color[i * 3] = data[o]; points.color[i * 3 + 1] = data[o + 1]; points.color[i * 3 + 2] = data[o + 2];
+  }
+  points.count = total;
+  return points;
+}
+
+/**
+ * Sample dust targets from a triangle soup (P2 item 13: Avatar 3D models).
+ * `triangles` holds 9 floats per triangle; `colors` (optional) 3 bytes per
+ * triangle. The model is centred and scaled so its largest extent is `scale`;
+ * points are spread by surface area with deterministic stratified picks and
+ * carry the face normal, a bottom-to-top param and the triangle colour.
+ */
+export function sampleDustTargetsFromTriangles(triangles, { count = 2000, seed = 1, scale = 2.6, colors = null } = {}) {
+  const t = triangles?.length ? Math.floor(triangles.length / 9) : 0;
+  const total = Math.max(0, Math.min(DUST_MAX_GPU_PARTICLES, count | 0));
+  const points = { count: 0, position: new Float32Array(total * 3), normal: new Float32Array(total * 3), param: new Float32Array(total), flex: new Float32Array(total), edge: new Uint8Array(total), color: new Uint8Array(total * 3) };
+  if (!t || !total) return points;
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < t * 9; i++) { const a = i % 3; if (Number.isFinite(triangles[i])) { min[a] = Math.min(min[a], triangles[i]); max[a] = Math.max(max[a], triangles[i]); } }
+  const extent = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  if (!(extent > 0)) return points;
+  const centre = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2], k = scale / extent;
+  const cumulative = new Float64Array(t);
+  let area = 0;
+  for (let f = 0; f < t; f++) {
+    const o = f * 9, ux = triangles[o + 3] - triangles[o], uy = triangles[o + 4] - triangles[o + 1], uz = triangles[o + 5] - triangles[o + 2];
+    const vx = triangles[o + 6] - triangles[o], vy = triangles[o + 7] - triangles[o + 1], vz = triangles[o + 8] - triangles[o + 2];
+    const a = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+    area += Number.isFinite(a) ? a : 0; cumulative[f] = area;
+  }
+  if (!(area > 0)) return points;
+  for (let i = 0; i < total; i++) {
+    const target = ((i + hashUnit(i, seed, 21)) / total) * area;
+    let lo = 0, hi = t - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (cumulative[mid] < target) lo = mid + 1; else hi = mid; }
+    const o = lo * 9, r1 = Math.sqrt(hashUnit(i, seed, 22)), r2 = hashUnit(i, seed, 23);
+    const wa = 1 - r1, wb = r1 * (1 - r2), wc = r1 * r2;
+    for (let a = 0; a < 3; a++) points.position[i * 3 + a] = ((wa * triangles[o + a] + wb * triangles[o + 3 + a] + wc * triangles[o + 6 + a]) - centre[a]) * k;
+    const ux = triangles[o + 3] - triangles[o], uy = triangles[o + 4] - triangles[o + 1], uz = triangles[o + 5] - triangles[o + 2];
+    const vx = triangles[o + 6] - triangles[o], vy = triangles[o + 7] - triangles[o + 1], vz = triangles[o + 8] - triangles[o + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, nl = Math.hypot(nx, ny, nz) || 1;
+    points.normal[i * 3] = nx / nl; points.normal[i * 3 + 1] = ny / nl; points.normal[i * 3 + 2] = nz / nl;
+    points.param[i] = clamp(points.position[i * 3 + 1] / scale + 0.5);
+    points.flex[i] = 0.35;
+    if (colors) { points.color[i * 3] = colors[lo * 3]; points.color[i * 3 + 1] = colors[lo * 3 + 1]; points.color[i * 3 + 2] = colors[lo * 3 + 2]; }
+    else points.color.fill(220, i * 3, i * 3 + 3);
   }
   points.count = total;
   return points;
@@ -201,16 +261,12 @@ function bandAt(bands, coordinate) {
   return bands[low] + (bands[high] - bands[low]) * (position - low);
 }
 
-/** Create a persistent swarm. All state lives in typed arrays (16 floats per particle). */
-export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
-  const n = clamp(Math.floor(Number(count) || 0), 1, DUST_MAX_PARTICLES);
+/**
+ * Stable per-particle variation from the integer hash. Shared by the CPU
+ * swarm and the GPU swarm so both hosts give every grain the same character.
+ */
+export function dustParticleConstants(n, seed) {
   const s = Number(seed) >>> 0;
-  // State: position + band value, velocity + visibility (2 × vec4).
-  const position = new Float32Array(n * 3), velocity = new Float32Array(n * 3), band = new Float32Array(n), visibility = new Float32Array(n);
-  // Target: desired position + band coordinate, normal + flexibility (2 × vec4),
-  // plus the previous target for staggered formation changes.
-  const target = new Float32Array(n * 3), normal = new Float32Array(n * 3), param = new Float32Array(n), flex = new Float32Array(n), previous = new Float32Array(n * 3);
-  // Stable per-particle variation from the integer hash.
   const frequency = new Float32Array(n), size = new Float32Array(n), brightness = new Float32Array(n), rank = new Float32Array(n), lag = new Float32Array(n), scatter = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
     frequency[i] = 0.7 + 0.6 * hashUnit(i, s, 1);
@@ -221,41 +277,71 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
     const [sx, sy, sz] = normalize3(hashUnit(i, s, 6) - 0.5, hashUnit(i, s, 7) - 0.5, hashUnit(i, s, 8) - 0.5);
     scatter[i * 3] = sx; scatter[i * 3 + 1] = sy; scatter[i * 3 + 2] = sz;
   }
+  return { frequency, size, brightness, rank, lag, scatter };
+}
+
+/**
+ * Fill formation targets for n particles (family name or sampled points).
+ * Shared by both swarms. Returns { family, tintActive }.
+ */
+export function fillDustFormationTargets(spec, { n, seed, scale = 1, flexibility = null, scatter, rank, target, normal, param, flex, tint }) {
+  const s = Number(seed) >>> 0;
+  const points = typeof spec === "object" && spec?.position ? spec : null;
+  const family = points ? "points" : String(spec);
+  if (!points && !FORMATIONS[family]) throw new RangeError(`Unknown dust formation: ${family}`);
+  const baseFlex = flexibility ?? FAMILY_FLEXIBILITY[family] ?? 0.5;
+  const tintActive = Boolean(points?.count && points.color);
+  for (let i = 0; i < n; i++) {
+    let p;
+    if (points?.count) {
+      const j = i % points.count;
+      p = [points.position[j * 3], points.position[j * 3 + 1], points.position[j * 3 + 2], points.normal[j * 3], points.normal[j * 3 + 1], points.normal[j * 3 + 2], points.param[j]];
+      flex[i] = points.flex[j];
+      if (tintActive) { tint[i * 3] = points.color[j * 3]; tint[i * 3 + 1] = points.color[j * 3 + 1]; tint[i * 3 + 2] = points.color[j * 3 + 2]; }
+    } else if (points) {
+      p = [scatter[i * 3] * 1.6, scatter[i * 3 + 1] * 1.6, scatter[i * 3 + 2] * 1.6, scatter[i * 3], scatter[i * 3 + 1], scatter[i * 3 + 2], rank[i]];
+      flex[i] = baseFlex;
+    } else {
+      p = FORMATIONS[family]((i + 0.5) / n, hashUnit(i, s, 9), hashUnit(i, s, 10), i, n);
+      flex[i] = baseFlex;
+    }
+    target[i * 3] = p[0] * scale; target[i * 3 + 1] = p[1] * scale; target[i * 3 + 2] = p[2] * scale;
+    normal[i * 3] = p[3]; normal[i * 3 + 1] = p[4]; normal[i * 3 + 2] = p[5];
+    param[i] = p[6];
+  }
+  return { family, tintActive };
+}
+
+/** Create a persistent swarm. All state lives in typed arrays (16 floats per particle). */
+export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
+  const n = clamp(Math.floor(Number(count) || 0), 1, DUST_MAX_PARTICLES);
+  const s = Number(seed) >>> 0;
+  // State: position + band value, velocity + visibility (2 × vec4).
+  const position = new Float32Array(n * 3), velocity = new Float32Array(n * 3), band = new Float32Array(n), visibility = new Float32Array(n);
+  // Target: desired position + band coordinate, normal + flexibility (2 × vec4),
+  // plus the previous target for staggered formation changes.
+  const target = new Float32Array(n * 3), normal = new Float32Array(n * 3), param = new Float32Array(n), flex = new Float32Array(n), previous = new Float32Array(n * 3);
+  const { frequency, size, brightness, rank, lag, scatter } = dustParticleConstants(n, s);
+  // Per-particle source colour when the formation comes from a picture.
+  const tint = new Uint8Array(n * 3);
+  let tintActive = false;
   const shocks = [];
-  let time = 0, rotation = 0, formation = null, switchedAt = -Infinity, stagger = 0, pendingKick = 0;
+  let time = 0, rotation = 0, formation = null, switchedAt = -Infinity, stagger = 0, pendingKick = 0, sparkle = 0;
 
   /** Return to the seeded initial state at a given simulation time. */
   function reset(startTime = 0) {
     for (let i = 0; i < n * 3; i++) { position[i] = scatter[i] * 2.5; velocity[i] = 0; target[i] = 0; previous[i] = 0; normal[i] = 0; }
     visibility.fill(0); band.fill(0); param.fill(0); flex.fill(0);
     shocks.length = 0;
-    time = Number(startTime) || 0; rotation = 0; formation = null; switchedAt = -Infinity; stagger = 0; pendingKick = 0;
+    time = Number(startTime) || 0; rotation = 0; formation = null; switchedAt = -Infinity; stagger = 0; pendingKick = 0; sparkle = 0;
   }
   reset(0);
 
   function setFormation(spec = "sphere", { scale = 1, flexibility = null, stagger: staggerSeconds = 0.35, snap = false, rotation: snapRotation = null } = {}) {
     previous.set(target);
-    const points = typeof spec === "object" && spec?.position ? spec : null;
-    const family = points ? "points" : String(spec);
-    if (!points && !FORMATIONS[family]) throw new RangeError(`Unknown dust formation: ${family}`);
-    const baseFlex = flexibility ?? FAMILY_FLEXIBILITY[family] ?? 0.5;
-    for (let i = 0; i < n; i++) {
-      let p;
-      if (points?.count) {
-        const j = i % points.count;
-        p = [points.position[j * 3], points.position[j * 3 + 1], points.position[j * 3 + 2], points.normal[j * 3], points.normal[j * 3 + 1], points.normal[j * 3 + 2], points.param[j]];
-        flex[i] = points.flex[j];
-      } else if (points) {
-        p = [scatter[i * 3] * 1.6, scatter[i * 3 + 1] * 1.6, scatter[i * 3 + 2] * 1.6, scatter[i * 3], scatter[i * 3 + 1], scatter[i * 3 + 2], rank[i]];
-        flex[i] = baseFlex;
-      } else {
-        p = FORMATIONS[family]((i + 0.5) / n, hashUnit(i, s, 9), hashUnit(i, s, 10), i, n);
-        flex[i] = baseFlex;
-      }
-      target[i * 3] = p[0] * scale; target[i * 3 + 1] = p[1] * scale; target[i * 3 + 2] = p[2] * scale;
-      normal[i * 3] = p[3]; normal[i * 3 + 1] = p[4]; normal[i * 3 + 2] = p[5];
-      param[i] = p[6];
-    }
+    const filled = fillDustFormationTargets(spec, { n, seed: s, scale, flexibility, scatter, rank, target, normal, param, flex, tint });
+    const family = filled.family;
+    tintActive = filled.tintActive;
     if (formation === null || snap) previous.set(target);
     if (snap) {
       // Start already in place (export preroll), at the requested rotation.
@@ -281,6 +367,7 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
     const dt = clamp(Number(dtSeconds) || 0, 0, DUST_MAX_STEP_SECONDS);
     if (dt <= 0) return 0;
     time += dt;
+    sparkle = clamp(controls.sparkle ?? 0);
     const hold = clamp(controls.hold ?? 0.7), omega = Math.max(0.1, Number(controls.omega) || 5.5);
     // A firmly held formation is stiff and well damped; a released one floats.
     const stiffnessScale = 0.15 + 0.85 * hold, zeta = 0.22 + 0.5 * hold;
@@ -363,13 +450,22 @@ export function createDustSwarm({ count = 6000, seed = 1 } = {}) {
   }
 
   return {
-    count: n, seed: s, position, velocity, band, visibility, target, normal, param, flex, size, brightness, frequency, rank,
+    count: n, seed: s, position, velocity, band, visibility, target, normal, param, flex, size, brightness, frequency, rank, tint,
+    get tintActive() { return tintActive; },
     get time() { return time; },
     get formation() { return formation; },
     get rotation() { return rotation; },
+    get sparkle() { return sparkle; },
     get activeShocks() { return shocks.length; },
     setFormation, kick, shock, step, advanceTo, fingerprint, reset,
   };
+}
+
+/** Deterministic twinkle: with sparkle up, a hashed few grains flare each 1/24 s. */
+export function dustTwinkle(swarm, i) {
+  const level = swarm.sparkle || 0;
+  if (level <= 0.02) return 1;
+  return hashUnit(i, Math.floor((swarm.time || 0) * 24), 31) < 0.14 * level ? 1 + 1.6 * level : 1;
 }
 
 /**
@@ -396,7 +492,7 @@ export function projectDustSwarm(swarm, { width, height, yaw = 0, pitch = 0.22, 
     // Framing compensation keeps shrinking dots luminous instead of vanishing.
     // Nearer dots read brighter than the far side of a formation (depth cue).
     const depthLight = clamp(1 - (z2 - distance) * depthFade, 0.35, 1.25);
-    buffers.alpha[i] = clamp(alpha * swarm.brightness[i] * (0.3 + 0.4 * swarm.band[i]) * depthLight * Math.min(1.6, 1 / Math.max(0.6, radius)));
+    buffers.alpha[i] = clamp(alpha * swarm.brightness[i] * (0.3 + 0.4 * swarm.band[i]) * depthLight * Math.min(1.6, 1 / Math.max(0.6, radius)) * dustTwinkle(swarm, i));
     visible++;
   }
   buffers.visible = visible;
