@@ -104,6 +104,9 @@ export function createHapaSongStoreFromDearPapaSongbook(songbook = {}, songLibra
 
 export function normalizeHapaSongStore(input = {}, songbook = {}, songLibrary = {}) {
   const now = new Date().toISOString();
+  const albumId = songbook.album?.id || input.album?.id || DEAR_PAPA_ALBUM_ID;
+  const albumTitle = songbook.album?.title || input.album?.title || DEAR_PAPA_ALBUM_TITLE;
+  const isDearPapa = albumId === DEAR_PAPA_ALBUM_ID;
   // The browser ships a compact starter songbook. It supplements a hydrated
   // store; it must not act as an allowlist that removes the rest of the album.
   const sourceCards = [...(Array.isArray(songbook.songCards) ? songbook.songCards : [])];
@@ -127,11 +130,11 @@ export function normalizeHapaSongStore(input = {}, songbook = {}, songLibrary = 
   const normalized = {
     schemaVersion: HAPA_SONG_STORE_VERSION,
     scope: {
-      library: "dear-papa-only",
-      albumId: songbook.album?.id || DEAR_PAPA_ALBUM_ID,
-      albumTitle: songbook.album?.title || DEAR_PAPA_ALBUM_TITLE,
-      source: "data/dear-papa-songbook.json",
-      registryCollection: "dear-papa"
+      library: isDearPapa ? "dear-papa-only" : (input.scope?.library || "curated-album"),
+      albumId,
+      albumTitle,
+      source: input.scope?.source || "data/dear-papa-songbook.json",
+      registryCollection: isDearPapa ? "dear-papa" : slugify(albumTitle)
     },
     album: normalizeAlbum({ ...(input.album || {}), ...(songbook.album || {}) }),
     songs,
@@ -146,7 +149,7 @@ export function normalizeHapaSongStore(input = {}, songbook = {}, songLibrary = 
       songbookGeneratedAt: songbook.generatedAt || null,
       songRegistryStatus: songLibrary?.status || "unavailable",
       songRegistryTotal: Number(songLibrary?.total) || (Array.isArray(songLibrary?.songs) ? songLibrary.songs.length : 0),
-      musicVizNode: "/Users/calderwong/Desktop/hapa-music-viz"
+      musicVizNode: "hapa-music-viz"
     },
     createdAt,
     updatedAt: input.updatedAt || now
@@ -173,8 +176,9 @@ export function normalizeHapaSong(existing = {}, sourceCard = {}, registryTrack 
   const visualizers = normalizeVisualizerLinks(existing.visualizers || existing.attachedVisualizers || []);
   const storyBeats = normalizeStoryBeats(existing.storyBeats || []);
   const comments = normalizeSongComments(existing.comments || []);
+  const albumTag = slugify(sourceCard.albumTitle || existing.albumTitle || DEAR_PAPA_ALBUM_TITLE);
   const tags = uniqueTextList([
-    "dear-papa",
+    albumTag,
     "hapa-song",
     sourceCard.mood,
     sourcePerspective.team_color || sourcePerspective.teamColor,

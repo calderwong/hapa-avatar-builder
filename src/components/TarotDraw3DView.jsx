@@ -22,6 +22,7 @@ import {
 } from "../domain/echo-isf-browser-runtime.js";
 import { echoLegacyCanvasApproximation } from "../domain/echo-shader-picker.js";
 import { localFileApiUri } from "../domain/local-media-uri.js";
+import { resolvePublicDemoAssetUri } from "../domain/public-demo-runtime.js";
 import { applyCardCustodyReceipt, CARD_CUSTODY_RECEIPT_SCHEMA } from "../domain/card-custody.js";
 import { buildTruthfulUnmintedVisualizerCard, resolveAuthoritativeTarotSongCardPrint } from "../domain/song-card-tarot-print.js";
 import {
@@ -120,6 +121,8 @@ const TAROT_CARD_BROWSER_TYPE_FILTERS = [
   { id: "avatar", label: "Avatars", pileIds: ["avatar"], textHints: ["avatar"], accent: "#00f3ff" },
   { id: "scene", label: "Scenes", pileIds: ["scene"], textHints: ["tarot-draw-scene", "saved-scene", "scene-snapshot", "scene_snapshot"], accent: "#45f2c8" },
   { id: "skill", label: "Skills", pileIds: ["skill"], textHints: ["skill"], accent: "#ff7448" },
+  { id: "node", label: "Nodes", pileIds: ["node"], textHints: ["node"], accent: "#4facfe" },
+  { id: "turn", label: "Turns", pileIds: ["turn"], textHints: ["turn", "wisdom"], accent: "#f6c96d" },
   { id: "garden", label: "Gardens", pileIds: ["garden"], textHints: ["garden"], accent: "#79f58f" },
   { id: "item", label: "Items", pileIds: ["item"], textHints: ["item"], accent: "#58c8ff" },
   { id: "lore", label: "Lore", pileIds: ["lore"], textHints: ["lore"], accent: "#f6c96d" },
@@ -390,10 +393,14 @@ const CARD_BACK_STYLES = [
   { id: "avatar", label: "Avatar", accent: "#ff00ff", accentB: "#9d74ff", title: "HAPA", subtitle: "AVATAR" }
 ];
 
+const publicDemoAssetUri = (uri) => resolvePublicDemoAssetUri(uri, import.meta.env?.BASE_URL || "/");
+
 const CARD_TYPE_BACKS = [
   { id: "skill", label: "Skills", pileIds: ["skill_card", "skill_tarot_card", "skill", "skills"], imageUri: "/media/mimi-card-shop-backs/skills.png", accent: "#ff7448" },
   { id: "protocol", label: "Protocols", pileIds: ["protocol_card", "protocol_tarot_card", "protocol", "protocols"], imageUri: "/media/mimi-card-shop-backs/protocols.png", accent: "#43b7ff" },
   { id: "capability", label: "Capabilities", pileIds: ["capability_card", "capability_tarot_card", "capability", "capabilities"], imageUri: "/media/mimi-card-shop-backs/capabilities.png", accent: "#45f2c8" },
+  { id: "node", label: "Nodes", pileIds: ["node_card", "node_tarot_card", "node", "nodes"], imageUri: publicDemoAssetUri("/demo/node-card.svg"), accent: "#4facfe" },
+  { id: "turn", label: "Turns", pileIds: ["turn_card", "turn_tarot_card", "turn", "turns"], imageUri: publicDemoAssetUri("/demo/skill-card.svg"), accent: "#f6c96d" },
   { id: "lore", label: "Lore", pileIds: ["lore_card", "lore_tarot_card", "lore"], imageUri: "/media/mimi-card-shop-backs/lore.png", accent: "#f6c96d" },
   { id: "garden", label: "Gardens", pileIds: ["garden_card", "garden_tarot_card", "gardens", "garden"], imageUri: "/media/mimi-card-shop-backs/gardens.png", accent: "#79f58f" },
   { id: "item", label: "Items", pileIds: ["item_card", "item_tarot_card", "items", "item"], imageUri: "/media/mimi-card-shop-backs/items.png", accent: "#58c8ff" },
@@ -6477,6 +6484,12 @@ function normalizeCardPileId(value = "") {
     capability_cards: "capability",
     capability_tarot_card: "capability",
     capabilities: "capability",
+    node_card: "node",
+    node_tarot_card: "node",
+    nodes: "node",
+    turn_card: "turn",
+    turn_tarot_card: "turn",
+    turns: "turn",
     garden_card: "garden",
     garden_tarot_card: "garden",
     gardens: "garden",
@@ -6540,6 +6553,8 @@ function tarotPileLabel(id = "") {
     protocol: "Protocols",
     capability_card: "Capability Cards",
     capability: "Capabilities",
+    node: "Nodes",
+    turn: "Turn Cards",
     lore_card: "Lore Cards",
     lore: "Lore Cards",
     garden_card: "Garden Cards",
@@ -6583,6 +6598,8 @@ function tarotPileShortLabel(id = "", label = tarotPileLabel(id)) {
     protocol: "Protocol",
     capability_card: "Ability",
     capability: "Ability",
+    node: "Node",
+    turn: "Turn",
     lore_card: "Lore",
     lore: "Lore",
     garden_card: "Garden",

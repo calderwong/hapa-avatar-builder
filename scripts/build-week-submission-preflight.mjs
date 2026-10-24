@@ -13,13 +13,29 @@ if (rootIndex === -1 || !argv[rootIndex + 1]) {
 
 const root = path.resolve(argv[rootIndex + 1]);
 const failures = [];
+const publicDemoVideoUrl = "https://youtu.be/Y-RR2AwnH5A";
+const publicRepositoryUrl = "https://github.com/calderwong/hapa-avatar-builder";
+const devpostProjectUrl = "https://devpost.com/software/hapa-ai";
+const devpostSubmissionId = "1102452";
+const codexFeedbackSessionId = "019f720f-422d-7f60-a149-2256bb37a762";
+const youtubePlaceholder = ["[", "YOUTUBE_URL", "]"].join("");
+const unresolvedSubmissionPlaceholders = [
+  ["[", "REPOSITORY_OR_BUILD_URL", "]"].join(""),
+  ["[", "CODEX_SESSION_ID", "]"].join(""),
+  ["[", "FINAL_JUDGE_QUICKSTART", "]"].join("")
+];
 const required = [
   "JUDGE_PACKAGE_MANIFEST.json",
+  "LICENSE",
   "package.json",
   "package-lock.json",
   "vendor/hapa-overcard-0.1.1.tgz",
+  "fixtures/build-week/judge-data/avatar-store.json",
   "fixtures/build-week/judge-data/dear-papa-songbook.json",
   "fixtures/build-week/judge-data/hapa-songs-store.json",
+  "fixtures/build-week/judge-data/inventory-store.json",
+  "fixtures/build-week/judge-data/item-manager-store.json",
+  "fixtures/build-week/judge-data/tarot-store.json",
   "fixtures/build-week/judge-data/ballad-of-bella-packet.json",
   "fixtures/build-week/judge-data/kanban.json",
   "docs/submission/JUDGE_QUICKSTART.md",
@@ -30,6 +46,50 @@ const required = [
 ];
 for (const relativePath of required) {
   if (!existsSync(path.join(root, relativePath))) failures.push(`missing:${relativePath}`);
+}
+
+const videoLinkRequired = [
+  "README.md",
+  "docs/submission/README.md",
+  "docs/submission/CODEX_BUILD_WEEK_DEVPOST_COPY_DRAFT.md",
+  "docs/submission/CODEX_BUILD_WEEK_DEVPOST_FIELDS_FINAL_DRAFT.md",
+  "docs/submission/JUDGE_QUICKSTART.md",
+  "docs/submission/RIGHTS_PRIVACY_CLAIM_AUDIT.md",
+  "docs/submission/codex-build-week-change-manifest-v1.json"
+];
+for (const relativePath of videoLinkRequired) {
+  const absolutePath = path.join(root, relativePath);
+  if (existsSync(absolutePath) && !readFileSync(absolutePath, "utf8").includes(publicDemoVideoUrl)) {
+    failures.push(`missing-demo-video-url:${relativePath}`);
+  }
+}
+
+const resolvedSubmissionValueRequired = [
+  "docs/submission/CODEX_BUILD_WEEK_DEVPOST_COPY_DRAFT.md",
+  "docs/submission/CODEX_BUILD_WEEK_DEVPOST_FIELDS_FINAL_DRAFT.md",
+  "docs/submission/codex-build-week-change-manifest-v1.json"
+];
+for (const relativePath of resolvedSubmissionValueRequired) {
+  const absolutePath = path.join(root, relativePath);
+  if (!existsSync(absolutePath)) continue;
+  const text = readFileSync(absolutePath, "utf8");
+  if (!text.includes(publicRepositoryUrl)) failures.push(`missing-repository-url:${relativePath}`);
+  if (!text.includes(codexFeedbackSessionId)) failures.push(`missing-feedback-session-id:${relativePath}`);
+}
+
+const submittedReceiptRequired = [
+  "docs/submission/README.md",
+  "docs/submission/CODEX_BUILD_WEEK_SUBMISSION_READINESS.md",
+  "docs/submission/codex-build-week-change-manifest-v1.json"
+];
+for (const relativePath of submittedReceiptRequired) {
+  const absolutePath = path.join(root, relativePath);
+  if (!existsSync(absolutePath)) continue;
+  const text = readFileSync(absolutePath, "utf8");
+  if (!text.includes(devpostSubmissionId)) failures.push(`missing-devpost-submission-id:${relativePath}`);
+  if (relativePath !== "docs/submission/CODEX_BUILD_WEEK_SUBMISSION_READINESS.md" && !text.includes(devpostProjectUrl)) {
+    failures.push(`missing-devpost-project-url:${relativePath}`);
+  }
 }
 
 for (const forbidden of [".git", "node_modules", "dist", "artifacts", "data", "public-static/media", "public-static/sample"]) {
@@ -89,6 +149,10 @@ const walk = (directory) => {
     }
     if (!entry.isFile() || !textExtensions.has(path.extname(entry.name).toLowerCase())) continue;
     const text = readFileSync(absolutePath, "utf8");
+    if (text.includes(youtubePlaceholder)) failures.push(`youtube-placeholder:${relativePath}`);
+    for (const placeholder of unresolvedSubmissionPlaceholders) {
+      if (text.includes(placeholder)) failures.push(`submission-placeholder:${relativePath}:${placeholder}`);
+    }
     for (const pattern of secretPatterns) {
       if (pattern.regex.test(text)) failures.push(`secret-pattern:${pattern.name}:${relativePath}`);
     }

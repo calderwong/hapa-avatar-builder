@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Green public demo Avatar</title><desc id="desc">Abstract green neon Avatar portrait made for the Build Week public demo.</desc>
+  <defs><radialGradient id="bg"><stop stop-color="#07513f"/><stop offset="1" stop-color="#020617"/></radialGradient><linearGradient id="edge" x2="1" y2="1"><stop stop-color="#35f0a0"/><stop offset="1" stop-color="#d8ff6b"/></linearGradient></defs>
+  <rect width="800" height="1000" rx="54" fill="url(#bg)"/><path d="M80 820 198 182 400 78l202 104 118 638-320 126Z" fill="#06140f" stroke="url(#edge)" stroke-width="10"/>
+  <circle cx="400" cy="390" r="190" fill="none" stroke="#35f0a0" stroke-opacity=".25" stroke-width="40"/><path d="m400 205 126 214-126 229-126-229Z" fill="#061510" stroke="#35f0a0" stroke-width="8"/>
+  <path d="M329 386h54M417 386h54M338 492q62 44 124 0" fill="none" stroke="#efffe9" stroke-width="10" stroke-linecap="round"/><path d="M239 768h322" stroke="#35f0a0" stroke-width="6"/>
+  <text x="400" y="846" text-anchor="middle" fill="#f1ffeb" font-family="system-ui,sans-serif" font-size="72" font-weight="900">GREEN</text><text x="400" y="898" text-anchor="middle" fill="#8effbd" font-family="monospace" font-size="22" letter-spacing="6">STAKEHOLDER LENS</text>
+</svg>

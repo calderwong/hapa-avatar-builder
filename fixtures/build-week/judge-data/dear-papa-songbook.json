@@ -1,21 +1,73 @@
 {
-  "schemaVersion": "hapa.dear-papa-red-blue-green-songbook.v1",
+  "schemaVersion": "hapa.echo-state-public-demo-songbook.v1",
   "album": {
-    "id": "dear-papa-album",
-    "title": "Dear Papa",
+    "id": "echo-state-demo-album",
+    "title": "Echo State",
     "author": "Calder",
-    "scope": "runtime-hydrated"
+    "scope": "build-week-public-demo"
   },
   "summary": {
-    "songCards": 0,
-    "fixtureDisclosure": "Public-safe empty bootstrap. The local API hydrates operator-owned runtime data when available."
+    "songCards": 3,
+    "fixtureDisclosure": "Three original text-only preview Song Cards. No private lyrics, source audio, stems, or full song roster are bundled."
   },
-  "songCards": [],
+  "songCards": [
+    {
+      "id": "echo-state-song-red-signal",
+      "cardId": "echo-state-song-red-signal",
+      "songId": "red-signal",
+      "albumId": "echo-state-demo-album",
+      "albumTitle": "Echo State",
+      "trackNumber": 1,
+      "title": "Red Signal",
+      "author": "Calder",
+      "mood": "urgent-cinematic",
+      "learningThing": "Urgency becomes useful when it names a return path.",
+      "broadGameMechanic": "Action with rollback and repair ownership.",
+      "lore": { "summary": "Red sends a bounded signal into a sleeping field and leaves the way home illuminated." },
+      "lyrics": { "status": "public-demo-excerpt", "text": "Light the edge, but leave the doorway clear.\nName the move, the hand, the cost, the fear.\nIf the signal bends, we turn it toward repair.\nRed goes first, but never goes alone.", "sourceKind": "repository-authored-demo" },
+      "authorship": { "author": "Calder", "rightsStatus": "operator_authored_public_demo", "albumAttributionRule": "Attribute the Echo State public demo to Calder.", "singerPerspectiveRule": "Avatar perspective does not change authorship." },
+      "performancePerspective": { "teamColor": "red", "teamId": "rgb-public-demo", "avatarId": "red-reaper", "avatarName": "Red", "voiceFunction": "action lens" },
+      "mediaPrompts": [{ "id": "red-signal-cover", "kind": "cover", "prompt": "A red pulse crossing a dark geometric forest, with a clearly illuminated return path; no text." }]
+    },
+    {
+      "id": "echo-state-song-blue-return",
+      "cardId": "echo-state-song-blue-return",
+      "songId": "blue-return",
+      "albumId": "echo-state-demo-album",
+      "albumTitle": "Echo State",
+      "trackNumber": 2,
+      "title": "Blue Return",
+      "author": "Calder",
+      "mood": "reflective-electronic",
+      "learningThing": "A trace is valuable when it preserves uncertainty and a route home.",
+      "broadGameMechanic": "Evidence, provenance, and reversible navigation.",
+      "lore": { "summary": "Blue follows a signal through shifting mirrors and returns with the unknowns still honestly marked." },
+      "lyrics": { "status": "public-demo-excerpt", "text": "Thread the source through every changing frame.\nKeep the missing pieces missing, keep their names.\nA perfect map is not the living shore.\nBlue comes back and leaves an open door.", "sourceKind": "repository-authored-demo" },
+      "authorship": { "author": "Calder", "rightsStatus": "operator_authored_public_demo", "albumAttributionRule": "Attribute the Echo State public demo to Calder.", "singerPerspectiveRule": "Avatar perspective does not change authorship." },
+      "performancePerspective": { "teamColor": "blue", "teamId": "rgb-public-demo", "avatarId": "avatar-2", "avatarName": "Blue", "voiceFunction": "evidence lens" },
+      "mediaPrompts": [{ "id": "blue-return-cover", "kind": "cover", "prompt": "A blue route of light returning through mirrored gates, every junction visibly traced; no text." }]
+    },
+    {
+      "id": "echo-state-song-green-horizon",
+      "cardId": "echo-state-song-green-horizon",
+      "songId": "green-horizon",
+      "albumId": "echo-state-demo-album",
+      "albumTitle": "Echo State",
+      "trackNumber": 3,
+      "title": "Green Horizon",
+      "author": "Calder",
+      "mood": "hopeful-orchestral-electronic",
+      "learningThing": "Care becomes operational when cost, consent, and repair have names.",
+      "broadGameMechanic": "Stakeholder-aware decision and accountable repair.",
+      "lore": { "summary": "Green gathers the red pulse and blue trace into a horizon wide enough for every named traveler." },
+      "lyrics": { "status": "public-demo-excerpt", "text": "Bring the cost into the circle of the light.\nName the ones who carry morning through the night.\nCare can choose and still remain aware.\nGreen makes room, then gives the choice a chair.", "sourceKind": "repository-authored-demo" },
+      "authorship": { "author": "Calder", "rightsStatus": "operator_authored_public_demo", "albumAttributionRule": "Attribute the Echo State public demo to Calder.", "singerPerspectiveRule": "Avatar perspective does not change authorship." },
+      "performancePerspective": { "teamColor": "green", "teamId": "rgb-public-demo", "avatarId": "avatar-3", "avatarName": "Green", "voiceFunction": "stakeholder lens" },
+      "mediaPrompts": [{ "id": "green-horizon-cover", "kind": "cover", "prompt": "A green horizon joining red and blue signal paths around a shared circular table; no text." }]
+    }
+  ],
   "sourceAnchors": [],
-  "sync": {
-    "source": "judge-bootstrap-fixture",
-    "status": "empty-bootstrap"
-  },
-  "generatedAt": "2026-07-19T00:00:00.000Z",
-  "updatedAt": "2026-07-19T00:00:00.000Z"
+  "sync": { "source": "tracked-public-demo-fixture", "status": "curated-preview" },
+  "generatedAt": "2026-07-21T00:00:00.000Z",
+  "updatedAt": "2026-07-21T00:00:00.000Z"
 }

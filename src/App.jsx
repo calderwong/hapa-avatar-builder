@@ -65,6 +65,10 @@ import { resolveTarotAttachmentContext } from "./overcard/tarotFormationAdapter.
 import BuilderHeaderHand from "./overcard/BuilderHeaderHand.jsx";
 import dearPapaSongbook from "../fixtures/build-week/judge-data/dear-papa-songbook.json";
 import hapaSongsStoreSeed from "../fixtures/build-week/judge-data/hapa-songs-store.json";
+import avatarStoreSeed from "../fixtures/build-week/judge-data/avatar-store.json";
+import itemManagerStoreSeed from "../fixtures/build-week/judge-data/item-manager-store.json";
+import inventoryStoreSeed from "../fixtures/build-week/judge-data/inventory-store.json";
+import tarotStoreSeed from "../fixtures/build-week/judge-data/tarot-store.json";
 import balladOfBellaPacket from "../fixtures/build-week/judge-data/ballad-of-bella-packet.json";
 import kanbanSeed from "../fixtures/build-week/judge-data/kanban.json";
 import {
@@ -219,6 +223,8 @@ import HumanEnricherBenchmarkComparisonView from "./components/HumanEnricherBenc
 import { localFileApiUri } from "./domain/local-media-uri.js";
 import { echoLocalMediaApiBase } from "./domain/echo-audio-route.js";
 import { buildPublicDemoGateCards } from "./domain/tarot-stargate-derivation.js";
+import { buildBuildWeekPublicDemoProjection } from "./domain/build-week-public-demo.js";
+import { publicBuildWeekDemoRequested, resolvePublicDemoAssetUri } from "./domain/public-demo-runtime.js";
 
 const ThreeAvatarViewer = lazy(() => import("./components/ThreeAvatarViewer.jsx"));
 const TarotDraw3DView = lazy(() => import("./components/TarotDraw3DView.jsx"));
@@ -232,10 +238,9 @@ const EMPTY_TAROT_DRAW_PROJECTION = {
   state: "queued"
 };
 
-function publicStargateDemoRequested() {
-  try { return new URLSearchParams(globalThis.location?.search || "").get("stargateDemo") === "1"; }
-  catch { return false; }
-}
+const PUBLIC_BUILD_WEEK_DEMO = publicBuildWeekDemoRequested({
+  forced: import.meta.env?.VITE_PUBLIC_BUILD_WEEK_DEMO === "1"
+});
 
 function humanEnricherBenchmarkComparisonRequested() {
   try { return new URLSearchParams(globalThis.location?.search || "").get("compare") === "optical-benchmark"; }
@@ -243,13 +248,13 @@ function humanEnricherBenchmarkComparisonRequested() {
 }
 
 function publicStargateDemoProjection() {
-  const cards = buildPublicDemoGateCards();
-  return {
-    cards,
-    audit: { total: cards.length, ready: cards.length, blocked: 0, missingMedia: 0, fixture: true, truthBoundary: "Public deterministic Build Week vector; not a production invitation or local library claim." },
-    state: "ready",
-    fixtureDisclosure: "Public deterministic four-Card vector boots immediately while local stores hydrate."
-  };
+  return buildBuildWeekPublicDemoProjection({
+    avatars: FALLBACK_AVATARS,
+    itemCards: FALLBACK_ITEM_MANAGER.cards,
+    tarotCards: FALLBACK_TAROT_STORE.cards,
+    songs: FALLBACK_HAPA_SONG_STORE.songs,
+    gateCards: buildPublicDemoGateCards()
+  });
 }
 
 function initialAvatarBuilderView() {
@@ -274,6 +279,8 @@ const SONG_REGISTRY_DETAIL_PREFETCH_LIMIT = Math.max(0, Number(import.meta.env?.
 
 function resolveMediaUri(uri) {
   if (typeof uri !== "string" || !uri) return uri;
+  const publicDemoUri = resolvePublicDemoAssetUri(uri, import.meta.env?.BASE_URL || "/");
+  if (publicDemoUri !== uri) return publicDemoUri;
   const localUri = localFileApiUri(uri, echoLocalMediaApiBase(API_BASE, globalThis.location));
   if (localUri) return localUri;
   if (/^(data:|blob:|https?:)/.test(uri)) return uri;
@@ -295,22 +302,17 @@ function resolveSongRegistryUri(uri) {
   return uri;
 }
 
-const FALLBACK_AVATARS = [
-  createAvatarScaffold({
-    id: "red-reaper",
-    names: ["Red", "Reaper"],
-    primaryName: "Red",
-    aliases: ["Reaper"],
-    summary: "Fallback Red/Reaper scaffold. The local API store loads the full card when available.",
-    operatorNotes: "Fallback only; live media assets are kept in data/avatar-store.json and served by the API."
-  })
-];
+const FALLBACK_AVATARS = (avatarStoreSeed.avatars || []).map((avatar) => normalizeAvatarCard(avatar));
 
 const INTAKE_SEED = [];
 const FALLBACK_SCENE_GRAPH = createSceneGraphScaffold();
-const FALLBACK_TAROT_STORE = createTarotStore();
-const FALLBACK_ITEM_MANAGER = createItemManagerScaffold();
-const FALLBACK_INVENTORY_STORE = createInventoryStoreScaffold();
+const FALLBACK_TAROT_STORE = normalizeTarotStore(tarotStoreSeed);
+const FALLBACK_ITEM_MANAGER = normalizeItemManagerStore(itemManagerStoreSeed);
+const FALLBACK_INVENTORY_STORE = createInventoryStoreScaffold({
+  ...inventoryStoreSeed,
+  avatars: FALLBACK_AVATARS,
+  itemCards: FALLBACK_ITEM_MANAGER.cards
+});
 const ITEM_GROUP_MODES = [
   { id: "type", label: "Type" },
   { id: "avatar", label: "Avatar" },
@@ -592,8 +594,8 @@ export default function App({ overcardAdapter }) {
   }
 
   const [avatars, setAvatars] = useState(FALLBACK_AVATARS);
-  const [avatarTeams, setAvatarTeams] = useState([]);
-  const [expandedTeamIds, setExpandedTeamIds] = useState(["core-protocol-team"]);
+  const [avatarTeams, setAvatarTeams] = useState(() => normalizeAvatarTeams(avatarStoreSeed.teams || [], FALLBACK_AVATARS));
+  const [expandedTeamIds, setExpandedTeamIds] = useState([PUBLIC_BUILD_WEEK_DEMO ? "rgb-public-demo" : "core-protocol-team"]);
   const [board, setBoard] = useState(kanbanSeed);
   const [sceneGraph, setSceneGraph] = useState(FALLBACK_SCENE_GRAPH);
   const [tarotStore, setTarotStore] = useState(FALLBACK_TAROT_STORE);
@@ -650,10 +652,10 @@ export default function App({ overcardAdapter }) {
   const [attachPack, setAttachPack] = useState(null);
   const [sceneAttachPack, setSceneAttachPack] = useState(null);
   const [healingQueue, setHealingQueue] = useState(null);
-  const [tarotDrawProjection, setTarotDrawProjection] = useState(() => publicStargateDemoRequested() ? publicStargateDemoProjection() : EMPTY_TAROT_DRAW_PROJECTION);
+  const [tarotDrawProjection, setTarotDrawProjection] = useState(() => PUBLIC_BUILD_WEEK_DEMO ? publicStargateDemoProjection() : EMPTY_TAROT_DRAW_PROJECTION);
   const tarotDrawProjectionInputsRef = useRef(null);
   const [echoReferenceTarotProjection, setEchoReferenceTarotProjection] = useState({ cards: [], runHash: "", runtime: null });
-  const [tarotDrawSceneArmed, setTarotDrawSceneArmed] = useState(publicStargateDemoRequested);
+  const [tarotDrawSceneArmed, setTarotDrawSceneArmed] = useState(() => PUBLIC_BUILD_WEEK_DEMO);
   const [tarotDrawHostAvatarId, setTarotDrawHostAvatarId] = useState(FALLBACK_AVATARS[0]?.id || null);
   const [queueJobs, setQueueJobs] = useState(createInitialQueueJobs);
   const persistTimers = useRef(new Map());
@@ -677,9 +679,11 @@ export default function App({ overcardAdapter }) {
     return () => globalThis.removeEventListener?.("popstate", restoreRoute);
   }, []);
   const echoDirectorProjectCacheRef = useRef(new Map());
-  const overcardAttachments = useOvercardAttachments();
+  const liveOvercardAttachments = useOvercardAttachments();
+  const overcardAttachments = PUBLIC_BUILD_WEEK_DEMO ? {} : liveOvercardAttachments;
 
   const resolveEchoDirectorProject = useCallback(async (songId) => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return null;
     if (!songId) return null;
     const cached = echoDirectorProjectCacheRef.current.get(songId);
     if (cached) return Promise.resolve(cached);
@@ -706,6 +710,7 @@ export default function App({ overcardAdapter }) {
   }, []);
 
   const resolveEchoReferenceCards = useCallback(async (songId = "") => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return { cards: [], runHash: "", runtime: null };
     const path = `/api/echos/references/tarot-cards${songId ? `?songId=${encodeURIComponent(songId)}` : ""}`;
     const bases = [...new Set([
       API_BASE,
@@ -726,7 +731,7 @@ export default function App({ overcardAdapter }) {
   }, []);
 
   useEffect(() => {
-    if (!tarotDrawSceneArmed) return undefined;
+    if (PUBLIC_BUILD_WEEK_DEMO || !tarotDrawSceneArmed) return undefined;
     let active = true;
     const refresh = () => resolveEchoReferenceCards().then((payload) => {
       if (active && payload?.cards) setEchoReferenceTarotProjection(payload);
@@ -740,6 +745,7 @@ export default function App({ overcardAdapter }) {
   }, [resolveEchoReferenceCards, tarotDrawSceneArmed]);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return undefined;
     const prewarmVideos = echoDirectorPrewarmVideosRef.current;
     let disposed = false;
     ["dear-papa-song-dear-papa", "dear-papa-song-catch-the-rabbit"].forEach((songId) => {
@@ -1151,6 +1157,10 @@ export default function App({ overcardAdapter }) {
   }, [isKanbanView, selectedAvatar]);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) {
+      markQueueReady("tarot-draw-projection", "Tarot Draw projection", "Public fixture Cards are ready.");
+      return undefined;
+    }
     if (!tarotDrawSceneArmed) {
       return undefined;
     }
@@ -1259,6 +1269,26 @@ export default function App({ overcardAdapter }) {
   }, []);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) {
+      setAvatars(FALLBACK_AVATARS);
+      setAvatarTeams(normalizeAvatarTeams(avatarStoreSeed.teams || [], FALLBACK_AVATARS));
+      setItemManager(FALLBACK_ITEM_MANAGER);
+      setInventoryStore(FALLBACK_INVENTORY_STORE);
+      setTarotStore(FALLBACK_TAROT_STORE);
+      setHapaSongStore(FALLBACK_HAPA_SONG_STORE);
+      setAvatarDataMode("full");
+      setItemDataMode("full");
+      setTarotDataMode("full");
+      setSongDataMode("full");
+      setApiState("demo");
+      setWorldSyncState("saved");
+      setTarotSyncState("saved");
+      markQueueReady("overwind-bootstrap", "Public fixture bootstrap", "Isolated Build Week fixtures are active.");
+      markQueueReady("overwind-card-plane", "Public Card plane", "RGB and their attached public Cards are active; live Overwind hydration is disabled.");
+      markQueueReady("song-registry", "Echo State fixtures", "Three public Song Cards are active without a private registry connection.");
+      markQueueReady("tarot-store", "Wisdom Set fixtures", "The complete 16-card Build Week Wisdom Set is active.");
+      return undefined;
+    }
     let alive = true;
     updateQueueJob("overwind-bootstrap", "Overwind shell bootstrap", {
       status: "loading",
@@ -1448,6 +1478,7 @@ export default function App({ overcardAdapter }) {
   }, []);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return undefined;
     const needsFullCardLibrary = getBuilderHostTarget(activeView).lazyLoad
       .some((entry) => entry.store === "avatars" || entry.store === "items");
     if (!needsFullCardLibrary) return undefined;
@@ -1465,6 +1496,7 @@ export default function App({ overcardAdapter }) {
   }, [activeView]);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return undefined;
     setTarotSyncState("queued");
     updateQueueJob("tarot-store", "Tarot library store", {
       status: "queued",
@@ -1476,6 +1508,7 @@ export default function App({ overcardAdapter }) {
   }, []);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return undefined;
     if (activeView === "echos" || activeView === "echo-records") return undefined;
     if (!selectedAvatarId) return undefined;
     const currentAvatar = avatars.find((avatar) => avatar.id === selectedAvatarId);
@@ -1496,6 +1529,7 @@ export default function App({ overcardAdapter }) {
   }, [selectedAvatarId, avatars, activeView]);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return undefined;
     const cleanups = [];
     const defer = (loader, delayMs) => {
       const cleanup = scheduleDeferredLoad(loader, delayMs);
@@ -1507,6 +1541,7 @@ export default function App({ overcardAdapter }) {
   }, [activeView]);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return undefined;
     updateQueueJob("song-registry", "Dear Papa song registry", {
       status: "queued",
       kind: "store",
@@ -1541,6 +1576,7 @@ export default function App({ overcardAdapter }) {
   }
 
   function refreshSubscriberStatus() {
+    if (PUBLIC_BUILD_WEEK_DEMO) return;
     fetch(`${API_BASE}/api/subscribers/status`)
       .then((res) => (res.ok ? res.json() : null))
       .then((status) => {
@@ -1562,6 +1598,7 @@ export default function App({ overcardAdapter }) {
   }
 
   function ensureSongRegistryLoaded() {
+    if (PUBLIC_BUILD_WEEK_DEMO) return;
     if (songLibrary.status === "ready" || songLibrary.status === "loading") return;
     const registryListUrl = resolveSongRegistryUri("/api/song-registry/dear-papa?limit=500");
     const registryDetailUrl = (songId) => resolveSongRegistryUri(`/api/song-registry/songs/${encodeURIComponent(songId)}`);
@@ -1744,6 +1781,7 @@ export default function App({ overcardAdapter }) {
   }
 
   function ensureAvatarLoaded(avatarId, options = {}) {
+    if (PUBLIC_BUILD_WEEK_DEMO) return;
     if (!avatarId) return Promise.resolve(null);
     const currentAvatar = avatars.find((avatar) => avatar.id === avatarId);
     if (!options.force && currentAvatar && !isCompactOverwindAvatar(currentAvatar)) {
@@ -1799,6 +1837,7 @@ export default function App({ overcardAdapter }) {
   }
 
   function ensureFullAvatarStoreLoaded() {
+    if (PUBLIC_BUILD_WEEK_DEMO) return;
     if (avatarDataMode === "full" || avatarDataMode === "loading-full") return;
     setAvatarDataMode("loading-full");
     updateQueueJob("full-avatar-store", "Full avatar store", {
@@ -1850,6 +1889,7 @@ export default function App({ overcardAdapter }) {
   }
 
   function ensureWorldStoreLoaded() {
+    if (PUBLIC_BUILD_WEEK_DEMO) return;
     if (worldDataMode === "full" || worldDataMode === "loading" || worldDataMode === "draft") return;
     setWorldDataMode("loading");
     updateQueueJob("world-store", "World store", {
@@ -1885,6 +1925,7 @@ export default function App({ overcardAdapter }) {
   }
 
   function ensureItemStoreLoaded() {
+    if (PUBLIC_BUILD_WEEK_DEMO) return;
     if (itemDataMode === "full" || itemDataMode === "loading") return;
     setItemDataMode("loading");
     updateQueueJob("item-store", "Item store", {
@@ -1923,6 +1964,7 @@ export default function App({ overcardAdapter }) {
   }
 
   function ensureHapaSongStoreLoaded() {
+    if (PUBLIC_BUILD_WEEK_DEMO) return;
     if (songDataMode === "full" || songDataMode === "loading") return;
     setSongDataMode("loading");
     updateQueueJob("hapa-song-store", "Hapa song store", {
@@ -1960,6 +2002,7 @@ export default function App({ overcardAdapter }) {
   }
 
   function ensureTarotStoreLoaded() {
+    if (PUBLIC_BUILD_WEEK_DEMO) return;
     if (tarotDataMode === "full" || tarotDataMode === "loading") return;
     setTarotDataMode("loading");
     setTarotSyncState("loading");
@@ -1998,6 +2041,7 @@ export default function App({ overcardAdapter }) {
   }
 
   function ensureKanbanStoreLoaded() {
+    if (PUBLIC_BUILD_WEEK_DEMO) return;
     if (boardDataMode === "full" || boardDataMode === "loading") return;
     setBoardDataMode("loading");
     updateQueueJob("kanban-store", "Kanban board store", {
@@ -3538,12 +3582,19 @@ export default function App({ overcardAdapter }) {
           </div>
         </div>
 
-        <BuilderHeaderHand
-          adapter={overcardAdapter}
-          onOpenManager={(intent) => openOvercardManagement(intent.kind)}
-          onOpenLibrary={() => openOvercardManagement("library")}
-          onOpenLivingLight={target=>{setLivingLightOpenRequest({target,nonce:crypto.randomUUID()});switchView('echos');}}
-        />
+        {PUBLIC_BUILD_WEEK_DEMO ? (
+          <div className="builder-header-hand" aria-label="Build Week public fixture boundary">
+            <strong>BUILD WEEK PUBLIC DEMO</strong>
+            <em>RGB fixtures · private Hand disconnected</em>
+          </div>
+        ) : (
+          <BuilderHeaderHand
+            adapter={overcardAdapter}
+            onOpenManager={(intent) => openOvercardManagement(intent.kind)}
+            onOpenLibrary={() => openOvercardManagement("library")}
+            onOpenLivingLight={target=>{setLivingLightOpenRequest({target,nonce:crypto.randomUUID()});switchView('echos');}}
+          />
+        )}
 
         <div className="telemetry">
           <StatusChip label="API" value={apiState.toUpperCase()} tone={apiState === "api" ? "green" : "gold"} />
@@ -12407,7 +12458,15 @@ function clipsSignature(clips = []) {
 }
 
 function isRenderableMediaUri(uri) {
-  return typeof uri === "string" && (/^\/sample\//.test(uri) || /^\/media\//.test(uri) || /^https?:/.test(uri) || uri.startsWith("data:") || uri.startsWith("blob:"));
+  const publicDemoAssetPrefix = resolvePublicDemoAssetUri("/demo/", import.meta.env?.BASE_URL || "/");
+  return typeof uri === "string" && (
+    uri.startsWith(publicDemoAssetPrefix) ||
+    /^\/sample\//.test(uri) ||
+    /^\/media\//.test(uri) ||
+    /^https?:/.test(uri) ||
+    uri.startsWith("data:") ||
+    uri.startsWith("blob:")
+  );
 }
 
 function HoverPreviewCard({ preview }) {

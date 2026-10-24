@@ -1,4 +1,4 @@
-# Judge quickstart — Hapa Stargate
+# Judge quickstart — Hapa Avatar Builder Stargate route
 
 ## What is new for Build Week
 
@@ -27,9 +27,13 @@ The final command must print `"ok": true` and a semantic SHA-256 receipt.
 node server/api.mjs --host 127.0.0.1 --port 8899 --static dist
 ```
 
-Open `http://127.0.0.1:8899/?view=tarot&stargateDemo=1`. The non-default port avoids colliding with another local Hapa node. The package intentionally starts with empty public-safe stores plus four clearly labelled deterministic demo Cards. It does not contain the operator's private Card/media libraries. No certificate is used or required.
+Open `http://127.0.0.1:8899/?view=tarot&stargateDemo=1`. The non-default port avoids colliding with another local Hapa node. The package starts with a curated public demo volume: Red, Blue, and Green; three text-only Echo State Song Cards; five sampled Cards in each visible foundation family; 18 additional Protocol/Skill Cards required by the RGB profile loadouts; the complete 16-card Build Week Wisdom Set with its generated proposal artwork; and four clearly labelled deterministic Stargate demo Cards. It does not contain the remaining private Avatar, Song, Tarot, Card, or media libraries. No certificate is used or required.
 
-In the Stargate panel, choose **Load Public Demo Formation**, inspect the ordered slots, and dial the Gate. This fixture proves the deterministic UI route without representing a live invitation. The included captioned evidence video shows the separate isolated proof in which two ordinary Cards receive new per-Card Hypercore custody before the Gate resolves.
+In the Stargate panel, choose **Load Public Demo Formation**, inspect the ordered slots, and dial the Gate. This fixture proves the deterministic UI route without representing a live invitation. The linked narrated demo video shows the separate isolated proof in which two ordinary Cards receive new per-Card Hypercore custody before the Gate resolves.
+
+Use the Avatar rail to inspect the RGB profiles and their six-Card public loadouts. Use **Songs** for the Echo State previews, **Items** for the sampled and profile-required foundation Cards, and **Tarot Library → Codex Build Week Wisdom Set** for the complete Wisdom Set.
+
+**Tarot Draw** opens as a 59-Card review volume: 3 RGB Avatar Cards, all 33 public Item/loadout Cards, 3 Echo State Song Cards, all 16 Wisdom Set Cards, and 4 deterministic Stargate Cards. Its type backs expose Skills, Protocols, Capabilities, Nodes, Turns, Avatars, and Songs. Image-only fixture Cards are deliberately drawable for review; this does not claim production-loop readiness.
 
 ## Focused implementation tests
 
@@ -42,7 +46,7 @@ These tests cover the custody, deterministic Formation, portable Context Card, G
 ## Suggested judge route
 
 1. Read `docs/submission/CODEX_BUILD_WEEK_CUTOFF_AND_CHANGE_AUDIT.md` for the pre-existing/new boundary.
-2. Watch the captioned silent HyperFrames video.
+2. Watch the [Hapa Avatar Builder Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A).
 3. Inspect `src/components/TarotDraw3DView.jsx` for the user-facing Formation, custody, Gate, Context Card, Forge, and Wisdom flow.
 4. Inspect `src/domain/` and `server/` for the deterministic and P2P primitives.
 5. Run the focused tests above.

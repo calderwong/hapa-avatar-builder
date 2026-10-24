@@ -1,0 +1,2152 @@
+{
+  "schemaVersion": "hapa.item-manager-store.v1",
+  "title": "Build Week Public Demo Foundation Cards",
+  "scope": "curated-public-demo-subset",
+  "fixtureDisclosure": "Five sampled demo Cards per visible foundation family, plus the 18 Protocol/Skill Cards required by the Red, Blue, and Green public profile loadouts. The complete Hapa Card library is intentionally not included.",
+  "cards": [
+    {
+      "id": "demo-protocol-human-authority-gate",
+      "kind": "protocol",
+      "cardType": "protocol_card",
+      "title": "Human Authority Gate",
+      "canonStatus": "scaffold",
+      "summary": "A consequential proposal waits for an explicit human decision.",
+      "description": "Place this Card before mint, publish, canon, deletion, or external delivery steps.",
+      "lore": "The bright gate stays closed until a named person chooses to cross it.",
+      "utility": [
+        "Pause at consequential boundaries",
+        "Name the approving human",
+        "Record the decision without implying endorsement"
+      ],
+      "broadGameMechanics": [
+        "Human-gated action",
+        "Explicit authority",
+        "Reviewable receipt"
+      ],
+      "tags": [
+        "protocol",
+        "public-demo",
+        "authority",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-protocol-art-1",
+          "name": "Protocol demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Equip when a workflow crosses a human authority boundary."
+        ],
+        "effects": [
+          "Stops silent promotion of proposals."
+        ],
+        "limits": [
+          "Does not grant authority."
+        ]
+      }
+    },
+    {
+      "id": "demo-protocol-source-before-claim",
+      "kind": "protocol",
+      "cardType": "protocol_card",
+      "title": "Source Before Claim",
+      "canonStatus": "scaffold",
+      "summary": "Attach a source and confidence boundary before a claim travels.",
+      "description": "Use a source reference, an evidence class, and a visible uncertainty statement.",
+      "lore": "Blue thread holds a statement to the place it came from.",
+      "utility": [
+        "Bind sources",
+        "State uncertainty",
+        "Keep inference distinct from evidence"
+      ],
+      "broadGameMechanics": [
+        "Provenance trail",
+        "Confidence label",
+        "Claim boundary"
+      ],
+      "tags": [
+        "protocol",
+        "public-demo",
+        "provenance",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-protocol-art-2",
+          "name": "Protocol demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Equip for research, synthesis, or publication."
+        ],
+        "effects": [
+          "Makes claim lineage inspectable."
+        ],
+        "limits": [
+          "A source can still be wrong."
+        ]
+      }
+    },
+    {
+      "id": "demo-protocol-consent-before-attachment",
+      "kind": "protocol",
+      "cardType": "protocol_card",
+      "title": "Consent Before Attachment",
+      "canonStatus": "scaffold",
+      "summary": "Names, media, and identity references require a bounded consent basis.",
+      "description": "Record why an attachment is allowed, what it may be used for, and how it can be removed.",
+      "lore": "Nothing becomes part of the deck merely because it was easy to pick up.",
+      "utility": [
+        "Check consent",
+        "Bound permitted use",
+        "Preserve removal route"
+      ],
+      "broadGameMechanics": [
+        "Attachment gate",
+        "Use boundary",
+        "Revocation path"
+      ],
+      "tags": [
+        "protocol",
+        "public-demo",
+        "consent",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-protocol-art-3",
+          "name": "Protocol demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Equip before attaching identity or media records."
+        ],
+        "effects": [
+          "Keeps reuse permission visible."
+        ],
+        "limits": [
+          "Presence is not consent."
+        ]
+      }
+    },
+    {
+      "id": "demo-protocol-reversible-by-default",
+      "kind": "protocol",
+      "cardType": "protocol_card",
+      "title": "Reversible by Default",
+      "canonStatus": "scaffold",
+      "summary": "Prefer actions with a named rollback and repair owner.",
+      "description": "Before acting, state what can be undone, what cannot, and who owns recovery.",
+      "lore": "Red moves fastest when the return path is already lit.",
+      "utility": [
+        "Name rollback",
+        "Identify irreversible parts",
+        "Assign repair owner"
+      ],
+      "broadGameMechanics": [
+        "Rollback clause",
+        "Damage boundary",
+        "Repair ownership"
+      ],
+      "tags": [
+        "protocol",
+        "public-demo",
+        "reversibility",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-protocol-art-4",
+          "name": "Protocol demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Equip for state-changing operations."
+        ],
+        "effects": [
+          "Makes recovery part of the plan."
+        ],
+        "limits": [
+          "Some actions remain irreversible."
+        ]
+      }
+    },
+    {
+      "id": "demo-protocol-proposal-is-not-truth",
+      "kind": "protocol",
+      "cardType": "protocol_card",
+      "title": "Proposal Is Not Truth",
+      "canonStatus": "scaffold",
+      "summary": "Generated output remains a proposal until reviewed and accepted.",
+      "description": "Keep draft, reviewed, accepted, and canon states visually and mechanically distinct.",
+      "lore": "A bright possibility is still only a possibility.",
+      "utility": [
+        "Label proposals",
+        "Separate review from acceptance",
+        "Prevent silent canonization"
+      ],
+      "broadGameMechanics": [
+        "Lifecycle state",
+        "Review gate",
+        "Canon boundary"
+      ],
+      "tags": [
+        "protocol",
+        "public-demo",
+        "proposal",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-protocol-art-5",
+          "name": "Protocol demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Equip around generative or council workflows."
+        ],
+        "effects": [
+          "Prevents proposal-to-truth collapse."
+        ],
+        "limits": [
+          "Review does not guarantee acceptance."
+        ]
+      }
+    },
+    {
+      "id": "demo-skill-formation-reading",
+      "kind": "skill",
+      "cardType": "skill_card",
+      "title": "Formation Reading",
+      "canonStatus": "scaffold",
+      "summary": "Read Card order, role, and orientation as one explicit collaboration state.",
+      "description": "Inspect every slot before deriving shared context from a Formation.",
+      "lore": "Meaning changes when the same Cards change seats.",
+      "utility": [
+        "Read ordered slots",
+        "Check orientation",
+        "Name missing roles"
+      ],
+      "broadGameMechanics": [
+        "Formation input",
+        "Order sensitivity",
+        "Role assignment"
+      ],
+      "tags": [
+        "skill",
+        "public-demo",
+        "formation",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-skill-art-1",
+          "name": "Skill demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Equip for Tarot Draw and Stargate work."
+        ],
+        "effects": [
+          "Turns placement into readable context."
+        ],
+        "limits": [
+          "Formation meaning remains bounded to its declared rules."
+        ]
+      }
+    },
+    {
+      "id": "demo-skill-card-distillation",
+      "kind": "skill",
+      "cardType": "skill_card",
+      "title": "Card Distillation",
+      "canonStatus": "scaffold",
+      "summary": "Turn a large work record into a compact, attributable Card.",
+      "description": "Preserve the source, decision, reusable move, and truth boundary while removing noise.",
+      "lore": "The small vessel remembers where the larger river came from.",
+      "utility": [
+        "Extract reusable move",
+        "Preserve source link",
+        "State omitted scope"
+      ],
+      "broadGameMechanics": [
+        "Knowledge compression",
+        "Lineage link",
+        "Scope disclosure"
+      ],
+      "tags": [
+        "skill",
+        "public-demo",
+        "distillation",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-skill-art-2",
+          "name": "Skill demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Equip after a meaningful work turn."
+        ],
+        "effects": [
+          "Creates a portable jump-off point."
+        ],
+        "limits": [
+          "The Card does not replace its source."
+        ]
+      }
+    },
+    {
+      "id": "demo-skill-render-truth-preflight",
+      "kind": "skill",
+      "cardType": "skill_card",
+      "title": "Render Truth Preflight",
+      "canonStatus": "scaffold",
+      "summary": "Check that a media claim matches the bytes and runtime that will actually ship.",
+      "description": "Verify source availability, output hashes, fallbacks, and public-path safety.",
+      "lore": "The screen may glow while the artifact is still missing.",
+      "utility": [
+        "Verify artifacts",
+        "Inspect fallbacks",
+        "Check public paths"
+      ],
+      "broadGameMechanics": [
+        "Preflight receipt",
+        "Artifact hash",
+        "Runtime truth"
+      ],
+      "tags": [
+        "skill",
+        "public-demo",
+        "render",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-skill-art-3",
+          "name": "Skill demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Equip before packaging or publishing media."
+        ],
+        "effects": [
+          "Exposes missing or substituted output."
+        ],
+        "limits": [
+          "A passing preflight is not creative approval."
+        ]
+      }
+    },
+    {
+      "id": "demo-skill-context-packing",
+      "kind": "skill",
+      "cardType": "skill_card",
+      "title": "Context Packing",
+      "canonStatus": "scaffold",
+      "summary": "Assemble the smallest source-complete context packet for the next task.",
+      "description": "Select only the relevant Avatar, Card, scene, song, and lineage references.",
+      "lore": "A useful pack carries enough to return, not the whole archive.",
+      "utility": [
+        "Select relevant records",
+        "Keep provenance",
+        "Exclude unrelated private material"
+      ],
+      "broadGameMechanics": [
+        "Bounded context",
+        "Subscriber packet",
+        "Privacy minimization"
+      ],
+      "tags": [
+        "skill",
+        "public-demo",
+        "context",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-skill-art-4",
+          "name": "Skill demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Equip before handing work to another tool or agent."
+        ],
+        "effects": [
+          "Reduces irrelevant exposure."
+        ],
+        "limits": [
+          "Minimal does not mean source-free."
+        ]
+      }
+    },
+    {
+      "id": "demo-skill-lineage-check",
+      "kind": "skill",
+      "cardType": "skill_card",
+      "title": "Lineage Check",
+      "canonStatus": "scaffold",
+      "summary": "Trace an artifact back through revisions, sources, and responsible owners.",
+      "description": "Confirm stable IDs, parent links, source digests, and current custody before reuse.",
+      "lore": "Every return path begins with a thread that was not cut.",
+      "utility": [
+        "Trace revisions",
+        "Confirm custody",
+        "Find missing links"
+      ],
+      "broadGameMechanics": [
+        "Parent chain",
+        "Source digest",
+        "Custody check"
+      ],
+      "tags": [
+        "skill",
+        "public-demo",
+        "lineage",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-skill-art-5",
+          "name": "Skill demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Equip before adapting or publishing an artifact."
+        ],
+        "effects": [
+          "Makes provenance gaps actionable."
+        ],
+        "limits": [
+          "Custody is not ownership or canon."
+        ]
+      }
+    },
+    {
+      "id": "demo-node-avatar-builder",
+      "kind": "node",
+      "cardType": "node_card",
+      "title": "Avatar Builder",
+      "canonStatus": "scaffold",
+      "summary": "Local-first workbench for Avatar Cards, media slots, decks, songs, and scenes.",
+      "description": "The public demo surface that owns this curated content volume.",
+      "lore": "A bright workshop where identities become reusable without becoming unbounded.",
+      "utility": [
+        "Build Avatar Cards",
+        "Attach bounded media",
+        "Export context packs"
+      ],
+      "broadGameMechanics": [
+        "Workbench node",
+        "Local authoring",
+        "Card custody"
+      ],
+      "tags": [
+        "node",
+        "public-demo",
+        "avatar-builder",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-node-art-1",
+          "name": "Node demo art",
+          "type": "image",
+          "uri": "/demo/node-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "connections": {
+        "nodeIds": [
+          "hapa-avatar-builder"
+        ]
+      },
+      "equipment": {
+        "hardpointHints": [
+          "node_ship"
+        ],
+        "equipRules": [
+          "Equip as the active authoring workbench."
+        ],
+        "effects": [
+          "Routes Avatar-shaped work."
+        ],
+        "limits": [
+          "Prototype-stage surface."
+        ]
+      }
+    },
+    {
+      "id": "demo-node-stargate-table",
+      "kind": "node",
+      "cardType": "node_card",
+      "title": "Stargate Table",
+      "canonStatus": "scaffold",
+      "summary": "A 3D Card Formation surface for deterministic collaboration context.",
+      "description": "Orders Cards, verifies custody, and derives a bounded Gate proposal.",
+      "lore": "The table does not choose the travelers; it makes their chosen order visible.",
+      "utility": [
+        "Place Cards",
+        "Derive Formation",
+        "Review portable Context Card"
+      ],
+      "broadGameMechanics": [
+        "Spatial node",
+        "Deterministic namespace",
+        "Human mint gate"
+      ],
+      "tags": [
+        "node",
+        "public-demo",
+        "stargate",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-node-art-2",
+          "name": "Node demo art",
+          "type": "image",
+          "uri": "/demo/node-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "connections": {
+        "nodeIds": [
+          "hapa-avatar-builder:tarot-draw"
+        ]
+      },
+      "equipment": {
+        "hardpointHints": [
+          "node_ship"
+        ],
+        "equipRules": [
+          "Equip for Formation-based collaboration."
+        ],
+        "effects": [
+          "Turns Card order into reviewable context."
+        ],
+        "limits": [
+          "A demo Gate is not a live invitation."
+        ]
+      }
+    },
+    {
+      "id": "demo-node-echo-director",
+      "kind": "node",
+      "cardType": "node_card",
+      "title": "Echo Director",
+      "canonStatus": "scaffold",
+      "summary": "A song-and-Card direction surface for turning music structure into editable visual plans.",
+      "description": "The public seed exposes three text-only Echo State Song Cards without private audio or media.",
+      "lore": "The conductor can show the score without giving away the entire archive.",
+      "utility": [
+        "Read Song Cards",
+        "Plan visual beats",
+        "Preserve media lineage"
+      ],
+      "broadGameMechanics": [
+        "Director node",
+        "Editable show graph",
+        "Render boundary"
+      ],
+      "tags": [
+        "node",
+        "public-demo",
+        "echo-state",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-node-art-3",
+          "name": "Node demo art",
+          "type": "image",
+          "uri": "/demo/node-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "connections": {
+        "nodeIds": [
+          "hapa-avatar-builder:echos"
+        ]
+      },
+      "equipment": {
+        "hardpointHints": [
+          "node_ship"
+        ],
+        "equipRules": [
+          "Equip for song visualization planning."
+        ],
+        "effects": [
+          "Routes Song Cards into visual direction."
+        ],
+        "limits": [
+          "No audio is bundled in the public demo."
+        ]
+      }
+    },
+    {
+      "id": "demo-node-card-forge",
+      "kind": "node",
+      "cardType": "node_card",
+      "title": "Card Forge",
+      "canonStatus": "scaffold",
+      "summary": "A small station for turning evidence and learned moves into typed Cards.",
+      "description": "Validates family, source, lifecycle, and reuse boundaries before a Card joins a deck.",
+      "lore": "Heat gives the Card shape; lineage keeps it from becoming a counterfeit memory.",
+      "utility": [
+        "Choose Card family",
+        "Validate required fields",
+        "Record source lineage"
+      ],
+      "broadGameMechanics": [
+        "Forging node",
+        "Schema validation",
+        "Lifecycle state"
+      ],
+      "tags": [
+        "node",
+        "public-demo",
+        "forge",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-node-art-4",
+          "name": "Node demo art",
+          "type": "image",
+          "uri": "/demo/node-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "connections": {
+        "nodeIds": [
+          "hapa-card-forge"
+        ]
+      },
+      "equipment": {
+        "hardpointHints": [
+          "node_ship"
+        ],
+        "equipRules": [
+          "Equip while authoring reusable Cards."
+        ],
+        "effects": [
+          "Creates typed reviewable artifacts."
+        ],
+        "limits": [
+          "Forging does not canonize."
+        ]
+      }
+    },
+    {
+      "id": "demo-node-local-archive",
+      "kind": "node",
+      "cardType": "node_card",
+      "title": "Local Archive",
+      "canonStatus": "scaffold",
+      "summary": "A custody boundary for source records that should not all enter the public deck.",
+      "description": "Keeps private originals local while allowing intentionally minimized public derivatives.",
+      "lore": "The archive is useful because its door can stay closed while one attributed Card travels.",
+      "utility": [
+        "Hold private source",
+        "Export minimized derivative",
+        "Retain return path"
+      ],
+      "broadGameMechanics": [
+        "Local custody",
+        "Selective disclosure",
+        "Source return"
+      ],
+      "tags": [
+        "node",
+        "public-demo",
+        "archive",
+        "build-week"
+      ],
+      "rank": "demo-foundation",
+      "mediaAssets": [
+        {
+          "id": "demo-node-art-5",
+          "name": "Node demo art",
+          "type": "image",
+          "uri": "/demo/node-card.svg",
+          "tags": [
+            "public-demo"
+          ]
+        }
+      ],
+      "connections": {
+        "nodeIds": [
+          "hapa-local-archive"
+        ]
+      },
+      "equipment": {
+        "hardpointHints": [
+          "node_ship"
+        ],
+        "equipRules": [
+          "Equip as the source-custody boundary."
+        ],
+        "effects": [
+          "Supports minimized public exports."
+        ],
+        "limits": [
+          "The public derivative does not transfer source ownership."
+        ]
+      }
+    },
+    {
+      "id": "protocol-red-team-weakness-probe",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "protocol_card",
+      "kind": "protocol",
+      "title": "Red Team Weakness Probe",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to attack a system for the common good.",
+      "description": "Convert suspected weakness into evidence, mitigation, and repair pressure.",
+      "lore": "Red-aligned avatars need a sanctioned way to test without becoming the threat.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Convert suspected weakness into evidence, mitigation, and repair pressure."
+      ],
+      "tags": [
+        "protocol",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "red"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "red-reaper"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "protocol-red-team-weakness-probe-demo-art",
+          "name": "Red Team Weakness Probe demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Keep attached to Red's public profile loadout."
+        ],
+        "effects": [
+          "Convert suspected weakness into evidence, mitigation, and repair pressure."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "protocol-truth-lane-audit",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "protocol_card",
+      "kind": "protocol",
+      "title": "Truth Lane Audit",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to separate verified fact, inference, lore, and speculation.",
+      "description": "Prevent game drama from corrupting repo truth or canon state.",
+      "lore": "Red pressure becomes useful only when Blue can verify it and Green can weigh its impact.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Prevent game drama from corrupting repo truth or canon state."
+      ],
+      "tags": [
+        "protocol",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "red"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "red-reaper"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "protocol-truth-lane-audit-demo-art",
+          "name": "Truth Lane Audit demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Keep attached to Red's public profile loadout."
+        ],
+        "effects": [
+          "Prevent game drama from corrupting repo truth or canon state."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "protocol-authority-rollback-envelope",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "protocol_card",
+      "kind": "protocol",
+      "title": "Authority and Rollback Envelope",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to prepare reversible changes with explicit authority.",
+      "description": "Turn dangerous action into scoped action with proof and rollback.",
+      "lore": "Red needs a ritual for power that can be audited.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Turn dangerous action into scoped action with proof and rollback."
+      ],
+      "tags": [
+        "protocol",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "red"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "red-reaper"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "protocol-authority-rollback-envelope-demo-art",
+          "name": "Authority and Rollback Envelope demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Keep attached to Red's public profile loadout."
+        ],
+        "effects": [
+          "Turn dangerous action into scoped action with proof and rollback."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "skill-hapa-protocol",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "skill_card",
+      "kind": "skill",
+      "title": "hapa-protocol",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to bootstrap a Hapa task with the right operating contract.",
+      "description": "Start every risky action with context, boundaries, and evidence.",
+      "lore": "Red needs protocol before pressure.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Start every risky action with context, boundaries, and evidence."
+      ],
+      "tags": [
+        "skill",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "red"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "red-reaper"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "skill-hapa-protocol-demo-art",
+          "name": "hapa-protocol demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Keep attached to Red's public profile loadout."
+        ],
+        "effects": [
+          "Start every risky action with context, boundaries, and evidence."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "skill-hapa-capability-cards-standards-forging",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "skill_card",
+      "kind": "skill",
+      "title": "hapa-capability-cards-standards-forging",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to forge cards that teach and travel.",
+      "description": "Convert findings into durable Foundation Deck artifacts.",
+      "lore": "Weakness findings become stronger when carded.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Convert findings into durable Foundation Deck artifacts."
+      ],
+      "tags": [
+        "skill",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "red"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "red-reaper"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "skill-hapa-capability-cards-standards-forging-demo-art",
+          "name": "hapa-capability-cards-standards-forging demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Keep attached to Red's public profile loadout."
+        ],
+        "effects": [
+          "Convert findings into durable Foundation Deck artifacts."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "skill-hapa-skill-overwatch-multi-agent-kanban-orchestration",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "skill_card",
+      "kind": "skill",
+      "title": "hapa-skill-overwatch-multi-agent-kanban-orchestration",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to coordinate avatar lanes on a shared board.",
+      "description": "Keep Red work visible, handed off, and reviewable.",
+      "lore": "Attack lanes need a board spine.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Keep Red work visible, handed off, and reviewable."
+      ],
+      "tags": [
+        "skill",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "red"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "red-reaper"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "skill-hapa-skill-overwatch-multi-agent-kanban-orchestration-demo-art",
+          "name": "hapa-skill-overwatch-multi-agent-kanban-orchestration demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Keep attached to Red's public profile loadout."
+        ],
+        "effects": [
+          "Keep Red work visible, handed off, and reviewable."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "protocol-source-provenance-trace",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "protocol_card",
+      "kind": "protocol",
+      "title": "Source Provenance Trace",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to trace claims back to source anchors.",
+      "description": "Raise signal by linking every claim to evidence, confidence, and owner.",
+      "lore": "Blue Team exists to filter fact from fiction without killing imagination.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Raise signal by linking every claim to evidence, confidence, and owner."
+      ],
+      "tags": [
+        "protocol",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "blue"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-2"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "protocol-source-provenance-trace-demo-art",
+          "name": "Source Provenance Trace demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Keep attached to Blue's public profile loadout."
+        ],
+        "effects": [
+          "Raise signal by linking every claim to evidence, confidence, and owner."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "protocol-blue-intelligence-filter",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "protocol_card",
+      "kind": "protocol",
+      "title": "Blue Intelligence Filter",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to collect, compare, and classify incoming signals.",
+      "description": "Turn raw reports into ranked intelligence and canon-risk notes.",
+      "lore": "Blue avatars need a default card for deciding what the fleet can trust.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Turn raw reports into ranked intelligence and canon-risk notes."
+      ],
+      "tags": [
+        "protocol",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "blue"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-2"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "protocol-blue-intelligence-filter-demo-art",
+          "name": "Blue Intelligence Filter demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Keep attached to Blue's public profile loadout."
+        ],
+        "effects": [
+          "Turn raw reports into ranked intelligence and canon-risk notes."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "protocol-canon-authority-map",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "protocol_card",
+      "kind": "protocol",
+      "title": "Canon Authority Map",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to resolve source conflicts across hard canon, soft canon, rumors, and generated scaffolds.",
+      "description": "Protect the shared world from drift while preserving useful mysteries.",
+      "lore": "Blue cards should make future lore safer and sharper.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Protect the shared world from drift while preserving useful mysteries."
+      ],
+      "tags": [
+        "protocol",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "blue"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-2"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "protocol-canon-authority-map-demo-art",
+          "name": "Canon Authority Map demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Keep attached to Blue's public profile loadout."
+        ],
+        "effects": [
+          "Protect the shared world from drift while preserving useful mysteries."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "skill-hapa-capability-memory-lore-provenance",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "skill_card",
+      "kind": "skill",
+      "title": "hapa-capability-memory-lore-provenance",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to route memory, lore, and source truth.",
+      "description": "Trace claims through Second Brain, wiki, and records.",
+      "lore": "Blue needs retrieval with receipts.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Trace claims through Second Brain, wiki, and records."
+      ],
+      "tags": [
+        "skill",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "blue"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-2"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "skill-hapa-capability-memory-lore-provenance-demo-art",
+          "name": "hapa-capability-memory-lore-provenance demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Keep attached to Blue's public profile loadout."
+        ],
+        "effects": [
+          "Trace claims through Second Brain, wiki, and records."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "skill-hapa-node-hapa-lance-node",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "skill_card",
+      "kind": "skill",
+      "title": "hapa-node-hapa-lance-node",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to operate or enhance Lance retrieval and projections.",
+      "description": "Make source intelligence queryable.",
+      "lore": "Lance is the Blue sensor archive.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Make source intelligence queryable."
+      ],
+      "tags": [
+        "skill",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "blue"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-2"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "skill-hapa-node-hapa-lance-node-demo-art",
+          "name": "hapa-node-hapa-lance-node demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Keep attached to Blue's public profile loadout."
+        ],
+        "effects": [
+          "Make source intelligence queryable."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "skill-hapa-node-hapa-telemetry-node",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "skill_card",
+      "kind": "skill",
+      "title": "hapa-node-hapa-telemetry-node",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to inspect fleet/node state.",
+      "description": "Turn runtime facts into status intelligence.",
+      "lore": "Blue cannot filter what it cannot observe.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Turn runtime facts into status intelligence."
+      ],
+      "tags": [
+        "skill",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "blue"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-2"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "skill-hapa-node-hapa-telemetry-node-demo-art",
+          "name": "hapa-node-hapa-telemetry-node demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Keep attached to Blue's public profile loadout."
+        ],
+        "effects": [
+          "Turn runtime facts into status intelligence."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "protocol-stakeholder-weighting-table",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "protocol_card",
+      "kind": "protocol",
+      "title": "Stakeholder Weighting Table",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to name who is affected and how much their needs weigh.",
+      "description": "Convert invisible stakeholders into explicit decision pressure.",
+      "lore": "Green Team must keep direction from becoming merely loudness plus speed.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Convert invisible stakeholders into explicit decision pressure."
+      ],
+      "tags": [
+        "protocol",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "green"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-3"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "protocol-stakeholder-weighting-table-demo-art",
+          "name": "Stakeholder Weighting Table demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Keep attached to Green's public profile loadout."
+        ],
+        "effects": [
+          "Convert invisible stakeholders into explicit decision pressure."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "protocol-directional-decision-gate",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "protocol_card",
+      "kind": "protocol",
+      "title": "Directional Decision Gate",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to decide when enough context exists to move.",
+      "description": "Transform Red pressure and Blue truth into an accountable direction.",
+      "lore": "Green anchors action when the math and philosophy agree enough.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Transform Red pressure and Blue truth into an accountable direction."
+      ],
+      "tags": [
+        "protocol",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "green"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-3"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "protocol-directional-decision-gate-demo-art",
+          "name": "Directional Decision Gate demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Keep attached to Green's public profile loadout."
+        ],
+        "effects": [
+          "Transform Red pressure and Blue truth into an accountable direction."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "protocol-repair-loop",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "protocol_card",
+      "kind": "protocol",
+      "title": "Repair Loop",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to return harm, conflict, or drift into learning.",
+      "description": "Create a path from mistake to restored trust and improved protocol.",
+      "lore": "Green's strength is not softness; it is durable accountability.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Create a path from mistake to restored trust and improved protocol."
+      ],
+      "tags": [
+        "protocol",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "green"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-3"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "protocol-repair-loop-demo-art",
+          "name": "Repair Loop demo art",
+          "type": "image",
+          "uri": "/demo/protocol-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "protocols"
+        ],
+        "equipRules": [
+          "Keep attached to Green's public profile loadout."
+        ],
+        "effects": [
+          "Create a path from mistake to restored trust and improved protocol."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "skill-hapa-capability-governance-consul",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "skill_card",
+      "kind": "skill",
+      "title": "hapa-capability-governance-consul",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to route governance and decision tasks.",
+      "description": "Give stakeholder decisions a proof path.",
+      "lore": "Green's math needs governance tools.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Give stakeholder decisions a proof path."
+      ],
+      "tags": [
+        "skill",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "green"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-3"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "skill-hapa-capability-governance-consul-demo-art",
+          "name": "hapa-capability-governance-consul demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Keep attached to Green's public profile loadout."
+        ],
+        "effects": [
+          "Give stakeholder decisions a proof path."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "skill-hapa-node-consul-node-proto",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "skill_card",
+      "kind": "skill",
+      "title": "hapa-node-consul-node-proto",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to operate or enhance Consul proof flows.",
+      "description": "Validate directional rules and proposals.",
+      "lore": "Consul is Green's proving chamber.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Validate directional rules and proposals."
+      ],
+      "tags": [
+        "skill",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "green"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-3"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "skill-hapa-node-consul-node-proto-demo-art",
+          "name": "hapa-node-consul-node-proto demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Keep attached to Green's public profile loadout."
+        ],
+        "effects": [
+          "Validate directional rules and proposals."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    },
+    {
+      "id": "skill-hapa-node-hapa-cultivation-suite",
+      "schemaVersion": "hapa.item-card.v1",
+      "cardType": "skill_card",
+      "kind": "skill",
+      "title": "hapa-node-hapa-cultivation-suite",
+      "status": "active",
+      "canonStatus": "soft_canon",
+      "summary": "How to operate cultivation mechanics.",
+      "description": "Turn growth, need, pressure, and evolution into tests.",
+      "lore": "Green tracks what decisions grow into.",
+      "utility": [
+        "teach the avatar how to operate inside Hapa",
+        "anchor Genesis backstory and daily roleplay",
+        "create game-mechanic prompts for Garden, ship, and arena scenes"
+      ],
+      "broadGameMechanics": [
+        "Turn growth, need, pressure, and evolution into tests."
+      ],
+      "tags": [
+        "skill",
+        "profile-required",
+        "rgb-avatar-loadout",
+        "public-demo",
+        "green"
+      ],
+      "rank": "profile-loadout",
+      "quality": {
+        "rank": "profile-loadout",
+        "confidence": "soft",
+        "power": 6,
+        "complexity": 4,
+        "reuse": 8,
+        "risk": 3,
+        "completeness": 80
+      },
+      "connections": {
+        "avatarIds": [
+          "avatar-3"
+        ]
+      },
+      "mediaAssets": [
+        {
+          "id": "skill-hapa-node-hapa-cultivation-suite-demo-art",
+          "name": "hapa-node-hapa-cultivation-suite demo art",
+          "type": "image",
+          "uri": "/demo/skill-card.svg",
+          "tags": [
+            "public-demo",
+            "profile-required"
+          ],
+          "metadata": {
+            "rightsStatus": "repository-authored-demo-asset"
+          }
+        }
+      ],
+      "equipment": {
+        "hardpointHints": [
+          "skills"
+        ],
+        "equipRules": [
+          "Keep attached to Green's public profile loadout."
+        ],
+        "effects": [
+          "Turn growth, need, pressure, and evolution into tests."
+        ],
+        "limits": [
+          "does not authorize real system mutation by itself",
+          "must preserve source attribution and canon status"
+        ]
+      },
+      "createdAt": "2026-07-21T00:00:00.000Z",
+      "updatedAt": "2026-07-21T00:00:00.000Z"
+    }
+  ],
+  "agents": [],
+  "auditRuns": [],
+  "createdAt": "2026-07-21T00:00:00.000Z",
+  "updatedAt": "2026-07-21T00:00:00.000Z"
+}

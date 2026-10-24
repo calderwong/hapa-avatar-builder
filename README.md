@@ -1,5 +1,58 @@
 # Hapa Avatar Builder
 
+Hapa Avatar Builder is a local-first visual workbench for creating Avatar Cards and connecting them to media, skills, protocols, items, scenes, lore, songs, and other Cards. It also includes a 3D Tarot Draw where those Cards can be arranged, explored, saved as scenes, and used to form collaboration contexts.
+
+[Open the live Red, Blue, and Green demo](https://calderwong.github.io/hapa-avatar-builder/?view=builder&stargateDemo=1) · [Watch the Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A) · [Open the judge quickstart](docs/submission/JUDGE_QUICKSTART.md) · [Read the Build Week scope](docs/submission/CODEX_BUILD_WEEK_CUTOFF_AND_CHANGE_AUDIT.md)
+
+## What you can do
+
+| Area | What it does | How to use it |
+| --- | --- | --- |
+| **Avatar Card** | Presents an Avatar's identity, profile, relationships, scenes, media, and attached Card loadout. | Choose an Avatar from the profile rail, then open **Avatar Card** to inspect the complete profile. |
+| **Builder** | Collects source images and videos and attaches them to an Avatar as attributable media. | Use **Preview Local Media** or drop files into Media Intake, inspect a preview, and drag it onto the appropriate Avatar section. Select an image and use **Add Video Branch** to connect alternate motion states. |
+| **Mind** | Shows the selected Avatar's working knowledge and equipped Skills, Protocols, and related Cards. | Open **Mind** after selecting an Avatar. Use the Shared Hand to bring another Card or Deck into the view as context. |
+| **Items** | Browses reusable Item, Skill, Protocol, Node, and other foundation Cards and connects them to Avatars or workflows. | Filter the Item library, open a Card for details, then use its available attach or equip action. |
+| **Scenes, Loops, Look Book, and Lore Reader** | Organize where an Avatar appears, how media loops relate, how the Avatar is presented, and which lore sources belong to it. | Select an Avatar first, then open the relevant workspace. The active Avatar and attached Cards shape what the workspace displays. |
+| **Hapa Songs** | Connects Song Cards to Avatars, scenes, direction, and source media. | Open **Hapa Songs**, choose a song, inspect its linked Avatars and media, and open its available direction or playback tools. |
+| **Echos Album** | Previews and directs music-video cuts using the song's saved timing, media, visualizer, and output profile. | Choose a song or cut, preview it, adjust its direction, and save a new lineage-bound cut rather than overwriting the source. |
+| **Tarot Library** | Manages Tarot decks, sets, Cards, backs, loop videos, and Avatar links. | Select a Deck or Set, inspect its Cards, and edit the collection metadata or linked Avatars. |
+| **Tarot Draw** | Places live Cards on a Three.js table for drawing, flipping, focusing, arranging, and saving scenes. | Browse Cards by type, add them to the table, then click or drag them into placements. Drag empty space to orbit, use the wheel to zoom, and right-drag to pan. |
+| **Kanban** | Shows build work and Avatar-specific healing work without hiding the underlying Card context. | Open **Kanban** to review the shared board and the selected Avatar's queue. |
+| **Shared Hand** | Carries Cards, Decks, and Sets between compatible workspaces without transferring ownership or authority. | Use **Manage** to edit the Hand, **Detach** to float it across views, and **Dock** to return it to the header. |
+
+## Public Build Week demo
+
+The [hosted GitHub Pages demo](https://calderwong.github.io/hapa-avatar-builder/?view=builder&stargateDemo=1) starts in its bounded static public fixture mode. It does not connect to the private local operator stores or services, and changes made in the hosted UI are not durable.
+
+The public branch contains a deliberately bounded demo rather than the private operator libraries. It includes:
+
+- Red, Blue, and Green Avatar profiles with their public Card loadouts.
+- Three Echo State Song Cards.
+- A representative foundation-card library.
+- The complete 16-card Codex Build Week Wisdom Set.
+- Deterministic demo Cards for the Stargate route.
+
+The remaining Avatar, Song, Tarot, Item, lore, and generated-media libraries stay in ignored local runtime stores. The exact boundary is documented in [PUBLIC_SAFE_FIXTURE_BOUNDARY.md](docs/submission/PUBLIC_SAFE_FIXTURE_BOUNDARY.md).
+
+### Five-minute demo route
+
+After starting the app, open:
+
+```text
+http://127.0.0.1:8787/?view=tarot&stargateDemo=1
+```
+
+Then:
+
+1. Use the Avatar rail to open Red, Blue, and Green and inspect their attached loadout Cards.
+2. Open **Tarot Library** and select the **Codex Build Week Wisdom Set**.
+3. Return to **Tarot Draw** and use the Card browser filters to inspect Avatars, Items, Skills, Protocols, Nodes, Songs, and Wisdom Cards.
+4. In the Stargate panel, use **Demo Cards** if the table needs the deterministic public fixture, or **Auto Arrange** to place identity-ready Cards into numbered slots.
+5. Follow the visible sequence: **Place Cards** → **Create Cores & Lock Coordinates** when required → **Dial This Formation** → **Save This Gate**.
+
+Creating a Card Core establishes append-only local custody. It does not mint, publish, canonize, transfer ownership, or enable commerce.
+
+
 <!-- HAPA_ECOSYSTEM_CONTEXT_START -->
 ## Hapa ecosystem context
 
@@ -92,10 +145,7 @@ remain the property of their respective creators and rights holders; catalog
 presence is a source-labeled research or interoperability reference, not Hapa
 authorship, sponsorship, or endorsement.
 
-No repository-wide license grant is currently declared. Public GitHub
-visibility does not by itself grant permission to reuse Hapa-authored code or
-bundled media; review each dependency and asset's terms and contact Calder
-before redistribution.
+Hapa-authored software in this repository is available under the [MIT License](LICENSE). Third-party frameworks and referenced media retain their own rights and licenses; the software license does not grant rights to those assets.
 
 ## What It Builds
 

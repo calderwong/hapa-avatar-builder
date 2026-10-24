@@ -1,11 +1,16 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const githubPagesDemo = process.env.HAPA_GITHUB_PAGES === "1";
+
 export default defineConfig({
   plugins: [react()],
+  base: githubPagesDemo ? "/hapa-avatar-builder/" : "/",
   // Only curated, source-controlled demo assets belong in the application
   // bundle. Generated/runtime media is served from the external media root.
-  publicDir: "public-static",
+  // The Pages build copies only public-static/demo in its preparation step so
+  // unrelated public references never enter the deployed artifact.
+  publicDir: githubPagesDemo ? false : "public-static",
   resolve: {
     // Linked Hapa packages must share the Builder's React dispatcher in production.
     // Without this, the Overcard workspace can contribute a second React instance

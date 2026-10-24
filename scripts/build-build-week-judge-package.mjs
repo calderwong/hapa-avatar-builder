@@ -91,10 +91,11 @@ const manifest = {
   sourceCommit,
   packageType: "source-plus-public-safe-bootstrap",
   truthBoundary: {
-    runtimeData: "excluded; empty tracked fixtures bootstrap the UI until the local API hydrates operator-owned data",
-    generatedMedia: "excluded",
+    runtimeData: "excluded; a curated tracked public demo bootstraps 3 RGB Avatars, 3 Echo State Song Cards, 33 sampled/profile-required foundation Cards, and the complete 16-card Build Week Wisdom Set",
+    generatedMedia: "runtime generated media excluded; the 16 explicitly curated Build Week Wisdom Set proposal images are included with review and lineage metadata",
     thirdPartyReferenceMedia: "excluded",
     localModels: "not bundled",
+    rosterBoundary: "the remaining private Avatar, Song, Tarot, media, and Card rosters are not bundled",
     p2pClaim: "two-profile encrypted local proof; not an internet-scale deployment claim"
   },
   excludedPrefixes,
