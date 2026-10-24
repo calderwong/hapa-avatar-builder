@@ -38,13 +38,16 @@ export function buildScoreDustMotion(score) {
   for (const move of moves) { cuts.add(move.start); cuts.add(move.end); }
   const bounds = [...cuts].filter((v) => v >= 0 && v <= duration).sort((a, b) => a - b);
   const cueStarts = score.cues.map((c) => c.start);
+  const motifs = new Map((score.motifs || []).map((m) => [m.id, m]));
   const segments = [];
   let spin = 0, yaw = 0;
   for (let i = 0; i + 1 < bounds.length; i++) {
     const start = bounds[i], end = bounds[i + 1], middle = (start + end) / 2;
     if (end - start <= 1e-9) continue;
     const cue = score.cues[Math.max(0, upperBound(cueStarts, middle) - 1)];
-    const face = readable.some((p) => middle >= p.start && middle < p.end);
+    // Words and pictures are read, so they face the viewer instead of spinning.
+    const pictured = Boolean(motifs.get(cue.motifId)?.imageRef);
+    const face = pictured || readable.some((p) => middle >= p.start && middle < p.end);
     const mode = moves.find((m) => middle >= m.start && middle < m.end)?.mode || cue.camera?.mode;
     const segment = { start, end, face, spinRate: face ? 0 : 0.04 + 0.22 * (cue.busy[0] + cue.busy[1]) / 2, yawRate: face ? 0 : CAMERA_YAW_RATES[mode] ?? 0.04, spin0: spin, yaw0: yaw };
     segments.push(segment);

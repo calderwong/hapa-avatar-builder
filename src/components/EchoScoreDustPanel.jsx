@@ -158,6 +158,17 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
                   <option value="">Auto ({motif.family})</option>
                   {DUST_FORMATION_FAMILIES.map((family) => <option key={family} value={family}>{family}</option>)}
                 </select>
+                {dust.pictures?.options?.length > 0 && (
+                  <select aria-label={`Picture for ${motif.repeatGroup}`} value={direction.images?.[motif.repeatGroup]?.assetId || ""}
+                    onChange={(event) => update((current) => {
+                      const images = { ...(current.images || {}) }, option = dust.pictures.options.find((o) => o.assetId === event.target.value);
+                      if (option) images[motif.repeatGroup] = { assetId: option.assetId, url: option.url, label: option.label, avatarId: option.avatarId }; else delete images[motif.repeatGroup];
+                      return { images };
+                    })}>
+                    <option value="">Shape only</option>
+                    {dust.pictures.options.map((o) => <option key={o.assetId} value={o.assetId}>Picture: {o.label}</option>)}
+                  </select>
+                )}
               </label>
             ))}
           </fieldset>

@@ -2318,7 +2318,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const scoreDust = useEchoScoreDust({
     enabled: usesScoreDust, songId: selectedProjectSongId, apiBase: API_BASE, preparedPerformance: activePreparedPerformance,
     lyricLines: Array.isArray(activeProject?.timed_lyrics) ? activeProject.timed_lyrics : null, lyricAudioHash: activeProject?.lyrics?.audioHash || null,
-    durationSeconds: Number(activeProject?.duration) || 600,
+    durationSeconds: Number(activeProject?.duration) || 600, resolveUri: resolveMediaUri,
   });
   const scoreDustRef = useRef({ key: "", playback: null, settings: null, source: "reflex-only" });
   useEffect(() => {

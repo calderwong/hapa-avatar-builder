@@ -145,14 +145,20 @@ const FAMILY_FLEXIBILITY = { sheet: 0.9, fountain: 0.8, dandelion: 0.75, jellyfi
  * host). Pixels need not come from a canvas; any {width,height,data} works.
  * Outline points get low flexibility so strokes stay legible.
  */
-export function sampleDustTargetsFromPixels(image, { count = 2000, seed = 1, threshold = 0.3, scale = 1.4 } = {}) {
+export function sampleDustTargetsFromPixels(image, { count = 2000, seed = 1, threshold = 0.3, scale = 1.4, mode = "auto" } = {}) {
   const { width, height, data } = image || {};
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || !data || data.length < width * height * 4) {
     throw new TypeError("RGBA pixels with integer width and height are required.");
   }
+  // Backgroundless pictures (meaningful transparency) use their alpha
+  // silhouette, so dark clothing still forms; opaque pictures use luminance.
+  let transparent = 0;
+  for (let i = 3; i < width * height * 4; i += 16) if (data[i] < 26) transparent++;
+  const useAlpha = mode === "alpha" || (mode === "auto" && transparent > (width * height) / 4 * 0.05);
   const lit = (x, y) => {
     if (x < 0 || y < 0 || x >= width || y >= height) return 0;
     const o = (y * width + x) * 4, alpha = data[o + 3] / 255;
+    if (useAlpha) return alpha >= 0.5 ? Math.max(threshold, alpha) : 0;
     return ((0.2126 * data[o] + 0.7152 * data[o + 1] + 0.0722 * data[o + 2]) / 255) * alpha;
   };
   const candidates = [];

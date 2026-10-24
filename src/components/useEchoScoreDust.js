@@ -7,15 +7,33 @@ import {
   buildEchoMusicalTimelineFromPerformance, composeEchoVisualScore, validateEchoVisualScore, validateEchoScoreDirection,
   normalizeDustPlaySettings, prepareEchoScorePlayback, reflexOnlyEchoTimeline,
 } from "../domain/echo-visual-score.js";
+import { scoreDustCastFor, scoreDustPictureOption } from "../domain/echo-score-dust-pictures.js";
 
 const NO_DIRECTION = Object.freeze({});
 
-export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerformance = null, lyricLines = null, lyricAudioHash = null, durationSeconds = 600 }) {
+export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerformance = null, lyricLines = null, lyricAudioHash = null, durationSeconds = 600, resolveUri = (uri) => uri }) {
   const client = useMemo(() => createAtlasClient(apiBase), [apiBase]);
   const [remote, setRemote] = useState({ status: "idle", songId: "" });
   const [draft, setDraft] = useState(null);
   const [save, setSave] = useState({ state: "idle", message: "" });
   const [reload, setReload] = useState(0);
+  const [pictures, setPictures] = useState({ status: "idle", options: [] });
+
+  // Cast portraits available as picture motifs (song bindings, then evergreen cast).
+  useEffect(() => {
+    if (!enabled || !songId) { setPictures({ status: "idle", options: [] }); return undefined; }
+    let cancelled = false;
+    setPictures({ status: "loading", options: [] });
+    Promise.all(scoreDustCastFor(songId).map(async (member) => {
+      try {
+        const response = await fetch(`${apiBase}/api/avatars/${encodeURIComponent(member.avatarId)}`, { credentials: "same-origin" });
+        if (!response.ok) return null;
+        const body = await response.json();
+        return scoreDustPictureOption(body.avatar || body, member, resolveUri);
+      } catch { return null; }
+    })).then((options) => { if (!cancelled) setPictures({ status: "ready", options: options.filter(Boolean) }); });
+    return () => { cancelled = true; };
+  }, [enabled, songId, apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setDraft(null); setSave({ state: "idle", message: "" });
@@ -57,7 +75,7 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     const directionCheck = validateEchoScoreDirection(direction);
     try {
       const score = composeEchoVisualScore(timeline, directionCheck.ok ? direction : {}, { lyricLines, lyricAudioHash });
-      const validation = validateEchoVisualScore(score, { timeline });
+      const validation = validateEchoVisualScore(score, { timeline, assets: pictures.status === "ready" ? pictures.options.map((o) => o.assetId) : null });
       if (!directionCheck.ok) validation.errors.unshift(...directionCheck.errors);
       const settings = normalizeDustPlaySettings(direction.playSettings || {}, timeline);
       const playback = validation.ok ? prepareEchoScorePlayback(score, timeline, { pulse: settings.pulse }) : null;
@@ -65,7 +83,7 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     } catch (error) {
       return { score: null, validation: { ok: false, errors: [{ code: "compose", message: String(error?.message || error) }], warnings: [] }, settings: null, playback: null };
     }
-  }, [enabled, timelineInfo, direction, lyricLines, lyricAudioHash]);
+  }, [enabled, timelineInfo, direction, lyricLines, lyricAudioHash, pictures]);
 
   const saveDraft = useCallback(async (note = "") => {
     if (remote.status !== "atlas" || !draft) return;
@@ -89,6 +107,6 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     score: composed?.score || null, validation: composed?.validation || null, settings: composed?.settings || null, playback: composed?.playback || null, playbackKey,
     setDraft: (update) => setDraft((current) => (typeof update === "function" ? update(current ?? (savedInvalid ? {} : remote.saved?.direction ?? {})) : update)),
     discard: () => { setDraft(null); setSave({ state: "idle", message: "" }); },
-    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1),
+    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures,
   };
 }
