@@ -203,9 +203,21 @@ exports follows the song's own spectrum: `createPcmBandSampler` computes the
 same 32 log bands from decoded PCM (Hann/FFT, fixed dB window). Bitrate scales
 with pixel count and is capped so long exports fit the Preview Recordings
 store (≤ 120 MiB). The result is uploaded to **Recordings** (existing
-`/api/echo/preview-recordings`) and offered as a .webm download. Exports are
-the Score Dust layer only, on black; they are not composited with the cut's
-video media.
+`/api/echo/preview-recordings`) and offered as a .webm download.
+
+**Background: Director cut media** (P2 item 6, the default when the cut has
+media; **Black** is the alternative). `createCutMediaCompositor`
+(`src/components/echo-score-dust-composite.js`) draws the shot under each
+frame's song time before the dust: images cover-fit, videos seeked to the
+exact source time (source-in offset + time into the shot, looping clips that
+are shorter than the shot), with a 25% dim so the dust stays readable. A
+server without Range requests leaves a clip unseekable, so the clip is then
+loaded whole as a blob. Media that cannot be decoded is drawn as black and
+listed in the receipt (`background`, `media.drawn`, `media.unavailable`).
+Loop bridges crossfade the footage as well. Limits: hard cuts only. The
+preview's time-remap automation, transition blends and ISF shader passes are
+not reproduced, so the composite is a dust-over-footage export, not a final
+render of the cut.
 
 **Seamless loops.** An 8 s loop renders a lead-in before its first frame and
 records that trajectory. Over the last 1.5 s the particles, visibility, bands
@@ -509,7 +521,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (in prog
 | 3 ★ | Colour dynamics: palette crossfades at section changes, lift flash, break desaturation, brighter returns | S |
 | 4 | Background and export colour: solid, gradient or transparent | S |
 | 5 | Album colour language as default palettes (`album-visual-language.js`) | S |
-| 6 ★ | Composite exports with the Director cut's media | L |
+| 6 ★ | Composite exports with the Director cut's media — **done** (hard cuts) | L |
 | 7 | Certify the fixed-step renderer as Final render ready; per-cue scheduling and mixing with ISF shaders | M |
 | 8 | Loops attached to Song Card / Tarot card loops | S |
 | 9 ★ | Stem-aware responses: drums kick, bass swells, vocals trigger words, cymbals sparkle | M |
@@ -527,8 +539,8 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (in prog
 
 ## Next steps
 
-1. Composite exports with the Director cut's media (today they are the dust
-   layer on black).
+1. Composite exports reproduce hard cuts only; transition blends and time-remap
+   automation remain with the Director preview and final render.
 2. Shared play beyond loopback: authenticate LAN peers (for example through the
    phone bridge) before exposing sessions to other devices.
 3. Make the cue picker accept Score Dust once its fixed-step export is

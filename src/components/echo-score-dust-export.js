@@ -10,6 +10,7 @@ import { createScoreDustPerformance } from "../domain/echo-score-dust-performanc
 import { createPcmBandSampler } from "../domain/echo-audio-bands.js";
 import { createWebmMuxer, opusHead } from "../domain/webm-muxer.js";
 import { createScoreDustPainter, rasterizePhraseTargets, loadImageTargets } from "./echo-score-dust-renderer.js";
+import { createCutMediaCompositor } from "./echo-score-dust-composite.js";
 
 export const SCORE_DUST_EXPORT_SCHEMA = "hapa.echo.score-dust.export.v1";
 export const SCORE_DUST_EXPORT_FORMATS = Object.freeze({
@@ -87,7 +88,7 @@ async function encodeAudio({ audio, startSeconds, durationSeconds, bridgeSeconds
  * → { blob, mimeType, receipt }
  */
 export async function exportScoreDustVideo({ playback, settings = {}, audio = null, startSeconds = 0, durationSeconds = 15, format = "landscape", width = null, height = null,
-  fps = 30, loopBridgeSeconds = 0, particleCount = null, stems = null, signal = null, onProgress = () => {} } = {}) {
+  fps = 30, loopBridgeSeconds = 0, particleCount = null, stems = null, background = "black", shots = null, resolveUri = (uri) => uri, signal = null, onProgress = () => {} } = {}) {
   if (typeof VideoEncoder !== "function") throw new Error("This browser has no WebCodecs video encoder.");
   if (!playback?.stateAt) throw new Error("A prepared score playback is required.");
   const size = SCORE_DUST_EXPORT_FORMATS[format] || SCORE_DUST_EXPORT_FORMATS.landscape;
@@ -122,9 +123,18 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
   });
   videoEncoder.configure({ codec, width: w, height: h, bitrate, framerate: fps, latencyMode: "quality" });
 
-  const paintAt = (t, extra = {}) => {
-    const { state } = performance.advanceTo(t, { bandsAt: bandHook, stemsAt });
+  // Background: black, or the Director cut's media drawn under the dust.
+  const compositor = background === "cut" && Array.isArray(shots) && shots.length ? createCutMediaCompositor({ shots, resolveUri }) : null;
+  const drawBackground = async (t, loopTarget = null, weight = 0) => {
     ctx.fillStyle = "#020409"; ctx.fillRect(0, 0, w, h);
+    if (!compositor) return;
+    await compositor.drawAt(ctx, t, w, h);
+    // Loop bridge: crossfade the footage back toward what precedes the loop start.
+    if (loopTarget !== null && weight > 0) await compositor.drawAt(ctx, loopTarget, w, h, { alpha: weight });
+  };
+  const paintAt = async (t, extra = {}) => {
+    const { state } = performance.advanceTo(t, { bandsAt: bandHook, stemsAt });
+    await drawBackground(t);
     painter.paint(ctx, { performance, state, t, width: w, height: h, frameSeconds: 1 / fps, ...extra });
     return state;
   };
@@ -133,7 +143,7 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
   const lead = [];
   const leadFrames = Math.max(bridgeFrames, Math.min(Math.round(0.5 * fps), Math.round(start * fps)));
   for (let j = leadFrames; j > 0; j--) {
-    const t = start - j / fps, state = paintAt(t);
+    const t = start - j / fps, state = await paintAt(t);
     if (bridgeFrames) lead.push({ view: snapshotView(performance.swarm), camera: performance.camera(t, state) });
   }
   const bridgeLead = lead.slice(-bridgeFrames);
@@ -149,9 +159,9 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
         for (let i = 0; i < live.position.length; i++) view.position[i] = live.position[i] + (target.view.position[i] - live.position[i]) * weight;
         for (let i = 0; i < live.count; i++) { view.visibility[i] = live.visibility[i] + (target.view.visibility[i] - live.visibility[i]) * weight; view.band[i] = live.band[i] + (target.view.band[i] - live.band[i]) * weight; }
         const blendCamera = Object.fromEntries(Object.keys(camera).map((key) => [key, camera[key] + (target.camera[key] - camera[key]) * weight]));
-        ctx.fillStyle = "#020409"; ctx.fillRect(0, 0, w, h);
+        await drawBackground(t, t - length, weight);
         painter.paint(ctx, { performance, state, t, width: w, height: h, frameSeconds: 1 / fps, view, camera: blendCamera });
-      } else paintAt(t);
+      } else await paintAt(t);
       const frame = new VideoFrame(canvas, { timestamp: Math.round((k * 1e6) / fps), duration: Math.round(1e6 / fps) });
       videoEncoder.encode(frame, { keyFrame: k % (fps * 2) === 0 });
       frame.close();
@@ -172,11 +182,13 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
   }
   const bytes = muxer.finalize({ durationUs: Math.round(length * 1e6) });
   painter.dispose();
+  const media = compositor?.receipt() || null;
+  compositor?.dispose();
   onProgress({ phase: "done", frame: frameCount, frames: frameCount });
   return {
     blob: new Blob([bytes], { type: "video/webm" }), mimeType: "video/webm",
     receipt: { schemaVersion: SCORE_DUST_EXPORT_SCHEMA, scoreFingerprint: playback.score.fingerprint, seed: performance.swarm.seed, particles: count, codec,
       width: w, height: h, fps, frames: frameCount, startSeconds: start, durationSeconds: length, loopBridgeSeconds: bridge, bitrate,
-      audio: audio ? { codec: "opus", blocks: audioBlocks, bands: "pcm-spectrum" } : null, stems: stems?.available || [], bytes: bytes.length, finalStateFingerprint: performance.swarm.fingerprint() },
+      audio: audio ? { codec: "opus", blocks: audioBlocks, bands: "pcm-spectrum" } : null, stems: stems?.available || [], background: compositor ? "cut" : "black", media, bytes: bytes.length, finalStateFingerprint: performance.swarm.fingerprint() },
   };
 }

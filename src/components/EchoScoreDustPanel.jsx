@@ -76,6 +76,8 @@ const EXPORT_RANGES = {
 /** Deterministic export: frames at exact song times, saved to Preview Recordings. */
 function ScoreDustExport({ dust, currentTime, exportContext }) {
   const [range, setRange] = useState("clip"), [format, setFormat] = useState("landscape"), [fps, setFps] = useState(30);
+  const hasCut = Boolean(exportContext?.shots?.some((shot) => shot?.media_uri || shot?.media_contract?.runtimeUri));
+  const [background, setBackground] = useState(hasCut ? "cut" : "black");
   const [job, setJob] = useState({ state: "idle" });
   const controller = useRef(null), download = useRef("");
   useEffect(() => () => { controller.current?.abort(); if (download.current) URL.revokeObjectURL(download.current); }, []);
@@ -92,7 +94,7 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
       let audio = null;
       if (exportContext?.audioUrl) { try { audio = await decodeSongAudio(exportContext.audioUrl, { signal: controller.current.signal }); } catch { audio = null; } }
       const result = await exportScoreDustVideo({ playback, settings: dust.settings, audio, startSeconds: plan.start, durationSeconds: plan.length, loopBridgeSeconds: plan.bridge || 0,
-        format, fps, stems: dust.stems, signal: controller.current.signal,
+        format, fps, stems: dust.stems, background, shots: exportContext?.shots || null, resolveUri: exportContext?.resolveUri, signal: controller.current.signal,
         onProgress: ({ phase, frame, frames }) => setJob({ state: "running", progress: frame / Math.max(1, frames), message: phase === "audio" ? "Encoding audio…" : `Rendering frame ${frame} of ${frames}` }) });
       download.current = URL.createObjectURL(result.blob);
       const r = result.receipt;
@@ -104,16 +106,20 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
         const response = await fetch(`${exportContext?.apiBase || ""}/api/echo/preview-recordings?${query}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "video/webm" }, body: result.blob });
         saved = response.ok ? "Saved to Recordings." : `Not saved to Recordings (${response.status}); download it below.`;
       } catch (error) { saved = `Not saved to Recordings (${error.message}); download it below.`; }
-      setJob({ state: "done", receipt: r, message: `${r.frames} frames · ${(r.bytes / 1048576).toFixed(1)} MB · ${r.audio ? "with song audio" : "no audio"}${r.loopBridgeSeconds ? ` · ${r.loopBridgeSeconds}s loop bridge` : ""}. ${saved}` });
+      const mediaNote = r.background === "cut" ? ` · over the cut (${r.media.drawn} media frames${r.media.unavailable.length ? `, ${r.media.unavailable.length} source${r.media.unavailable.length === 1 ? "" : "s"} unavailable` : ""})` : "";
+      setJob({ state: "done", receipt: r, message: `${r.frames} frames · ${(r.bytes / 1048576).toFixed(1)} MB · ${r.audio ? "with song audio" : "no audio"}${mediaNote}${r.loopBridgeSeconds ? ` · ${r.loopBridgeSeconds}s loop bridge` : ""}. ${saved}` });
     } catch (error) {
       setJob({ state: controller.current?.signal.aborted ? "idle" : "error", message: controller.current?.signal.aborted ? "Export cancelled." : String(error?.message || error) });
     }
   };
   return (
     <fieldset className="score-dust-export">
-      <legend>Export video <span>exact song-time frames; the Score Dust layer only</span></legend>
+      <legend>Export video <span>exact song-time frames</span></legend>
       <label>Range <select aria-label="Export range" value={range} onChange={(e) => setRange(e.target.value)}>{Object.entries(EXPORT_RANGES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
       <label>Format <select aria-label="Export format" value={format} onChange={(e) => setFormat(e.target.value)}>{Object.entries(SCORE_DUST_EXPORT_FORMATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></label>
+      <label>Background <select aria-label="Export background" value={background} onChange={(e) => setBackground(e.target.value)}>
+        <option value="cut" disabled={!hasCut}>Director cut media{hasCut ? "" : " (none in this cut)"}</option><option value="black">Black</option>
+      </select></label>
       <label>FPS <select aria-label="Export frame rate" value={fps} onChange={(e) => setFps(Number(e.target.value))}><option value={30}>30</option><option value={60}>60</option></select></label>
       {job.state === "running"
         ? <><progress value={job.progress || 0} max={1} aria-label="Export progress" /><button type="button" className="hapa-btn" onClick={() => controller.current?.abort(new Error("Export cancelled"))}>Cancel</button></>
