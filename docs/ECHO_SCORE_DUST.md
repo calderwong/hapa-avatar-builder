@@ -41,12 +41,12 @@ Saved directions, a score inspector and direction editor in the Echo preview
 | Surface | How to reach it | What it does |
 | --- | --- | --- |
 | Echo preview | Echos Album → Director Workbench → song → Preview → tick **Score Dust preview** | Score Dust replaces the cut's visualizers on screen (preview only) and opens the panel |
-| Score Dust panel | Below *Audio visuals* in the preview | Score strip (click to seek), validation, motif shape/picture per repeating section, hue, pulse, seed, moment responses, lyric hooks, **Save direction** |
-| Export | Panel → **Export video** | 15 s clip, current section, whole song or 8 s seamless loop; landscape/HD/portrait/square, 30/60 fps; saved to **Recordings** + .webm download |
+| Score Dust panel | Below *Audio visuals* in the preview | Score strip (click to seek; camera lane), validation, motif shape/picture/colours per repeating section, hue, pulse, seed, **Colour**, **Comfort**, **Instruments**, **Camera**, **Looks**, moment responses, lyric hooks, **Save direction** |
+| Export | Panel → **Export video** | 15 s clip, current section, whole song or 8 s seamless loop; landscape/HD/portrait/square, 30/60 fps; over the Director cut's media or black; saved to **Recordings** + .webm download |
 | Listen together | Panel → **Host session** / **Join** (or open a `?scoreDustSession=<id>` link) | Shared play/pause/seek/direction; each screen renders locally |
 | Record Garden | Echo Record Garden → mode dock → **Score Dust** | 3D dust over the playing record, same score and direction |
-| API | `/api/echos/audio-atlas/jobs/RUN/query?op=visual-score`, `…/visual-score`, `…/visual-score-directions`, `/api/echos/score-dust/sessions` | See parity doc |
-| CLI | `node cli/audio-atlas.mjs visual-score | visual-score-directions | save-visual-score-direction` | Compose, validate, list and save directions |
+| API | `/api/echos/audio-atlas/jobs/RUN/query?op=visual-score`, `…/visual-score`, `…/visual-score-directions`, `/api/echos/audio-atlas/visual-score-looks`, `/api/echos/score-dust/sessions` | See parity doc |
+| CLI | `node cli/audio-atlas.mjs visual-score | visual-score-directions | save-visual-score-direction | visual-score-looks | save-visual-score-look` | Compose, validate, list and save directions and looks |
 
 
 ### Musical timeline (`buildEchoMusicalTimelineFromAtlas`)
@@ -317,6 +317,56 @@ immediately; **Save direction rN** appends a revision.
 - Event responses per moment kind.
 - Lyric hooks on/off, with the chosen phrases listed; click one to seek to it.
 
+### P2 batch 1: colour, comfort, instruments, camera and looks
+
+All of these are direction fields, so they save with the Song's direction,
+travel to Listen together peers and render identically in preview, export and
+the Record Garden.
+
+**Colour** (`src/domain/echo-score-dust-colour.js`, direction `colour`).
+- Motif swatches are colour pickers; an edited palette is pinned to that repeat
+  group (`palettes`).
+- Presets: Neon, Monochrome, Sunset, Ice, Ember, Red, Green, Blue. Each section
+  gets a related palette; pinned palettes still win, and **Apply preset to
+  edited sections** clears the pins.
+- Modes: palette, by frequency (bass end → treble end), by speed, along the
+  shape, by depth, and from the picture (particles keep the sampled pixel
+  colours of a picture motif).
+- Dynamics switches: crossfade between sections, flash on lifts, drain colour
+  in breaks, brighter returns.
+
+**Comfort** (`playSettings.reducedMotion`, `playSettings.flashLimitPerSecond`).
+- Bright flashes pass a gate that allows at most 3 per second in any 1 s
+  window; the limit can be lowered to 2, 1 or none, never raised.
+- Reduced motion stops spin and camera orbit, softens kicks to 20%, replaces
+  travelling shocks with a soft kick and suppresses flashes. It follows the
+  OS `prefers-reduced-motion` setting until the direction sets it.
+
+**Instruments** (`src/domain/echo-score-dust-stems.js`, direction
+`stemResponses`). When the prepared performance has separated stems (one stem
+set per Song), drum onsets kick, cymbals (drum high band) sparkle, bass swells
+the shape, vocals bring more dust in, and keys/synth/guitar/strings stir the
+flow. Each instrument has a 0–1 weight; 0 turns it off. Master-only Songs keep
+the spectrum response.
+
+**Camera** (direction `cameraMoves`). The panel adds a move (hold still, slow
+drift, orbit, push in) from the playhead to the end of the current section;
+start, end and mode stay editable and the strip shows a camera lane.
+`placeCameraMove` gives the new move its whole span, trimming or splitting
+overlapping moves, so authored moves never conflict. Words and pictures still
+face the viewer during a move.
+
+**Looks** (`src/domain/echo-score-dust-looks.js`). A look is the
+song-independent part of a direction: colour, instrument and moment responses,
+base hue, density, and comfort/particle settings. Repeat-group shapes,
+palettes, pictures, words, camera moves, seed and pulse belong to one Song and
+are never part of a look. **Apply** replaces those look fields and keeps the
+rest, then the change is saved like any other direction edit. Built-ins: Club,
+Calm, Film, Ember. Saved looks live in one append-only ledger shared by every
+Song (`data/echo-visual-score-looks/looks.ndjson`, ignored by Git, own lock).
+The latest revision per name wins, a saved look replaces a built-in of the
+same name, and a removal is a tombstone, so history is kept.
+
 ### Saved directions
 
 Directions, not composed scores, are saved. A direction is the compact human
@@ -357,6 +407,9 @@ node cli/audio-atlas.mjs visual-score RUN --direction=direction.json --lyrics=ti
 node cli/audio-atlas.mjs visual-score RUN --score=edited-score.json --assets=atlas-cell-1
 node cli/audio-atlas.mjs visual-score-directions RUN
 node cli/audio-atlas.mjs save-visual-score-direction RUN --file=direction.json --base-revision=0 --note="group B as jellyfish"
+node cli/audio-atlas.mjs visual-score-looks                     # saved looks, then unclaimed built-ins
+node cli/audio-atlas.mjs save-visual-score-look "Sunset club" --file=look.json --note="for slow songs"
+node cli/audio-atlas.mjs save-visual-score-look "Sunset club" --delete
 ```
 
 ```json
@@ -505,26 +558,42 @@ real Echo Song is still open.
     unchanged.
   - New guardrail: verify a feature through its real entry point, not only a
     harness, before calling it accessible.
+- **P2 batch 1 (same day):**
+  - Reused: Echo prepared-performance stem buses and `normalizeHyperFramesStemRole`
+    for instruments, the Director cut's own `media_contract` for composite
+    exports, and the direction ledger pattern (append-only NDJSON, own lock)
+    for looks. Nothing new owns song or media truth.
+  - What was noise: a flash-gate test assumed some flashes must be blocked at
+    double pulse. The gate's job is the bound, not a blocked count.
+  - Misunderstood, then fixed: composite video frames were frozen on frame 0
+    in the harness. The cause was again a static server without Range
+    support, but this time it is a real product risk, because media servers
+    vary. The compositor now loads an unseekable clip whole instead of
+    trusting it.
+  - Camera move ids collided when two moves started at the same time, so a
+    trimmed remainder was dropped. Ids are now made unique after placement.
+  - New guardrail: a look must never carry repeat-group keys, because group
+    names belong to one analysis. `validateDustLook` refuses them.
 - **Candidates:** Decision Card — *keep the reusable score separate from play
-  seed/settings*; Lesson Card — *readable particle material must face the
+  seed/settings*; Decision Card — *looks hold only song-independent fields*; Lesson Card — *readable particle material must face the
   camera*; Skill candidate — *Atlas run → musical timeline → directed score*;
   Flow explainer — *three time scales of a music visual*.
 
 ## P2 backlog (defined 2026-10-24)
 
-Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (in progress) is marked ★.
+Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) is done (2026-10-24); see *P2 batch 1* above.
 
 | # | Item | Size |
 | --- | --- | --- |
-| 1 ★ | Palette editor: three colour pickers per section; presets (Neon, Monochrome, Sunset, Ice, Ember, song RGB perspective) | S |
+| 1 ★ | Palette editor: three colour pickers per section; presets (Neon, Monochrome, Sunset, Ice, Ember, Red, Green, Blue) | S |
 | 2 ★ | Colour modes: palette, by frequency, by speed, along the shape, by depth, from the picture | M |
 | 3 ★ | Colour dynamics: palette crossfades at section changes, lift flash, break desaturation, brighter returns | S |
 | 4 | Background and export colour: solid, gradient or transparent | S |
 | 5 | Album colour language as default palettes (`album-visual-language.js`) | S |
-| 6 ★ | Composite exports with the Director cut's media — **done** (hard cuts) | L |
+| 6 ★ | Composite exports with the Director cut's media (hard cuts) | L |
 | 7 | Certify the fixed-step renderer as Final render ready; per-cue scheduling and mixing with ISF shaders | M |
 | 8 | Loops attached to Song Card / Tarot card loops | S |
-| 9 ★ | Stem-aware responses: drums kick, bass swells, vocals trigger words, cymbals sparkle | M |
+| 9 ★ | Stem-aware responses: drums kick, bass swells, vocals bring more dust in, cymbals sparkle. Vocal onsets triggering words is not built | M |
 | 10 | Per-section editing: edit one occurrence, drag/split/merge sections, busy/density curves | M |
 | 11 ★ | Camera moves authored on the score strip | S |
 | 12 | Lyric control: line choice, font, word-by-word mode | M |
@@ -546,3 +615,6 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (in prog
 3. Make the cue picker accept Score Dust once its fixed-step export is
    certified as a final renderer; today it stays a preview visualizer.
 4. Tune family pools, exposure and phrase limits on real Echo Songs.
+5. P2 batch 2 candidates: background colour and transparent exports (4),
+   album colour language defaults (5), Song/Tarot loop attachment (8),
+   per-section editing (10), and vocal onsets triggering words (rest of 9).

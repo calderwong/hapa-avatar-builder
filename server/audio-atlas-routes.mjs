@@ -28,6 +28,12 @@ export async function handleAudioAtlas({req,res,url,atlas,uploads,requireAdmin,r
     let value;
     if(suffix==='/songs'&&req.method==='GET')value={songs:atlas.list()};
     else if(suffix==='/inventory'&&req.method==='GET')value=await atlas.inventory();
+    else if(suffix==='/visual-score-looks'){
+      // Named Score Dust looks shared across Songs: GET lists, POST appends a revision or a tombstone.
+      if(req.method==='GET'){sendJson(res,200,{ok:true,...atlas.visualScoreLooks()});return true;}
+      if(req.method==='POST'){sendJson(res,201,{ok:true,look:atlas.saveVisualScoreLook(await readBody(req))});return true;}
+      throw Object.assign(new Error('Method not allowed'),{statusCode:405});
+    }
     else if(suffix==='/jobs'&&req.method==='GET')value={jobs:atlas.jobs(params.songId)};
     else if(suffix==='/jobs'&&req.method==='POST'){const body=await readBody(req);value=await atlas.start(body.songId,{alignmentBaseRunId:body.alignmentBaseRunId||null,transcriptionBaseRunId:body.transcriptionBaseRunId||null,transcriptionSourceId:body.transcriptionSourceId||null,transcriptionLanguage:body.transcriptionLanguage||'en',transcribe:body.transcribe===true,beats:body.beats===true,acoustic:body.acoustic===true,alignment:body.alignment,pitch:body.pitch});}
     else {

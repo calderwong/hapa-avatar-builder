@@ -41,10 +41,11 @@ reviews, Songs or Director projects.
 | Export | UI only: **Export video** in the Score Dust panel renders frames at exact song times in the browser (WebCodecs + WebM with song audio) and uploads them through the existing `POST /api/echo/preview-recordings`; recordings are listed by `GET /api/echo/preview-recordings?songId=…`. |
 | Listen together | `POST /api/echos/score-dust/sessions` creates a session; `GET /api/echos/score-dust/sessions/ID` reads it; `PUT` with `{baseRevision, state?, positionSeconds?, direction?, playSettings?, …}` updates it (409 on a stale revision). Every response includes `clock.serverReceiveMs/serverSendMs`. UI: panel **Host session / Join** or a `?scoreDustSession=ID` link. No CLI: sessions are live, process-scoped state. |
 | Record Garden | UI: **Score Dust** in the Record Garden mode dock uses the same Atlas score and saved direction as the preview. |
+| Looks | `GET /api/echos/audio-atlas/visual-score-looks` lists saved looks (latest revision per name) followed by unclaimed built-ins; `POST` with `{name, look}` appends a revision, `{name, deleted: true}` a tombstone. CLI: `visual-score-looks`; `save-visual-score-look NAME (--file=LOOK.json \| --delete)`. UI: panel **Looks** (Apply, Save current look, Remove). Looks hold only song-independent fields (`src/domain/echo-score-dust-looks.js`). |
 | Saved directions | `GET /api/echos/audio-atlas/jobs/RUN/visual-score-directions` lists the Song's append-only ledger; `POST` with `{baseRevision, direction, note?, lyricLines?}` appends one validated revision (409 on a stale base). Without a request direction, UI, API and CLI all compose from the latest saved revision. |
 
 Schemas: `hapa.echo.musical-timeline.v1`, `hapa.echo.visual-score.v1`,
-`hapa.echo.dust-play-settings.v1`, `hapa.echo.visual-score-direction.v1`. See `docs/ECHO_SCORE_DUST.md`,
+`hapa.echo.dust-play-settings.v1`, `hapa.echo.visual-score-direction.v1`, `hapa.echo.dust-look.v1`. See `docs/ECHO_SCORE_DUST.md`,
 `tests/echo-visual-score.test.mjs` and `tests/echo-dust-swarm.test.mjs`.
 
 ## Per-Card Hypercore custody parity

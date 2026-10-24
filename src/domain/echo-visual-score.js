@@ -23,6 +23,30 @@ export const ECHO_VISUAL_SCORE_CAMERA_MODES = Object.freeze(["hold", "drift", "o
 export const ECHO_VISUAL_SCORE_EVENT_RESPONSES = Object.freeze(["shock", "kick", "calm", "gather", "none"]);
 export const ECHO_VISUAL_SCORE_PULSES = Object.freeze(["half", "normal", "double"]);
 
+/**
+ * Place an authored camera move. The new move wins its span: overlapping moves
+ * are trimmed or split around it, so authored moves never conflict.
+ */
+export function placeCameraMove(moves = [], move, { duration = Infinity } = {}) {
+  const start = Math.max(0, Number(move.start)), end = Math.min(duration, Number(move.end));
+  if (!ECHO_VISUAL_SCORE_CAMERA_MODES.includes(move.mode) || !(end - start > 0.05)) return [...moves];
+  const kept = [];
+  for (const m of moves) {
+    if (m.id && m.id === move.id) continue;
+    if (m.end <= start || m.start >= end) { kept.push(m); continue; }
+    if (m.start < start - 0.05) kept.push({ ...m, end: start });
+    if (m.end > end + 0.05) kept.push({ ...m, id: m.start < start - 0.05 ? null : m.id, start: end });
+  }
+  const placed = { id: move.id || null, mode: move.mode, start: round(start, 3), end: round(end, 3) };
+  const taken = new Set();
+  return [...kept, placed].sort((a, b) => a.start - b.start).map((m) => {
+    let id = m.id || `camera-${Math.round(m.start * 1000)}`;
+    for (let n = 2; taken.has(id); n++) id = `${m.id || `camera-${Math.round(m.start * 1000)}`}-${n}`;
+    taken.add(id);
+    return { ...m, id };
+  });
+}
+
 const TRANSITION_KINDS = Object.freeze({
   energy_rise_candidate: "lift",
   energy_drop_candidate: "fall",

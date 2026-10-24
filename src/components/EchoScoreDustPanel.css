@@ -13,7 +13,7 @@
 .score-dust-panel header strong { color: var(--hapa-neon-cyan, #22d3ee); letter-spacing: 0.04em; }
 .score-dust-source { color: #94a3b8; }
 .score-dust-source.is-reflex { color: #fcd34d; }
-.score-dust-strip { width: 100%; height: 78px; cursor: pointer; background: rgba(15, 23, 42, 0.9); border-radius: 4px; }
+.score-dust-strip { width: 100%; height: 92px; cursor: pointer; background: rgba(15, 23, 42, 0.9); border-radius: 4px; }
 .score-dust-strip-label { fill: #f8fafc; font: 600 11px system-ui, sans-serif; pointer-events: none; }
 .score-dust-strip-sub { fill: rgba(248, 250, 252, 0.7); font: 9px monospace; pointer-events: none; }
 .score-dust-strip-bar { stroke: rgba(148, 163, 184, 0.5); stroke-width: 1; }
@@ -25,6 +25,15 @@
 .score-dust-strip-event-line.is-gather, .score-dust-strip-event-line.is-kick { stroke: rgba(250, 204, 21, 0.7); }
 .score-dust-strip-phrase { fill: rgba(226, 232, 240, 0.85); }
 .score-dust-strip-phrase.is-burst { fill: rgba(244, 114, 182, 0.85); }
+.score-dust-strip-camera { fill: rgba(167, 139, 250, 0.55); stroke: rgba(196, 181, 253, 0.9); stroke-width: 1; }
+.score-dust-strip-camera.is-hold { fill: rgba(148, 163, 184, 0.5); }
+.score-dust-strip-camera.is-push { fill: rgba(251, 146, 60, 0.6); }
+.score-dust-strip-camera.is-drift { fill: rgba(45, 212, 191, 0.5); }
+.score-dust-strip-camera-label { fill: #f8fafc; font: 9px system-ui, sans-serif; pointer-events: none; }
+.score-dust-moves { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.score-dust-moves li { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.score-dust-controls .score-dust-moves input[type="number"] { width: 62px; flex: none; }
+.score-dust-controls .score-dust-moves select { flex: 1 1 90px; min-width: 0; }
 .score-dust-strip-playhead { stroke: #f8fafc; stroke-width: 2; }
 .score-dust-errors { margin: 0; padding-left: 18px; color: #fca5a5; }
 .score-dust-warnings summary { color: #94a3b8; cursor: pointer; }
@@ -33,7 +42,7 @@
 .score-dust-controls legend { font-weight: 700; color: #cbd5e1; }
 .score-dust-controls legend span { font-weight: 400; color: #64748b; margin-left: 4px; }
 .score-dust-controls label { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.score-dust-controls select, .score-dust-controls input[type="number"], .score-dust-panel footer input[type="text"] {
+.score-dust-controls select, .score-dust-controls input[type="number"], .score-dust-controls input[type="text"], .score-dust-panel footer input[type="text"] {
   background: #0f172a; color: #e2e8f0; border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 4px; padding: 2px 4px; min-width: 0;
 }
 .score-dust-controls input[type="number"] { width: 110px; }

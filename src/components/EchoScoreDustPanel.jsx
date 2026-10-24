@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DUST_FORMATION_FAMILIES } from "../domain/echo-dust-swarm.js";
-import { ECHO_VISUAL_SCORE_EVENT_RESPONSES, ECHO_VISUAL_SCORE_PULSES } from "../domain/echo-visual-score.js";
+import { ECHO_VISUAL_SCORE_CAMERA_MODES, ECHO_VISUAL_SCORE_EVENT_RESPONSES, ECHO_VISUAL_SCORE_PULSES, placeCameraMove } from "../domain/echo-visual-score.js";
+import { applyDustLook, extractDustLook, BUILTIN_DUST_LOOKS, dustLookSlug } from "../domain/echo-score-dust-looks.js";
+import { createAtlasClient } from "../domain/audio-atlas-ui.js";
 import { DUST_COLOUR_MODES, DUST_COLOUR_PRESET_LABELS, DUST_FLASH_LIMIT_PER_SECOND, hexToHsl, hslToHex } from "../domain/echo-score-dust-colour.js";
 import { decodeSongAudio, exportScoreDustVideo, SCORE_DUST_EXPORT_FORMATS } from "./echo-score-dust-export.js";
 import { ensureEchoPreviewRecordingLocalSession } from "../domain/echo-preview-recording.js";
@@ -11,6 +13,7 @@ import "./EchoScoreDustPanel.css";
 const EVENT_KINDS = ["lift", "fall", "build", "break", "change"];
 const COLOUR_MODE_LABELS = { palette: "Palette", frequency: "By frequency", speed: "By speed", height: "Along the shape", depth: "By depth", picture: "From the picture" };
 const COLOUR_SWITCHES = [["crossfadeSeconds", "Crossfade between sections"], ["liftFlash", "Flash on lifts"], ["breakDesaturate", "Drain colour in breaks"], ["brighterReturns", "Brighter returns"]];
+const CAMERA_LABELS = { hold: "Hold still", drift: "Slow drift", orbit: "Orbit", push: "Push in" };
 const EVENT_LABELS = { lift: "Energy lift", fall: "Energy fall", build: "Gradual build", break: "Quiet break", change: "Spectral change" };
 const time = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 const hsl = (c, alpha = 1) => `hsl(${c.h} ${Math.round(c.s * 100)}% ${Math.round(c.l * 100)}% / ${alpha})`;
@@ -33,8 +36,8 @@ function ScoreStrip({ dust, currentTime, onSeek }) {
     onSeek?.(Math.max(0, Math.min(duration, ((event.clientX - box.left) / box.width) * duration)));
   };
   return (
-    <svg className="score-dust-strip" viewBox="0 0 1000 78" preserveAspectRatio="none" role="img" onClick={seek}
-      aria-label={`Visual score: ${score.cues.length} cues, ${score.events.length} events, ${score.phrases.length} phrases. Click to seek.`}>
+    <svg className="score-dust-strip" viewBox="0 0 1000 92" preserveAspectRatio="none" role="img" onClick={seek}
+      aria-label={`Visual score: ${score.cues.length} cues, ${score.events.length} events, ${score.phrases.length} phrases, ${(score.cameraMoves || []).length} camera moves. Click to seek.`}>
       {score.cues.map((cue) => {
         const motif = motifs.get(cue.motifId), palette = score.palettes[motif.paletteId];
         return (
@@ -61,7 +64,14 @@ function ScoreStrip({ dust, currentTime, onSeek }) {
           <rect x={x(phrase.start)} y={56} width={Math.max(2, x(phrase.end) - x(phrase.start))} height={10} className={phrase.burst ? "score-dust-strip-phrase is-burst" : "score-dust-strip-phrase"} />
         </g>
       ))}
-      <line x1={x(currentTime)} x2={x(currentTime)} y1={0} y2={78} className="score-dust-strip-playhead" />
+      {(score.cameraMoves || []).map((move) => (
+        <g key={move.id || move.start} data-testid="score-dust-strip-camera">
+          <title>{`Camera: ${CAMERA_LABELS[move.mode] || move.mode} ${time(move.start)}–${time(move.end)}`}</title>
+          <rect x={x(move.start)} y={70} width={Math.max(2, x(move.end) - x(move.start))} height={16} rx={3} className={`score-dust-strip-camera is-${move.mode}`} />
+          {x(move.end) - x(move.start) > 40 && <text x={x(move.start) + 4} y={81} className="score-dust-strip-camera-label">{move.mode}</text>}
+        </g>
+      ))}
+      <line x1={x(currentTime)} x2={x(currentTime)} y1={0} y2={92} className="score-dust-strip-playhead" />
     </svg>
   );
 }
@@ -127,6 +137,78 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
       {!supported && <span className="score-dust-hint">This browser has no WebCodecs encoder.</span>}
       {job.message && <span role={job.state === "error" ? "alert" : "status"} className="score-dust-hint">{job.message}</span>}
       {job.state === "done" && download.current && <a className="hapa-btn" href={download.current} download={`score-dust-${exportContext?.songId || "song"}-${Math.round(job.receipt.startSeconds)}s.webm`}>Download .webm</a>}
+    </fieldset>
+  );
+}
+
+/** Camera moves authored against the score; each new move wins its span. */
+function ScoreDustCamera({ dust, currentTime, onSeek, update }) {
+  const [mode, setMode] = useState("orbit");
+  const { score, direction } = dust, duration = score.durationSeconds;
+  const moves = direction.cameraMoves || [];
+  const place = (move) => update((current) => ({ cameraMoves: placeCameraMove(current.cameraMoves || [], move, { duration }) }));
+  const addAtPlayhead = () => {
+    const cue = dust.playback?.stateAt(Math.min(currentTime, duration - 0.01)).cue;
+    const start = Math.max(0, currentTime), end = Math.min(duration, Math.max(start + 2, cue ? cue.end : start + 8));
+    place({ mode, start, end });
+  };
+  const replace = (index, patch) => update((current) => {
+    const rest = (current.cameraMoves || []).filter((_, i) => i !== index), move = { ...(current.cameraMoves || [])[index], ...patch };
+    return { cameraMoves: move.end > move.start ? placeCameraMove(rest, move, { duration }) : rest };
+  });
+  return (
+    <fieldset data-testid="score-dust-camera">
+      <legend>Camera <span>moves on the strip; each new move wins its span</span></legend>
+      <label>Move <select aria-label="Camera move" value={mode} onChange={(e) => setMode(e.target.value)}>
+        {ECHO_VISUAL_SCORE_CAMERA_MODES.map((m) => <option key={m} value={m}>{CAMERA_LABELS[m] || m}</option>)}
+      </select></label>
+      <button type="button" className="hapa-btn" onClick={addAtPlayhead} data-testid="score-dust-camera-add">Add from playhead to section end</button>
+      {moves.length > 0 ? (
+        <ul className="score-dust-moves">{moves.map((move, index) => (
+          <li key={move.id || index}>
+            <button type="button" onClick={() => onSeek?.(move.start)} title="Seek to this move">{time(move.start)}</button>
+            <select aria-label={`Camera move ${index + 1} mode`} value={move.mode} onChange={(e) => replace(index, { mode: e.target.value })}>
+              {ECHO_VISUAL_SCORE_CAMERA_MODES.map((m) => <option key={m} value={m}>{CAMERA_LABELS[m] || m}</option>)}
+            </select>
+            <input type="number" step="0.1" min="0" aria-label={`Camera move ${index + 1} start`} value={move.start} onChange={(e) => replace(index, { start: Number(e.target.value) })} />
+            <input type="number" step="0.1" min="0" aria-label={`Camera move ${index + 1} end`} value={move.end} onChange={(e) => replace(index, { end: Number(e.target.value) })} />
+            <button type="button" className="hapa-btn" aria-label={`Remove camera move ${index + 1}`} onClick={() => update((current) => ({ cameraMoves: (current.cameraMoves || []).filter((_, i) => i !== index) }))}>Remove</button>
+          </li>
+        ))}</ul>
+      ) : <span className="score-dust-hint">No authored moves; each section uses its scored camera.</span>}
+    </fieldset>
+  );
+}
+
+/** Named looks shared by every Song: colour, instruments, moments and comfort. */
+function ScoreDustLooks({ dust, apiBase }) {
+  const client = useMemo(() => createAtlasClient(apiBase), [apiBase]);
+  const [looks, setLooks] = useState(BUILTIN_DUST_LOOKS), [chosen, setChosen] = useState(""), [name, setName] = useState(""), [message, setMessage] = useState("");
+  const refresh = () => client.request("/visual-score-looks").then((value) => setLooks(value.looks)).catch((error) => setMessage(`Saved looks unavailable (${error.message}); built-ins shown.`));
+  useEffect(() => { refresh(); }, [client]); // eslint-disable-line react-hooks/exhaustive-deps
+  const selected = looks.find((l) => (l.slug || dustLookSlug(l.name)) === chosen);
+  const save = async () => {
+    try {
+      const value = await client.request("/visual-score-looks", { method: "POST", body: JSON.stringify({ name, look: extractDustLook(dust.direction) }) });
+      setMessage(`Saved look “${value.look.name}” r${value.look.revision}. It is available on every Song.`); setName(""); setChosen(value.look.slug); refresh();
+    } catch (error) { setMessage(error.message); }
+  };
+  const remove = async () => {
+    try { await client.request("/visual-score-looks", { method: "POST", body: JSON.stringify({ name: selected.name, deleted: true }) }); setMessage(`Removed “${selected.name}”; its history is kept.`); setChosen(""); refresh(); }
+    catch (error) { setMessage(error.message); }
+  };
+  return (
+    <fieldset data-testid="score-dust-looks">
+      <legend>Looks <span>reusable across songs</span></legend>
+      <label>Look <select aria-label="Look" value={chosen} onChange={(e) => setChosen(e.target.value)}>
+        <option value="">Choose a look…</option>
+        {looks.map((l) => <option key={l.slug || l.name} value={l.slug || dustLookSlug(l.name)}>{l.name}{l.builtin ? " (built-in)" : ""}</option>)}
+      </select></label>
+      <button type="button" className="hapa-btn" disabled={!selected} onClick={() => { dust.setDraft((current) => applyDustLook(current, selected.look)); setMessage(`Applied “${selected.name}”. Shapes, pictures, words and camera moves are unchanged.`); }} data-testid="score-dust-look-apply">Apply</button>
+      {selected && !selected.builtin && <button type="button" className="hapa-btn" onClick={remove}>Remove</button>}
+      <input type="text" aria-label="New look name" placeholder="Name this look" maxLength={48} value={name} onChange={(e) => setName(e.target.value)} />
+      <button type="button" className="hapa-btn" disabled={!dustLookSlug(name)} onClick={save} data-testid="score-dust-look-save">Save current look</button>
+      {message && <span role="status" className="score-dust-hint">{message}</span>}
     </fieldset>
   );
 }
@@ -278,6 +360,8 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
             })}
             <span className="score-dust-hint">{dust.stems ? `Stems: ${dust.stems.available.join(", ")} (prepared song timing).` : "No separated stems loaded. Choose Audio visuals → Prepared song timing on a song with stems."}</span>
           </fieldset>
+          <ScoreDustCamera dust={dust} currentTime={currentTime} onSeek={onSeek} update={update} />
+          <ScoreDustLooks dust={dust} apiBase={exportContext?.apiBase || ""} />
           <fieldset>
             <legend>Moments</legend>
             {EVENT_KINDS.filter((kind) => score.events.some((e) => e.kind === kind)).map((kind) => (

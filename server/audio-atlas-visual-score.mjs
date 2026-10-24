@@ -8,6 +8,7 @@ import {
   buildEchoMusicalTimelineFromAtlas, composeEchoVisualScore, validateEchoVisualScore, validateEchoScoreDirection,
   normalizeDustPlaySettings, ECHO_SCORE_DIRECTION_SCHEMA,
 } from '../src/domain/echo-visual-score.js';
+import { DUST_LOOK_SCHEMA, dustLookSlug, validateDustLook, mergeDustLooks } from '../src/domain/echo-score-dust-looks.js';
 
 const fail=(message,statusCode=422)=>Object.assign(new Error(`Visual score: ${message}`),{statusCode});
 const MAX_INPUT_BYTES=64*1024;
@@ -90,4 +91,46 @@ export function saveVisualScoreDirection(result,store,input={}){
  return store.append(result.song_id,{baseRevision:input.baseRevision,author,note,runId:result.run_id,
   timelineFingerprint:projection.timeline.fingerprint,scoreFingerprint:projection.score.fingerprint,
   validation:{ok:true,warnings:projection.validation.warnings.length},direction});
+}
+
+/**
+ * Append-only ledger of named looks shared by every Song. The latest row per
+ * name wins; a deletion is a tombstone row, so earlier looks stay recoverable.
+ */
+export function createVisualScoreLookStore({dir,lock,release}){
+ const file=path.join(dir,'looks.ndjson');
+ function rows(){
+  if(!fs.existsSync(file))return {rows:[],ignoredLines:0};
+  let ignoredLines=0;const out=[];
+  for(const line of fs.readFileSync(file,'utf8').split('\n')){
+   if(!line.trim())continue;
+   try{const row=JSON.parse(line);if(row.schemaVersion===DUST_LOOK_SCHEMA&&dustLookSlug(row.name))out.push(row);else ignoredLines++;}catch{ignoredLines++;}
+  }
+  return {rows:out,ignoredLines};
+ }
+ function list(){
+  const {rows:all,ignoredLines}=rows(),latest=new Map();
+  for(const row of all)latest.set(row.slug,row);
+  const saved=[...latest.values()].filter(row=>!row.deleted&&validateDustLook(row).ok);
+  return {looks:mergeDustLooks(saved),saved:saved.length,revisions:all.length,ignoredLines};
+ }
+ function save(input={}){
+  const deleted=input.deleted===true||input.deleted==='true';
+  const name=typeof input.name==='string'?input.name.trim():'';
+  const look=deleted?{}:parseValue(input.look,'look');
+  const check=validateDustLook({name,look});
+  if(!check.ok)throw fail(`invalid look: ${check.errors.map(e=>e.message).join(' ')}`);
+  const slug=dustLookSlug(name),lease=lock();
+  try{
+   const current=rows().rows.filter(row=>row.slug===slug),revision=(current.at(-1)?.revision||0)+1;
+   if(deleted&&(!current.length||current.at(-1).deleted))throw fail(`No saved look named ${name}`,404);
+   const row={schemaVersion:DUST_LOOK_SCHEMA,slug,name,revision,author:typeof input.author==='string'&&input.author.trim()?input.author.trim().slice(0,80):'operator',
+    note:typeof input.note==='string'?input.note.slice(0,500):'',...(deleted?{deleted:true}:{look}),createdAt:new Date().toISOString()};
+   fs.mkdirSync(dir,{recursive:true});
+   const fd=fs.openSync(file,'a',0o600);
+   try{fs.writeSync(fd,`${JSON.stringify(row)}\n`);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+   return row;
+  }finally{release(lease);}
+ }
+ return {list,save};
 }
