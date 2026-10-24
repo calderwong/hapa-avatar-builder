@@ -57,6 +57,17 @@ export function createEchoScoreDustThreeLayer({ world, particleCount = 3000, det
   points.frustumCulled = false;
   points.renderOrder = 5;
   root.add(points);
+  // Floor reflection (P2 item 18): the same geometry, mirrored and flattened
+  // onto the floor plane as a soft glow pool; no extra simulation or buffers.
+  const reflectionMaterial = material.clone();
+  reflectionMaterial.name = "EchoScoreDustReflectionMaterial";
+  reflectionMaterial.transparent = true;
+  const reflection = new THREE.Points(geometry, reflectionMaterial);
+  reflection.name = "EchoScoreDustReflection";
+  reflection.frustumCulled = false;
+  reflection.renderOrder = 4;
+  reflection.visible = false;
+  world.add(reflection);
 
   let performanceHost = null, playbackKey = "", target = null, drawCount = n, disposed = false;
   const bands = new Float32Array(DUST_BAND_COUNT), rgb = new Float32Array(n * 3), targetPosition = new THREE.Vector3(), centroid = new THREE.Vector3();
@@ -78,8 +89,9 @@ export function createEchoScoreDustThreeLayer({ world, particleCount = 3000, det
   }
 
   /** Advance on the song clock and refresh buffers. Returns the dust → stage report. */
-  function update({ active = true, currentTime = 0, fft = null, reducedMotion = false, radius = 0.8, heightOffset = 0.3, stage = {} } = {}) {
+  function update({ active = true, currentTime = 0, fft = null, reducedMotion = false, radius = 0.8, heightOffset = 0.3, stage = {}, floorY = null, reflectionOpacity = 0.35 } = {}) {
     report.active = false;
+    reflection.visible = false;
     if (disposed || !active || !target || !performanceHost) { root.visible = false; return report; }
     root.visible = true;
     target.getWorldPosition(targetPosition);
@@ -112,19 +124,29 @@ export function createEchoScoreDustThreeLayer({ world, particleCount = 3000, det
       root.localToWorld(report.centroid.copy(centroid));
       report.meanColor = new THREE.Color().setRGB(r / lit, g / lit, b / lit, THREE.SRGBColorSpace).getHex();
     }
-    Object.assign(report, { active: true, energy: clamp(state.intensity), visible: lit, formation: swarm.formation, cueId: state.cue?.id || null });
+    const floor = floorY === "target" ? targetPosition.y : floorY;
+    if (Number.isFinite(floor)) {
+      // Mirror about the floor (in the root's parent space), squashed to a thin pool just above it.
+      reflection.visible = true;
+      reflection.position.set(root.position.x, floor + 0.004, root.position.z);
+      reflection.rotation.copy(root.rotation);
+      reflection.scale.set(root.scale.x, -root.scale.y * 0.12, root.scale.z);
+      reflectionMaterial.size = material.size * 1.6;
+      reflectionMaterial.opacity = clamp(reflectionOpacity) * (0.6 + 0.4 * clamp(state.intensity));
+    }
+    Object.assign(report, { active: true, energy: clamp(state.intensity), visible: lit, formation: swarm.formation, cueId: state.cue?.id || null, reflection: reflection.visible });
     return report;
   }
 
   setDetailTier(detailTier);
   return {
-    root, points, contract: ECHO_SCORE_DUST_STAGE_CONTRACT,
-    metrics: Object.freeze({ particles: n, drawables: 1, materials: 1, textures: map ? 1 : 0, lights: 0, depthWrite: false }),
+    root, points, reflection, contract: ECHO_SCORE_DUST_STAGE_CONTRACT,
+    metrics: Object.freeze({ particles: n, drawables: 2, materials: 2, textures: map ? 1 : 0, lights: 0, depthWrite: false, reflectionSharesGeometry: true }),
     get playbackKey() { return playbackKey; },
     setPlayback, setTarget, setDetailTier, update,
     dispose() {
       if (disposed) return;
-      disposed = true; root.removeFromParent(); geometry.dispose(); material.dispose(); map?.dispose(); pictures.clear(); performanceHost = null;
+      disposed = true; root.removeFromParent(); reflection.removeFromParent(); geometry.dispose(); material.dispose(); reflectionMaterial.dispose(); map?.dispose(); pictures.clear(); performanceHost = null;
     },
   };
 }

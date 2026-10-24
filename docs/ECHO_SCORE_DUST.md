@@ -638,6 +638,31 @@ the published address is the bridge's LAN address (`HAPA_AVATAR_PUBLIC_HOST`
 overrides it); phones must trust the bridge certificate as for Phone Card;
 song audio is whatever the Builder already serves at that path.
 
+**More 3D stages** (P2 item 18).
+- **Tarot Draw.** The middle music visualizer gains a **Score Dust** mode: the
+  new **Dust / Anomaly** button sits beside **Mid On/Off**, and the choice is
+  saved with Tarot Draw's existing settings. With Mid on and a Song card in the
+  drop zone, `loadEchoScoreDustForSong`
+  (`src/components/echo-score-dust-loader.js`) reads the Song's newest
+  completed Atlas run, composed with its latest saved direction by the API
+  and cached per Song. The shared 3D layer then rises from the middle
+  visualizer on the drop-song clock, and the Anomaly fades out underneath.
+  The Song is found the way Tarot Draw already maps cards to Songs
+  (`echoDirectorSongIdForCard`, or the active Echo project). Without an Atlas
+  run the Anomaly stays on, and the button's tooltip and HUD say why
+  (`centerVisualizer.scoreDust`). Nothing else in the cockpit changes: room,
+  HUD, rails, camera, draw/flip/drag/place, Camera and Phone Cards, and scene
+  save and invite are untouched, and the mode is opt-in. Verified in the real
+  Tarot Draw (headless Chromium): with a demo Song card locked in the drop
+  zone, the layer ran with all 5,000 grains visible while the Anomaly blend
+  fell. `npm run smoke:tarot` could not run in this container: the Electron
+  binary is not installed, and it fails the same way without these changes.
+- **Floor reflections.** The 3D layer can mirror its dust as a thin, soft
+  pool on the surface beneath it (`floorY`, or `"target"` for the surface
+  the visualizer sits on). The pool shares the same geometry and buffers, is
+  depth-tested without depth writes, and its opacity follows intensity.
+  Tarot Draw and the Record Garden both use it.
+
 ### Saved directions
 
 Directions, not composed scores, are saved. A direction is the compact human
@@ -879,8 +904,30 @@ real Echo Song is still open.
     shot of the cut** export range makes the aligned path the easy one.
   - New guardrail: the director never guesses. Unmapped clauses are reported,
     and inferred section roles are always "likely".
+- **P2 batch 4 (same day):**
+  - Reused: the CPU swarm's kernel, made shareable (`dustParticleConstants`,
+    `fillDustFormationTargets`, an injectable `createSwarm`), so the GPU
+    tier is the same equations rather than a second design. The phone
+    bridge, `publicPhoneBridgeOrigin` and the room clock carry guests.
+    Tarot Draw's own card→Song mapping, visualizer-mode setting and
+    diagnostics hooks drive the Tarot stage.
+  - Misunderstood, then fixed:
+    - `active` is a reserved word in GLSL.
+    - The GPU tier was overexposed by an extra gain that only the 2D
+      painter's thinning needs.
+    - The live host's playback key ignored play settings, so comfort and
+      tier changes did not apply until something else changed.
+    - Guest assets were refused when the proof rewrote the bridge host,
+      because CORS accepts only the published bridge origin.
+    - A guest prefix route swallowed a sibling route.
+  - New guardrails:
+    - A GPU path ships only with a measured parity check against the CPU
+      reference.
+    - Guest access is per-person, scoped to one session, hashed at rest, and
+      revocable, never a shared admin secret.
 - **Candidates:** Decision Card — *keep the reusable score separate from play
-  seed/settings*; Decision Card — *song-length renderers enter the final cut as
+  seed/settings*; Lesson Card — *a dense GPU tier is a preview tier until it is
+  bit-exact*; Decision Card — *song-length renderers enter the final cut as
   exact media, not sampled shader proxies*; Decision Card — *looks hold only song-independent fields*;
   Lesson Card — *resolve cross-store inputs into the saved direction*; Lesson Card — *readable particle material must face the
   camera*; Skill candidate — *Atlas run → musical timeline → directed score*;
@@ -888,7 +935,7 @@ real Echo Song is still open.
 
 ## P2 backlog (defined 2026-10-24)
 
-Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★), **batch 2** (◆) and **batch 3** (▲) are done; **batch 4** (■) is in progress (2026-10-24). See the *P2 batch* sections above.
+Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. All P2 items are done (2026-10-24): **batch 1** (★), **batch 2** (◆), **batch 3** (▲) and **batch 4** (■). See the *P2 batch* sections above.
 
 | # | Item | Size |
 | --- | --- | --- |
@@ -909,7 +956,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★), *
 | 15 ▲ | Direction from lyrics, mood and Atlas structure; natural-language cues (local rules, no model provider) | M |
 | 16 ■ | GPU simulation for 20k–80k particles (live preview tier; exports stay CPU) | L |
 | 17 ■ | Listen together across devices via the phone bridge, with sign-in, host hand-off, reactions | M |
-| 18 | More 3D stages (Tarot Draw visualizer modes, floor reflections) | M |
+| 18 ■ | More 3D stages (Tarot Draw visualizer mode, floor reflections) | M |
 | 19 ★ | Reusable named looks applied across songs | S |
 | 20 ★ | Comfort and safety: reduced motion; at most 3 bright flashes per second | S |
 
@@ -922,7 +969,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★), *
 3. Make the cue picker accept Score Dust once its fixed-step export is
    certified as a final renderer; today it stays a preview visualizer.
 4. Tune family pools, exposure and phrase limits on real Echo Songs.
-5. Remaining P2 items: GPU simulation for 20k–80k particles (16),
-   cross-device Listen together with sign-in (17), and more 3D stages (18).
-   Frame-addressable simulation (deterministic checkpoints) would be needed
-   before Score Dust could be a chunk-rendered final renderer.
+5. Beyond P2: frame-addressable simulation (deterministic checkpoints) before
+   Score Dust could be a chunk-rendered final renderer; a GPU path inside
+   Three.js (`GPUComputationRenderer`) for dense 3D stages; trusting the
+   phone bridge certificate is still a per-device step.

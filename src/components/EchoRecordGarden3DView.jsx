@@ -5429,6 +5429,8 @@ function createEchoRecordGardenGame({
       radius: visualizerEntry?.placed ? 0.92 : 0.76,
       heightOffset: visualizerEntry?.placed ? 0.22 : 0.16,
       stage: { backgroundLuminance: 0.12 },
+      // A soft reflection pool on the record's surface.
+      floorY: "target",
     });
     diagnostics.scoreDust = scoreDustReport.active
       ? { active: true, cueId: scoreDustReport.cueId, formation: scoreDustReport.formation, visible: scoreDustReport.visible, energy: Number(scoreDustReport.energy.toFixed(3)) }
