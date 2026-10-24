@@ -28,7 +28,7 @@ export function validateSectionEdits(sections) {
     else for (const [id, patch] of Object.entries(sections.cues)) {
       if (!patch || typeof patch !== "object" || Array.isArray(patch) || Object.keys(patch).some((k) => !["family", "image", "palette", "density", "busy"].includes(k))) { errors.push(`Cue edit ${id} allows family, image, palette, density and busy.`); continue; }
       if (patch.family !== undefined && !DUST_FORMATION_FAMILIES.includes(patch.family)) errors.push(`Unknown family ${patch.family} for ${id}.`);
-      if (patch.image !== undefined && patch.image !== null && (typeof patch.image?.assetId !== "string" || !patch.image.assetId || (patch.image.kind !== undefined && !["text", "svg"].includes(patch.image.kind)))) errors.push(`Image for ${id} needs an assetId (or null for shape only).`);
+      if (patch.image !== undefined && patch.image !== null && (typeof patch.image?.assetId !== "string" || !patch.image.assetId || (patch.image.kind !== undefined && !["text", "svg", "model"].includes(patch.image.kind)))) errors.push(`Image for ${id} needs an assetId (or null for shape only).`);
       if (patch.palette !== undefined && !validPalette(patch.palette)) errors.push(`Palette for ${id} needs 1–5 valid colours.`);
       if (patch.density !== undefined && (!finite(patch.density) || patch.density <= 0 || patch.density > 1)) errors.push(`Density for ${id} must be within (0, 1].`);
       if (patch.busy !== undefined && (!Array.isArray(patch.busy) || patch.busy.length !== 2 || !patch.busy.every((v) => finite(v) && v >= 0 && v <= 1) || patch.busy[0] > patch.busy[1])) errors.push(`Busy for ${id} must be [low, high] within 0–1.`);

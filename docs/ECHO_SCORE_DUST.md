@@ -482,6 +482,20 @@ remote SVGs are refused; use an Avatar picture instead. The Record Garden
 3D layer now forms the same words and pictures as the 2D hosts (it
 previously showed shapes only).
 
+**Avatar 3D models** (P2 item 13; Motifs → picture → *3D model: name*).
+When a cast Avatar has a glTF/GLB model asset, the picture list offers it
+next to the Avatar's image (`scoreDustModelOption`). `echo-score-dust-model.js`
+loads it with the same `GLTFLoader` the Avatar viewer uses, flattens every
+mesh in bind pose with world transforms (up to 200k triangles), and
+`sampleDustTargetsFromTriangles` spreads the dust over the surface by area.
+The sampling is deterministic, centred and scaled to the shape size, and each
+point keeps its face normal, a bottom-to-top param and the material colour
+(used by *From the picture* colouring). Unlike flat pictures, a model is not
+turned to face the viewer; it keeps spinning like a shape, so its depth
+reads. Models are Avatar assets and must resolve like pictures. Limits: no
+animation (bind pose only), no textures (material colour only), and FBX/OBJ
+are not loaded.
+
 ### Saved directions
 
 Directions, not composed scores, are saved. A direction is the compact human
@@ -728,7 +742,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) an
 | 10 ◆ | Per-section editing: edit one occurrence, split/merge/move sections, busy/density per section (no strip dragging or drawn curves) | M |
 | 11 ★ | Camera moves authored on the score strip | S |
 | 12 ▲ | Lyric control: line choice, font, word-by-word mode | M |
-| 13 | Avatar 3D models sampled into shapes | M |
+| 13 ▲ | Avatar 3D models sampled into shapes (bind pose, material colour) | M |
 | 14 ▲ | SVG and text logos as shapes | S |
 | 15 | Agent-written direction from lyrics, mood and Atlas sound tags; natural-language cues | M |
 | 16 | GPU simulation for 20k–80k particles | L |

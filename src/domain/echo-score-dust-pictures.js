@@ -17,6 +17,13 @@ export function scoreDustCastFor(songId, registry = ECHO_AVATAR_CAST_REGISTRY) {
 
 const isImage = (asset) => asset && (asset.type === "image" || /\.(png|webp|jpe?g|gif|avif)$/i.test(String(asset.uri || asset.name || "")));
 
+/** The Avatar's first glTF/GLB model as a 3D shape option (null when it has none). */
+export function scoreDustModelOption(avatar, member, resolveUri = (uri) => uri) {
+  const model = (avatar?.assets || []).find((asset) => asset?.uri && (asset.type === "model" || /\.(glb|gltf)(?:$|\?)/i.test(String(asset.uri))) && /\.(glb|gltf)(?:$|\?)/i.test(String(asset.uri || asset.name || "")));
+  if (!model) return null;
+  return { assetId: `avatar-model:${avatar.id}:${model.id}`, avatarId: avatar.id, kind: "model", label: `${member?.name || avatar.primaryName || avatar.id} (3D)`, url: resolveUri(model.uri), source: "avatar-model" };
+}
+
 /** Choose the registered seed image, else a backgroundless image, else any image. */
 export function scoreDustPictureOption(avatar, member, resolveUri = (uri) => uri) {
   const assets = (avatar?.assets || []).filter((asset) => isImage(asset) && asset.uri);

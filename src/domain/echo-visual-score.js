@@ -501,6 +501,7 @@ export function imageRefProblem(ref) {
   if (!ref || typeof ref !== "object" || Array.isArray(ref) || typeof ref.assetId !== "string" || !ref.assetId) return "needs an assetId.";
   if (ref.url !== undefined && typeof ref.url !== "string") return "url must be a string.";
   if (ref.kind === "text") return typeof ref.text === "string" && ref.text.trim() && ref.text.length <= 24 ? null : "text logos need 1–24 characters.";
+  if (ref.kind === "model") return typeof ref.url === "string" && ref.url ? null : "3D models need a url.";
   if (ref.kind === "svg") return /^data:image\/svg\+xml[;,]/.test(ref.url || "") && ref.url.length <= 32 * 1024 ? null : "SVG logos must be an inline data:image/svg+xml URL of at most 32 KiB.";
   return ref.kind === undefined ? null : `unknown kind ${ref.kind}.`;
 }

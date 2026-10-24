@@ -7,7 +7,7 @@ import {
   buildEchoMusicalTimelineFromPerformance, composeEchoVisualScore, validateEchoVisualScore, validateEchoScoreDirection,
   normalizeDustPlaySettings, prepareEchoScorePlayback, reflexOnlyEchoTimeline,
 } from "../domain/echo-visual-score.js";
-import { scoreDustCastFor, scoreDustPictureOption } from "../domain/echo-score-dust-pictures.js";
+import { scoreDustCastFor, scoreDustPictureOption, scoreDustModelOption } from "../domain/echo-score-dust-pictures.js";
 import { createStemReflex } from "../domain/echo-score-dust-stems.js";
 import { albumDustColour } from "../domain/echo-score-dust-album.js";
 
@@ -41,9 +41,10 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
         const response = await fetch(`${apiBase}/api/avatars/${encodeURIComponent(member.avatarId)}`, { credentials: "same-origin" });
         if (!response.ok) return null;
         const body = await response.json();
-        return scoreDustPictureOption(body.avatar || body, member, resolveUri);
+        const avatar = body.avatar || body;
+        return [scoreDustPictureOption(avatar, member, resolveUri), scoreDustModelOption(avatar, member, resolveUri)];
       } catch { return null; }
-    })).then((options) => { if (!cancelled) setPictures({ status: "ready", options: options.filter(Boolean) }); });
+    })).then((options) => { if (!cancelled) setPictures({ status: "ready", options: options.flat().filter(Boolean) }); });
     return () => { cancelled = true; };
   }, [enabled, songId, apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -47,7 +47,8 @@ export function buildScoreDustMotion(score) {
     if (end - start <= 1e-9) continue;
     const cue = score.cues[Math.max(0, upperBound(cueStarts, middle) - 1)];
     // Words and pictures are read, so they face the viewer instead of spinning.
-    const pictured = Boolean(motifs.get(cue.motifId)?.imageRef);
+    // A 3D model keeps turning like a shape; flat pictures face the viewer.
+    const pictured = Boolean(motifs.get(cue.motifId)?.imageRef) && motifs.get(cue.motifId).imageRef.kind !== "model";
     const face = pictured || readable.some((p) => middle >= p.start && middle < p.end);
     const mode = moves.find((m) => middle >= m.start && middle < m.end)?.mode || cue.camera?.mode;
     const segment = { start, end, face, spinRate: face ? 0 : 0.04 + 0.22 * (cue.busy[0] + cue.busy[1]) / 2, yawRate: face ? 0 : CAMERA_YAW_RATES[mode] ?? 0.04, spin0: spin, yaw0: yaw };

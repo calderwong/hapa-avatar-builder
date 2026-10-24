@@ -191,6 +191,52 @@ export function sampleDustTargetsFromPixels(image, { count = 2000, seed = 1, thr
   return points;
 }
 
+/**
+ * Sample dust targets from a triangle soup (P2 item 13: Avatar 3D models).
+ * `triangles` holds 9 floats per triangle; `colors` (optional) 3 bytes per
+ * triangle. The model is centred and scaled so its largest extent is `scale`;
+ * points are spread by surface area with deterministic stratified picks and
+ * carry the face normal, a bottom-to-top param and the triangle colour.
+ */
+export function sampleDustTargetsFromTriangles(triangles, { count = 2000, seed = 1, scale = 2.6, colors = null } = {}) {
+  const t = triangles?.length ? Math.floor(triangles.length / 9) : 0;
+  const total = Math.max(0, Math.min(DUST_MAX_PARTICLES, count | 0));
+  const points = { count: 0, position: new Float32Array(total * 3), normal: new Float32Array(total * 3), param: new Float32Array(total), flex: new Float32Array(total), edge: new Uint8Array(total), color: new Uint8Array(total * 3) };
+  if (!t || !total) return points;
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < t * 9; i++) { const a = i % 3; if (Number.isFinite(triangles[i])) { min[a] = Math.min(min[a], triangles[i]); max[a] = Math.max(max[a], triangles[i]); } }
+  const extent = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  if (!(extent > 0)) return points;
+  const centre = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2], k = scale / extent;
+  const cumulative = new Float64Array(t);
+  let area = 0;
+  for (let f = 0; f < t; f++) {
+    const o = f * 9, ux = triangles[o + 3] - triangles[o], uy = triangles[o + 4] - triangles[o + 1], uz = triangles[o + 5] - triangles[o + 2];
+    const vx = triangles[o + 6] - triangles[o], vy = triangles[o + 7] - triangles[o + 1], vz = triangles[o + 8] - triangles[o + 2];
+    const a = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+    area += Number.isFinite(a) ? a : 0; cumulative[f] = area;
+  }
+  if (!(area > 0)) return points;
+  for (let i = 0; i < total; i++) {
+    const target = ((i + hashUnit(i, seed, 21)) / total) * area;
+    let lo = 0, hi = t - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (cumulative[mid] < target) lo = mid + 1; else hi = mid; }
+    const o = lo * 9, r1 = Math.sqrt(hashUnit(i, seed, 22)), r2 = hashUnit(i, seed, 23);
+    const wa = 1 - r1, wb = r1 * (1 - r2), wc = r1 * r2;
+    for (let a = 0; a < 3; a++) points.position[i * 3 + a] = ((wa * triangles[o + a] + wb * triangles[o + 3 + a] + wc * triangles[o + 6 + a]) - centre[a]) * k;
+    const ux = triangles[o + 3] - triangles[o], uy = triangles[o + 4] - triangles[o + 1], uz = triangles[o + 5] - triangles[o + 2];
+    const vx = triangles[o + 6] - triangles[o], vy = triangles[o + 7] - triangles[o + 1], vz = triangles[o + 8] - triangles[o + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, nl = Math.hypot(nx, ny, nz) || 1;
+    points.normal[i * 3] = nx / nl; points.normal[i * 3 + 1] = ny / nl; points.normal[i * 3 + 2] = nz / nl;
+    points.param[i] = clamp(points.position[i * 3 + 1] / scale + 0.5);
+    points.flex[i] = 0.35;
+    if (colors) { points.color[i * 3] = colors[lo * 3]; points.color[i * 3 + 1] = colors[lo * 3 + 1]; points.color[i * 3 + 2] = colors[lo * 3 + 2]; }
+    else points.color.fill(220, i * 3, i * 3 + 3);
+  }
+  points.count = total;
+  return points;
+}
+
 /** Log-spaced 32-band reduction of an analyser byte/float spectrum. Hapa's own band map. */
 export function dustBandsFromSpectrum(spectrum, out = new Float32Array(DUST_BAND_COUNT)) {
   const length = spectrum?.length || 0;

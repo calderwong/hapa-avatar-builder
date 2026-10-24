@@ -176,7 +176,7 @@ function MotifPicture({ group, current, options, update }) {
     setError("");
     if (v === "text") set({ assetId: `text:${group}`, kind: "text", text: "HAPA", label: "Text logo" });
     else if (v === "svg") file.current?.click();
-    else { const option = options.find((o) => o.assetId === v); set(option ? { assetId: option.assetId, url: option.url, label: option.label, avatarId: option.avatarId } : null); }
+    else { const option = options.find((o) => o.assetId === v); set(option ? { assetId: option.assetId, url: option.url, label: option.label, avatarId: option.avatarId, ...(option.kind ? { kind: option.kind } : {}) } : null); }
   };
   const readSvg = (event) => {
     const picked = event.target.files?.[0]; event.target.value = "";
@@ -196,7 +196,7 @@ function MotifPicture({ group, current, options, update }) {
         <option value="">Shape only</option>
         <option value="text">Text logo…</option>
         <option value="svg">{current?.kind === "svg" ? `SVG: ${current.label}` : "SVG logo file…"}</option>
-        {options.map((o) => <option key={o.assetId} value={o.assetId}>Picture: {o.label}</option>)}
+        {options.map((o) => <option key={o.assetId} value={o.assetId}>{o.kind === "model" ? "3D model" : "Picture"}: {o.label}</option>)}
       </select>
       <input ref={file} type="file" accept=".svg,image/svg+xml" hidden onChange={readSvg} aria-label={`SVG logo for ${group}`} />
       {current?.kind === "text" && <input type="text" maxLength={24} aria-label={`Logo text for ${group}`} value={current.text}
@@ -274,7 +274,7 @@ function ScoreDustSection({ dust, currentTime, onSeek, update }) {
       </select></label>
       {dust.pictures?.options?.length > 0 && (
         <label>Picture here <select aria-label="Picture for this section" value={patch.image === null ? "none" : patch.image?.assetId || ""}
-          onChange={(e) => { const v = e.target.value, option = dust.pictures.options.find((o) => o.assetId === v); sections((s) => editSectionCue(s, cue.id, { image: v === "" ? undefined : v === "none" ? null : { assetId: option.assetId, url: option.url, label: option.label, avatarId: option.avatarId } })); }}>
+          onChange={(e) => { const v = e.target.value, option = dust.pictures.options.find((o) => o.assetId === v); sections((s) => editSectionCue(s, cue.id, { image: v === "" ? undefined : v === "none" ? null : { assetId: option.assetId, url: option.url, label: option.label, avatarId: option.avatarId, ...(option.kind ? { kind: option.kind } : {}) } })); }}>
           <option value="">Same as group</option><option value="none">Shape only</option>
           {dust.pictures.options.map((o) => <option key={o.assetId} value={o.assetId}>{o.label}</option>)}
         </select></label>

@@ -9,6 +9,7 @@ import { projectDustSwarm, dustBandsFromSpectrum, sampleDustTargetsFromPixels, D
 import { createScoreDustPerformance } from "../domain/echo-score-dust-performance.js";
 import { computeDustColours, paintDustBackground } from "../domain/echo-score-dust-colour.js";
 import { lyricFontCss } from "../domain/echo-score-dust-lyrics.js";
+import { loadModelTargets } from "./echo-score-dust-model.js";
 import { composeEchoVisualScore, prepareEchoScorePlayback, reflexOnlyEchoTimeline } from "../domain/echo-visual-score.js";
 
 const LIVE_PARTICLE_CAP = 4000;
@@ -46,6 +47,7 @@ export function rasterizePhraseTargets(phrase, count, seed, surfaceFactory = def
 /** Load an atlas cell (or whole image, or SVG), or rasterise a text logo, into targets. */
 export function loadImageTargets(ref, count, seed, surfaceFactory = defaultSurface) {
   if (ref?.kind === "text") return Promise.resolve(rasterizePhraseTargets({ text: ref.text, font: ref.font }, count, seed, surfaceFactory));
+  if (ref?.kind === "model") return loadModelTargets(ref, count, seed);
   return new Promise((resolve) => {
     if (!ref?.url || typeof Image !== "function") return resolve(null);
     const image = new Image();
