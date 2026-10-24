@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DUST_FORMATION_FAMILIES } from "../domain/echo-dust-swarm.js";
 import { ECHO_VISUAL_SCORE_CAMERA_MODES, ECHO_VISUAL_SCORE_EVENT_RESPONSES, ECHO_VISUAL_SCORE_PULSES, placeCameraMove } from "../domain/echo-visual-score.js";
 import { applyDustLook, extractDustLook, BUILTIN_DUST_LOOKS, dustLookSlug } from "../domain/echo-score-dust-looks.js";
+import { DUST_LYRIC_FONTS, normalizeLyricControl } from "../domain/echo-score-dust-lyrics.js";
 import { splitSectionAt, mergeSectionBoundary, moveSectionBoundary, editSectionCue, resetSectionCue } from "../domain/echo-score-dust-sections.js";
 import { createAtlasClient } from "../domain/audio-atlas-ui.js";
 import { DUST_COLOUR_MODES, DUST_COLOUR_PRESET_LABELS, DUST_FLASH_LIMIT_PER_SECOND, DUST_BACKGROUND_KINDS, normalizeDustBackground, hexToHsl, hslToHex } from "../domain/echo-score-dust-colour.js";
@@ -163,6 +164,46 @@ function BackgroundControls({ background, update }) {
         <label>Shape <select aria-label="Background shape" value={bg.shape} onChange={(e) => set({ shape: e.target.value })}><option value="radial">Radial</option><option value="linear">Top to bottom</option></select></label>
       )}
     </>
+  );
+}
+
+/** Which lyric lines become dust words, in what font, and whether word by word. */
+function ScoreDustLyrics({ dust, update, onSeek, lyricStatus }) {
+  const { score, direction } = dust, control = normalizeLyricControl(direction.lyrics, direction.lyricPhrases);
+  const set = (patch) => update((current) => {
+    const next = { lyrics: { ...normalizeLyricControl(current.lyrics, current.lyricPhrases), ...patch } };
+    return current.lyricPhrases !== undefined ? { ...next, lyricPhrases: undefined } : next;
+  });
+  const lines = (dust.lyricLines || []).map((line, index) => ({ index, text: String(line?.text || "").trim(), start: Number(line?.start ?? line?.startSeconds) })).filter((l) => l.text && Number.isFinite(l.start));
+  const shownWords = score.phrases.filter((p) => p.wordOf).length;
+  return (
+    <fieldset data-testid="score-dust-lyrics">
+      <legend>Lyrics <span>words formed from dust</span></legend>
+      <label>Show <select aria-label="Lyric lines" value={control.pick} disabled={Boolean(direction.phrases)} onChange={(e) => set({ pick: e.target.value })}>
+        <option value="hooks">Hooks, chosen automatically</option><option value="chosen" disabled={!lines.length}>Lines I choose</option><option value="off">No words</option>
+      </select></label>
+      {control.pick === "hooks" && <label>Up to <input type="number" min="1" max="16" step="1" aria-label="Maximum hooks" value={control.max} onChange={(e) => set({ max: Math.min(16, Math.max(1, Math.floor(Number(e.target.value) || 1))) })} /> hooks</label>}
+      <label>Font <select aria-label="Lyric font" value={control.font} onChange={(e) => set({ font: e.target.value })}>
+        {Object.entries(DUST_LYRIC_FONTS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+      </select></label>
+      <label>Case <select aria-label="Lyric case" value={control.textCase} onChange={(e) => set({ textCase: e.target.value })}>
+        <option value="as-sung">As written</option><option value="upper">UPPER</option><option value="lower">lower</option>
+      </select></label>
+      <label><input type="checkbox" aria-label="Word by word" checked={control.wordByWord} onChange={(e) => set({ wordByWord: e.target.checked })} /> Word by word (needs word timing)</label>
+      <span className="score-dust-hint">
+        {direction.phrases ? `${score.phrases.length} phrases set by direction.`
+          : lyricStatus ? (lyricStatus.status === "audio-mismatch" ? "Lyric timing belongs to different audio; no words shown." : `${score.phrases.length - shownWords + new Set(score.phrases.filter((p) => p.wordOf).map((p) => p.wordOf)).size} line${score.phrases.length === 1 ? "" : "s"} shown${shownWords ? ` as ${shownWords} words` : ""}.${lyricStatus.skipped?.length ? ` ${lyricStatus.skipped.length} chosen line${lyricStatus.skipped.length === 1 ? "" : "s"} skipped (overlap or no timing).` : ""}`)
+            : control.pick === "off" ? "Words off." : "No timed lyrics for this Song."}
+      </span>
+      {control.pick === "chosen" && lines.length > 0 && (
+        <ul className="score-dust-phrases score-dust-lyric-lines">{lines.map((line) => (
+          <li key={line.index}><label><input type="checkbox" aria-label={`Show line ${line.index + 1}`} checked={control.lines.includes(line.index)}
+            onChange={(e) => set({ lines: e.target.checked ? [...control.lines, line.index] : control.lines.filter((i) => i !== line.index) })} />
+            <button type="button" onClick={() => onSeek?.(line.start)}>{time(line.start)}</button> {line.text}</label></li>
+        ))}</ul>
+      )}
+      {control.pick !== "chosen" && score.phrases.length > 0 && <ul className="score-dust-phrases">{score.phrases.filter((p) => !p.wordOf || p.id.endsWith("-w0")).map((p) => <li key={p.id}><button type="button" onClick={() => onSeek?.(p.start)}>{time(p.start)}</button> “{p.wordOf ? score.phrases.filter((w) => w.wordOf === p.wordOf).map((w) => w.text).join(" ") : p.text}”{p.burst ? " · burst" : ""}</li>)}</ul>}
+    </fieldset>
   );
 }
 
@@ -487,15 +528,8 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
                 </select></label>
             ))}
             {!score.events.length && <span className="score-dust-hint">No lifts or breaks in the evidence.</span>}
-            <label><input type="checkbox" checked={direction.lyricPhrases !== "off"} disabled={Boolean(direction.phrases)}
-              onChange={(event) => update(() => ({ lyricPhrases: event.target.checked ? "auto" : "off" }))} /> Lyric hooks in dust</label>
-            <span className="score-dust-hint">
-              {direction.phrases ? `${score.phrases.length} phrases set by direction.`
-                : lyricStatus ? `${lyricStatus.status === "audio-mismatch" ? "Lyric timing belongs to different audio; no words shown." : `${score.phrases.length} hook${score.phrases.length === 1 ? "" : "s"} from measured lyrics.`}`
-                  : direction.lyricPhrases === "off" ? "Words off." : "No timed lyrics for this Song."}
-            </span>
-            {score.phrases.length > 0 && <ul className="score-dust-phrases">{score.phrases.map((p) => <li key={p.id}><button type="button" onClick={() => onSeek?.(p.start)}>{time(p.start)}</button> “{p.text}”{p.burst ? " · burst" : ""}</li>)}</ul>}
           </fieldset>
+          <ScoreDustLyrics dust={dust} update={update} onSeek={onSeek} lyricStatus={lyricStatus} />
         </div>
       )}
       {dust.playback && <ScoreDustExport dust={dust} currentTime={currentTime} exportContext={exportContext} />}

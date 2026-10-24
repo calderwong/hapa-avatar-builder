@@ -8,6 +8,7 @@
 import { projectDustSwarm, dustBandsFromSpectrum, sampleDustTargetsFromPixels, DUST_BAND_COUNT } from "../domain/echo-dust-swarm.js";
 import { createScoreDustPerformance } from "../domain/echo-score-dust-performance.js";
 import { computeDustColours, paintDustBackground } from "../domain/echo-score-dust-colour.js";
+import { lyricFontCss } from "../domain/echo-score-dust-lyrics.js";
 import { composeEchoVisualScore, prepareEchoScorePlayback, reflexOnlyEchoTimeline } from "../domain/echo-visual-score.js";
 
 const LIVE_PARTICLE_CAP = 4000;
@@ -36,8 +37,8 @@ export function rasterizePhraseTargets(phrase, count, seed, surfaceFactory = def
   let size = Math.min(96, Math.floor(150 / shown.length));
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, 512, 160);
   ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = `800 ${size}px system-ui, sans-serif`;
-  while (size > 18 && shown.some((line) => ctx.measureText(line).width > 488)) { size -= 4; ctx.font = `800 ${size}px system-ui, sans-serif`; }
+  ctx.font = lyricFontCss(phrase?.font, size);
+  while (size > 18 && shown.some((line) => ctx.measureText(line).width > 488)) { size -= 4; ctx.font = lyricFontCss(phrase?.font, size); }
   shown.forEach((line, i) => ctx.fillText(line, 256, 80 + (i - (shown.length - 1) / 2) * size * 1.05));
   return sampleDustTargetsFromPixels(ctx.getImageData(0, 0, 512, 160), { count, seed, threshold: 0.4, scale: 3.4 });
 }

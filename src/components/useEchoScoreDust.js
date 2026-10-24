@@ -127,6 +127,6 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     score: composed?.score || null, validation: composed?.validation || null, settings: composed?.settings || null, playback: composed?.playback || null, playbackKey,
     setDraft: (update) => setDraft((current) => (typeof update === "function" ? update(current ?? (savedInvalid ? {} : remote.saved?.direction ?? {})) : update)),
     discard: () => { setDraft(null); setSave({ state: "idle", message: "" }); },
-    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures, stems, album,
+    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures, stems, album, lyricLines: Array.isArray(lyricLines) ? lyricLines : null,
   };
 }

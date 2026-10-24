@@ -62,3 +62,4 @@
 .score-dust-export progress { width: 160px; }
 .score-dust-attach { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex-basis: 100%; }
 .score-dust-strip-edited { stroke: #f8fafc; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.score-dust-lyric-lines { max-height: 180px; overflow: auto; }

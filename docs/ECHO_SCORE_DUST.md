@@ -451,6 +451,25 @@ vocal arrives. It then snaps tight (hold 1, ω 8) through a vocal gate with a
 timing still comes from measured lyrics; the vocal stem shapes how a word
 forms, not which words appear.
 
+### P2 batch 3
+
+**Lyric control** (P2 item 12, direction `lyrics`; panel **Lyrics**).
+`src/domain/echo-score-dust-lyrics.js`:
+- `pick: "hooks"` keeps the automatic selection, now with a maximum of 1–16
+  hooks (`max`, default 8).
+- `"chosen"` shows exactly the ticked lines (`lines`: line indices). Lines
+  that overlap an earlier chosen line, or have no measured timing in this
+  recording, are skipped and reported. Long lines keep whole words up to 64
+  characters, and a chosen line on a lift becomes a burst.
+- `"off"` shows no words. The earlier `lyricPhrases: "off"` switch still
+  means off.
+- `font` (Bold sans, Serif, Mono, Script) and `textCase` (as written, UPPER,
+  lower) style the rasterised words.
+- `wordByWord` turns each shown line into one phrase per sung word, from the
+  measured word timing. Each word holds until the next starts; words within
+  50 ms join; lines without word timing stay whole. Single words are not
+  reported as unreadable.
+
 ### Saved directions
 
 Directions, not composed scores, are saved. A direction is the compact human
@@ -681,7 +700,7 @@ real Echo Song is still open.
 
 ## P2 backlog (defined 2026-10-24)
 
-Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) and **batch 2** (◆) are done (2026-10-24); see *P2 batch 1* and *P2 batch 2* above.
+Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) and **batch 2** (◆) are done; **batch 3** (▲) is in progress (2026-10-24). See the *P2 batch* sections above.
 
 | # | Item | Size |
 | --- | --- | --- |
@@ -696,7 +715,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) an
 | 9 ★ | Stem-aware responses: drums kick, bass swells, vocals bring more dust in, cymbals sparkle; ◆ words follow the singer | M |
 | 10 ◆ | Per-section editing: edit one occurrence, split/merge/move sections, busy/density per section (no strip dragging or drawn curves) | M |
 | 11 ★ | Camera moves authored on the score strip | S |
-| 12 | Lyric control: line choice, font, word-by-word mode | M |
+| 12 ▲ | Lyric control: line choice, font, word-by-word mode | M |
 | 13 | Avatar 3D models sampled into shapes | M |
 | 14 | SVG and text logos as shapes | S |
 | 15 | Agent-written direction from lyrics, mood and Atlas sound tags; natural-language cues | M |
