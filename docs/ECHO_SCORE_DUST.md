@@ -103,8 +103,36 @@ describes sparse, selected phrases rather than a full transcript:
   that moment belongs to the shapes;
 - long lines use their own word timings for a 3–5 word window or are skipped;
   timing is never invented;
-- refused (`audio-mismatch`) when the lyric timing names different master
-  audio bytes than the Atlas run.
+- formed only from timing verified against this run's master audio. With no
+  verified master hash the selection is `unverified` and forms no words; a
+  hash for other audio is `audio-mismatch`.
+
+**Lyric timing trust** (`verifyScoreDustLyricTiming`,
+`GET /api/echos/audio-atlas/jobs/RUN/visual-score-lyrics`, CLI
+`visual-score-lyrics RUN`). The Atlas owner reads the Song's Director project
+(`data/music-video-projects/<song>-video-project.json`) and the timing file it
+names, and accepts the project's `timed_lyrics` only when:
+
+- the timing source is measured: `synthetic-weighted-lyric-heal`,
+  `instrumental-master-mix-arc` and `alignment-pending` are refused as
+  `synthetic`;
+- the project's lines still hash to the timing source they were synced from
+  (sha256 of `timed_lyrics`, the same check Director V2 makes);
+- the timing file records the audio it was aligned on
+  (`provenance.masterAudioSha256`, else `provenance.audioSha256`), and that
+  audio is this run's master (`basis: master`) or a stem analysed in an Atlas
+  run of the same master (`basis: stem`).
+
+Otherwise the verdict is `unverified` or `audio-mismatch` and no words are
+formed. The UI composes from the verified lines the server returns, not the
+cut's `timed_lyrics`, and saves with `lyricLines: "project"`; API and CLI
+callers use `lyricLines: "project"` (`--lyrics=project`) or pass lines with
+the master `lyricAudioHash` they verified. On 2026-10-24, of 209 Songs, 141
+verify (90 on the master, 51 on a vocal stem), 42 were timed on other audio
+(mostly the Suno MP3 rather than the Atlas master, or an older master
+revision), 10 are synthetic and 16 have no timed lyrics. Before this check the
+Echo preview passed a hash field that does not exist, so the guard never ran
+and 10 Songs showed words from synthetic timing.
 
 Each phrase records its source line, repeat count and reason.
 
@@ -730,7 +758,8 @@ See `docs/API_CLI_UI_PARITY.md` → *Echo Score Dust visual-score parity*.
 ```bash
 node cli/audio-atlas.mjs visual-score RUN                       # latest saved direction (or default)
 node cli/audio-atlas.mjs visual-score RUN --saved=false         # ignore saved direction
-node cli/audio-atlas.mjs visual-score RUN --direction=direction.json --lyrics=timed-lyrics.json --pulse=half
+node cli/audio-atlas.mjs visual-score RUN --direction=direction.json --lyrics=project --pulse=half
+node cli/audio-atlas.mjs visual-score-lyrics RUN                # is this Song's lyric timing verified for RUN?
 node cli/audio-atlas.mjs visual-score RUN --score=edited-score.json --assets=atlas-cell-1
 node cli/audio-atlas.mjs visual-score-directions RUN
 node cli/audio-atlas.mjs save-visual-score-direction RUN --file=direction.json --base-revision=0 --note="group B as jellyfish"
@@ -805,8 +834,8 @@ Second pass (32 tests in total across the five files) adds:
   phrases facing the camera;
 - shocks and word formations inside the performance, and bounded, deterministic
   score-derived bands;
-- sparse lyric hook selection that never invents timing and refuses mismatched
-  audio, plus strict direction validation;
+- sparse lyric hook selection that never invents timing and refuses synthetic,
+  unverified or mismatched timing, plus strict direction validation;
 - authored camera moves and the phrase-overlap check;
 - the offline frame contract and identical state across two renders;
 - the saved-direction ledger: append, conflict, invalid-save refusal, saved

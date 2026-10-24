@@ -1,6 +1,8 @@
 // Loads the Song's musical timeline and saved direction from the Audio Atlas,
 // keeps an editable draft, composes locally with the same pure composer the
-// API/CLI use, and saves directions to the append-only ledger.
+// API/CLI use, and saves directions to the append-only ledger. Lyric words
+// come only from the Song's verified lyric timing (the server's
+// visual-score-lyrics verdict); unverified or synthetic timing forms no words.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createAtlasClient } from "../domain/audio-atlas-ui.js";
 import {
@@ -13,7 +15,7 @@ import { albumDustColour } from "../domain/echo-score-dust-album.js";
 
 const NO_DIRECTION = Object.freeze({});
 
-export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerformance = null, lyricLines = null, lyricAudioHash = null, durationSeconds = 600, resolveUri = (uri) => uri }) {
+export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerformance = null, durationSeconds = 600, resolveUri = (uri) => uri }) {
   const client = useMemo(() => createAtlasClient(apiBase), [apiBase]);
   const [remote, setRemote] = useState({ status: "idle", songId: "" });
   const [draft, setDraft] = useState(null);
@@ -64,17 +66,24 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
         // The server picks the newest run with beats and sections; newer lyric-timing runs measure neither.
         const { run, reason = "" } = await client.request(`/visual-score-run?songId=${encodeURIComponent(songId)}`);
         if (!run) { if (!cancelled) setRemote({ status: "no-run", songId, message: reason || "No completed Audio Atlas analysis for this Song yet." }); return; }
-        const [value, ledger] = await Promise.all([
+        const [value, ledger, lyrics] = await Promise.all([
           client.request(`/jobs/${encodeURIComponent(run.id)}/query?op=visual-score`),
           client.request(`/jobs/${encodeURIComponent(run.id)}/visual-score-directions`),
+          client.request(`/jobs/${encodeURIComponent(run.id)}/visual-score-lyrics`).catch((error) => ({ status: "unverified", reason: `Lyric timing could not be checked (${error.message}).` })),
         ]);
-        if (!cancelled) setRemote({ status: "atlas", songId, runId: run.id, runReason: reason, timeline: value.timeline, ledger: ledger.revisions || [], saved: ledger.latest || null });
+        if (!cancelled) setRemote({ status: "atlas", songId, runId: run.id, runReason: reason, timeline: value.timeline, ledger: ledger.revisions || [], saved: ledger.latest || null, lyrics });
       } catch (error) {
         if (!cancelled) setRemote({ status: "error", songId, message: String(error?.message || error) });
       }
     })();
     return () => { cancelled = true; };
   }, [enabled, songId, client, reload]);
+
+  // Only verified lines carry a master hash; prepared/reflex fallbacks have no verified timing.
+  const lyricLines = remote.status === "atlas" && Array.isArray(remote.lyrics?.lyricLines) ? remote.lyrics.lyricLines : null;
+  const lyricAudioHash = lyricLines ? remote.lyrics.lyricAudioHash || null : null;
+  const lyricTiming = remote.status === "atlas" && remote.lyrics ? { status: remote.lyrics.status, reason: remote.lyrics.reason || "", basis: remote.lyrics.basis || null, timingSource: remote.lyrics.timingSource || null }
+    : { status: "unverified", reason: "Lyric words need an Audio Atlas run to verify their timing against." };
 
   const timelineInfo = useMemo(() => {
     if (remote.status === "atlas") return { timeline: remote.timeline, source: `atlas ${remote.runId}`, kind: "atlas" };
@@ -115,7 +124,7 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     setSave({ state: "saving", message: "" });
     try {
       const row = await client.request(`/jobs/${encodeURIComponent(remote.runId)}/visual-score-directions`, {
-        method: "POST", body: JSON.stringify({ baseRevision: remote.saved?.revision || 0, direction: draft, note, lyricLines, lyricAudioHash }),
+        method: "POST", body: JSON.stringify({ baseRevision: remote.saved?.revision || 0, direction: draft, note, lyricLines: "project" }),
       });
       setRemote((current) => ({ ...current, saved: row, ledger: [...(current.ledger || []), row] }));
       setDraft(null);
@@ -123,7 +132,7 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     } catch (error) {
       setSave({ state: "error", message: String(error?.message || error) });
     }
-  }, [client, remote, draft, lyricLines, lyricAudioHash]);
+  }, [client, remote, draft]);
 
   // Separated stems from the prepared performance (null for master-only songs).
   const stems = useMemo(() => { try { return enabled ? createStemReflex(preparedPerformance) : null; } catch { return null; } }, [enabled, preparedPerformance]);
@@ -135,6 +144,6 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     score: composed?.score || null, validation: composed?.validation || null, settings: composed?.settings || null, playback: composed?.playback || null, playbackKey,
     setDraft: (update) => setDraft((current) => (typeof update === "function" ? update(current ?? (savedInvalid ? {} : remote.saved?.direction ?? {})) : update)),
     discard: () => { setDraft(null); setSave({ state: "idle", message: "" }); },
-    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures, stems, album, song: songCard, lyricLines: Array.isArray(lyricLines) ? lyricLines : null,
+    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures, stems, album, song: songCard, lyricLines, lyricTiming,
   };
 }

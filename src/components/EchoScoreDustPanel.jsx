@@ -276,7 +276,7 @@ function ScoreDustLyrics({ dust, update, onSeek, lyricStatus }) {
   const shownWords = score.phrases.filter((p) => p.wordOf).length;
   return (
     <fieldset data-testid="score-dust-lyrics">
-      <legend>Lyrics <span>words formed from dust</span></legend>
+      <legend>Lyrics <span>words formed from dust{dust.lyricTiming?.status === "verified" ? ` · timing verified on the ${dust.lyricTiming.basis === "stem" ? "vocal stem" : "master"}` : ""}</span></legend>
       <label>Show <select aria-label="Lyric lines" value={control.pick} disabled={Boolean(direction.phrases)} onChange={(e) => set({ pick: e.target.value })}>
         <option value="hooks">Hooks, chosen automatically</option><option value="chosen" disabled={!lines.length}>Lines I choose</option><option value="off">No words</option>
       </select></label>
@@ -290,7 +290,8 @@ function ScoreDustLyrics({ dust, update, onSeek, lyricStatus }) {
       <label><input type="checkbox" aria-label="Word by word" checked={control.wordByWord} onChange={(e) => set({ wordByWord: e.target.checked })} /> Word by word (needs word timing)</label>
       <span className="score-dust-hint">
         {direction.phrases ? `${score.phrases.length} phrases set by direction.`
-          : lyricStatus ? (lyricStatus.status === "audio-mismatch" ? "Lyric timing belongs to different audio; no words shown." : `${score.phrases.length - shownWords + new Set(score.phrases.filter((p) => p.wordOf).map((p) => p.wordOf)).size} line${score.phrases.length === 1 ? "" : "s"} shown${shownWords ? ` as ${shownWords} words` : ""}.${lyricStatus.skipped?.length ? ` ${lyricStatus.skipped.length} chosen line${lyricStatus.skipped.length === 1 ? "" : "s"} skipped (overlap or no timing).` : ""}`)
+          : dust.lyricTiming && dust.lyricTiming.status !== "verified" && control.pick !== "off" ? `No words: ${dust.lyricTiming.reason || "lyric timing is not verified for this recording."}`
+          : lyricStatus ? (["audio-mismatch", "unverified"].includes(lyricStatus.status) ? `No words: ${lyricStatus.reason}` : `${score.phrases.length - shownWords + new Set(score.phrases.filter((p) => p.wordOf).map((p) => p.wordOf)).size} line${score.phrases.length === 1 ? "" : "s"} shown${shownWords ? ` as ${shownWords} words` : ""}.${lyricStatus.skipped?.length ? ` ${lyricStatus.skipped.length} chosen line${lyricStatus.skipped.length === 1 ? "" : "s"} skipped (overlap or no timing).` : ""}`)
             : control.pick === "off" ? "Words off." : "No timed lyrics for this Song."}
       </span>
       {control.pick === "chosen" && lines.length > 0 && (

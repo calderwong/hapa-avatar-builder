@@ -184,7 +184,9 @@ test("lyric hooks are chosen sparsely from measured timing, never invented", () 
     assert.ok(phrase.start >= line.start - 1e-6 && phrase.end <= line.end + 1e-6, "times come from the measured line");
   }
   assert.equal(selectEchoScorePhrases(lyricLines(), timeline, { lyricAudioHash: "f".repeat(64) }).status, "audio-mismatch");
-  assert.equal(selectEchoScorePhrases([], timeline).status, "unavailable");
+  assert.equal(selectEchoScorePhrases([], timeline, { lyricAudioHash: "a".repeat(64) }).status, "unavailable");
+  assert.equal(selectEchoScorePhrases(lyricLines(), timeline).status, "unverified", "no verified hash, no words");
+  assert.equal(composeEchoVisualScore(timeline, {}, { lyricLines: lyricLines() }).phrases.length, 0);
   const score = composeEchoVisualScore(timeline, {}, { lyricLines: lyricLines(), lyricAudioHash: "a".repeat(64) });
   assert.equal(score.phraseSource.kind, "lyrics");
   assert.equal(validateEchoVisualScore(score, { timeline }).ok, true);

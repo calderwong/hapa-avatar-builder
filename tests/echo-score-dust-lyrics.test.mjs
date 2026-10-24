@@ -16,9 +16,11 @@ function lyricLines() {
   }
   return lines;
 }
+// The fixture master: lyric words need timing verified against it.
+const MASTER = "a".repeat(64);
 const compose = (lyrics) => {
   assert.equal(validateEchoScoreDirection({ lyrics }).ok, true);
-  const score = composeEchoVisualScore(timeline, { lyrics }, { lyricLines: lyricLines() });
+  const score = composeEchoVisualScore(timeline, { lyrics }, { lyricLines: lyricLines(), lyricAudioHash: MASTER });
   const check = validateEchoVisualScore(score, { timeline });
   assert.equal(check.ok, true, JSON.stringify(check.errors));
   return score;
@@ -30,12 +32,13 @@ test("chosen lines are shown exactly, in time order, overlaps refused", () => {
   assert.equal(score.phraseSource.pick, "chosen");
   const lines = lyricLines();
   lines[2] = { ...lines[2], start: lines[1].start + 0.5, end: lines[1].end + 1 };
-  const result = chosenLyricPhrases(lines, timeline, [1, 2]);
+  const result = chosenLyricPhrases(lines, timeline, [1, 2], { lyricAudioHash: MASTER });
   assert.deepEqual(result.skipped, [{ index: 2, reason: "overlaps an earlier chosen line" }]);
-  assert.equal(chosenLyricPhrases(lines, timeline, [99]).skipped[0].reason, "no measured timing inside this recording");
+  assert.equal(chosenLyricPhrases(lines, timeline, [99], { lyricAudioHash: MASTER }).skipped[0].reason, "no measured timing inside this recording");
+  assert.equal(chosenLyricPhrases(lines, timeline, [1]).status, "unverified", "unverified timing forms no words");
   assert.equal(chosenLyricPhrases(lines, timeline, [1], { lyricAudioHash: "f".repeat(64) }).status, "audio-mismatch");
   const long = [{ text: Array.from({ length: 30 }, (_, i) => `word${i}`).join(" "), start: 10, end: 20 }];
-  assert.ok(chosenLyricPhrases(long, timeline, [0]).phrases[0].text.length <= 64, "long lines keep whole words up to 64 characters");
+  assert.ok(chosenLyricPhrases(long, timeline, [0], { lyricAudioHash: MASTER }).phrases[0].text.length <= 64, "long lines keep whole words up to 64 characters");
 });
 
 test("hooks respect the maximum; off and the earlier switch still mean no words", () => {
@@ -55,9 +58,9 @@ test("word by word shows one sung word at a time, contiguous and inside its line
   const playback = prepareEchoScorePlayback(score, timeline);
   assert.equal(playback.stateAt(score.phrases[2].start + 0.1).phrase.text, "TO");
   const untimed = [{ text: "no word timing here", start: 10, end: 14 }];
-  assert.equal(wordByWordPhrases(chosenLyricPhrases(untimed, timeline, [0]).phrases, untimed).length, 1, "lines without word timing stay whole");
+  assert.equal(wordByWordPhrases(chosenLyricPhrases(untimed, timeline, [0], { lyricAudioHash: MASTER }).phrases, untimed).length, 1, "lines without word timing stay whole");
   const clustered = [{ text: "a b c", start: 10, end: 12, words: [{ text: "a", start: 10, end: 10.5 }, { text: "b", start: 10.02, end: 10.6 }, { text: "c", start: 11, end: 11.5 }] }];
-  assert.deepEqual(wordByWordPhrases(chosenLyricPhrases(clustered, timeline, [0]).phrases, clustered).map((p) => p.text), ["a b", "c"], "near-simultaneous words join");
+  assert.deepEqual(wordByWordPhrases(chosenLyricPhrases(clustered, timeline, [0], { lyricAudioHash: MASTER }).phrases, clustered).map((p) => p.text), ["a b", "c"], "near-simultaneous words join");
 });
 
 test("lyric settings validate strictly and fonts fall back safely", () => {

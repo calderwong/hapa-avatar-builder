@@ -11,7 +11,7 @@ import {createAtlasTextSearch} from './audio-atlas-text-search.mjs';
 import {validateTimingReference, timingEvaluation} from '../src/domain/audio-atlas-references.js';
 import { buildAtlasContract, summarizeAtlasContract, CONTRACT_VERSION } from './audio-atlas-contract.mjs';
 import { inspectAudioInventory } from './audio-atlas-inventory.mjs';
-import { atlasVisualScore, createVisualScoreRunSelector, createVisualScoreDirectionStore, createVisualScoreLookStore, saveVisualScoreDirection, suggestVisualScoreDirection, interpretVisualScoreCue } from './audio-atlas-visual-score.mjs';
+import { atlasVisualScore, createVisualScoreRunSelector, createVisualScoreLyricVerifier, createVisualScoreDirectionStore, createVisualScoreLookStore, saveVisualScoreDirection, suggestVisualScoreDirection, interpretVisualScoreCue } from './audio-atlas-visual-score.mjs';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -115,7 +115,7 @@ export function runWorker(root,manifest,{signal,onOutput,onSpawn=()=>{},python,w
 }
 
 /** Derived analysis owner under the existing Builder. Song/media identity stays in the song store. */
-export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'),songStore=path.join(root,'data/hapa-songs-store.json'),visualScoreDirectionDir=path.join(root,'data/echo-visual-score-directions'),visualScoreLookDir=path.join(root,'data/echo-visual-score-looks'),python=process.env.HAPA_PYTHON||'python3',runner=runWorker}={}) {
+export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'),songStore=path.join(root,'data/hapa-songs-store.json'),visualScoreDirectionDir=path.join(root,'data/echo-visual-score-directions'),visualScoreLookDir=path.join(root,'data/echo-visual-score-looks'),projectDir=path.join(root,'data/music-video-projects'),python=process.env.HAPA_PYTHON||'python3',runner=runWorker}={}) {
   const active=new Map();
   const lock=()=>acquireOwnedFileLock({lockPath:path.join(storage,'.writer.lock'),schemaVersion:'hapa.audio-atlas.lock.v1',staleLegacyMs:120000});
   const jobFile=id=>path.join(storage,'jobs',`${safeId(id)}.json`);
@@ -324,9 +324,19 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
   const directionStore=createVisualScoreDirectionStore({dir:visualScoreDirectionDir,lock:directionLock,release:releaseOwnedFileLock});
   const songCards=()=>{try{return songs();}catch{return [];}};
   const visualScoreRun=createVisualScoreRunSelector({jobs,result});
-  function visualScore(id,input={}){const r=result(id);return atlasVisualScore(r,input,{saved:directionStore.list(r.song_id).latest,songs:songCards});}
+  // Score Dust words come only from the Song's verified Director-project lyric timing.
+  const readProject=songId=>{if(!/^[A-Za-z0-9_-]{1,160}$/.test(String(songId||'')))return null;const file=path.join(projectDir,`${songId}-video-project.json`);try{const value=JSON.parse(fs.readFileSync(file,'utf8'));return value?.music_video_project||value;}catch{return null;}};
+  const readTiming=file=>{try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch{return null;}};
+  const visualScoreLyrics=createVisualScoreLyricVerifier({jobs,result,readProject,readTiming});
+  // lyricLines:"project" composes with the verified project lines and hash (UI, API and CLI share it).
+  function withProjectLyrics(id,input={}){
+    if(input.lyricLines!=='project')return {input,lyrics:null};
+    const lyrics=visualScoreLyrics(id);
+    return {input:{...input,lyricLines:lyrics.lyricLines,lyricAudioHash:lyrics.lyricAudioHash},lyrics:{status:lyrics.status,reason:lyrics.reason,basis:lyrics.basis||null,timingSource:lyrics.timingSource}};
+  }
+  function visualScore(id,input={}){const r=result(id),{input:resolved,lyrics}=withProjectLyrics(id,input);const value=atlasVisualScore(r,resolved,{saved:directionStore.list(r.song_id).latest,songs:songCards});return lyrics?{...value,lyric_timing:lyrics}:value;}
   function visualScoreDirections(id){return directionStore.list(result(id).song_id);}
-  function saveVisualScoreDirectionFor(id,input={}){return saveVisualScoreDirection(result(id),directionStore,input,{songs:songCards});}
+  function saveVisualScoreDirectionFor(id,input={}){return saveVisualScoreDirection(result(id),directionStore,withProjectLyrics(id,input).input,{songs:songCards});}
   const lookLock=()=>{fs.mkdirSync(visualScoreLookDir,{recursive:true});return acquireOwnedFileLock({lockPath:path.join(visualScoreLookDir,'.writer.lock'),schemaVersion:'hapa.echo.visual-score-looks.lock.v1',staleLegacyMs:120000});};
   const lookStore=createVisualScoreLookStore({dir:visualScoreLookDir,lock:lookLock,release:releaseOwnedFileLock});
   function query(id,options={}){
@@ -406,5 +416,5 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
   }
   const textSearch=createAtlasTextSearch({root,storage,result,lock,atomic,runner,runtimeIdentity,checkAnalysis:()=>{descriptions.ensureNoOrphans();if(jobs().some(j=>j.state==='orphaned'))throw fail('An orphaned analysis worker remains alive',409);}});
   const descriptions=createAtlasDescriptions({root,storage,result,lock,atomic,runner,runtimeIdentity,checkAnalysis:()=>{textSearch.ensureNoOrphans();if(jobs().some(j=>j.state==='orphaned'))throw fail('An orphaned analysis worker remains alive',409);}});
-  return {visualScoreRun,visualScoreSuggest:(id,input={})=>suggestVisualScoreDirection(result(id),input,{songs:songCards}),visualScoreCue:(id,input={})=>{const r=result(id);return interpretVisualScoreCue(r,input,{saved:directionStore.list(r.song_id).latest});},visualScore,visualScoreDirections,saveVisualScoreDirection:saveVisualScoreDirectionFor,visualScoreLooks:lookStore.list,saveVisualScoreLook:lookStore.save,derived:id=>{const r=result(id);return {notes:deriveNotes(r),activity:r.assets.map(a=>deriveActivity(r,a)),descriptions:descriptions.export(id)};},describe:descriptions.start,descriptions:descriptions.get,waitDescription:descriptions.wait,cancelDescription:descriptions.cancel,reviewDescription:descriptions.review,searchText:textSearch.start,textSearches:textSearch.get,cancelTextSearch:textSearch.cancel,contract:id=>buildAtlasContract(result(id)),inventory:()=>inspectAudioInventory(songs(),{root}),audio,list,jobs,status,start,wait,cancel,result,query,review,reviews,reference,noiseReference,close:async()=>{for(const h of active.values())h.controller.abort();await Promise.allSettled([descriptions.close(),textSearch.close(),...[...active.values()].map(h=>h.promise)]);}};
+  return {visualScoreRun,visualScoreLyrics,visualScoreSuggest:(id,input={})=>suggestVisualScoreDirection(result(id),withProjectLyrics(id,input).input,{songs:songCards}),visualScoreCue:(id,input={})=>{const r=result(id);return interpretVisualScoreCue(r,withProjectLyrics(id,input).input,{saved:directionStore.list(r.song_id).latest});},visualScore,visualScoreDirections,saveVisualScoreDirection:saveVisualScoreDirectionFor,visualScoreLooks:lookStore.list,saveVisualScoreLook:lookStore.save,derived:id=>{const r=result(id);return {notes:deriveNotes(r),activity:r.assets.map(a=>deriveActivity(r,a)),descriptions:descriptions.export(id)};},describe:descriptions.start,descriptions:descriptions.get,waitDescription:descriptions.wait,cancelDescription:descriptions.cancel,reviewDescription:descriptions.review,searchText:textSearch.start,textSearches:textSearch.get,cancelTextSearch:textSearch.cancel,contract:id=>buildAtlasContract(result(id)),inventory:()=>inspectAudioInventory(songs(),{root}),audio,list,jobs,status,start,wait,cancel,result,query,review,reviews,reference,noiseReference,close:async()=>{for(const h of active.values())h.controller.abort();await Promise.allSettled([descriptions.close(),textSearch.close(),...[...active.values()].map(h=>h.promise)]);}};
 }

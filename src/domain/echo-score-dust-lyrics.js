@@ -22,6 +22,19 @@ const round = (v, d = 4) => Number(Number(v).toFixed(d));
 const lineTime = (line, key) => { const value = Number(line?.[key] ?? line?.[`${key}Seconds`]); return Number.isFinite(value) ? value : NaN; };
 const strip = (v) => String(v || "").replace(/^sha256:/, "").toLowerCase();
 
+/**
+ * Lyric words are formed only from timing verified against this recording's
+ * master bytes: the caller passes the master hash it verified the timing
+ * against (verifyScoreDustLyricTiming). No hash, or a timeline without a
+ * master hash, means the timing is unverified and no words are formed.
+ */
+export function lyricTimingRefusal(lyricAudioHash, timeline) {
+  const master = strip(timeline?.source?.sourceSha256);
+  if (!lyricAudioHash || !master) return { status: "unverified", reason: "Lyric timing is not verified against this recording's master audio, so no words are formed." };
+  if (strip(lyricAudioHash) !== master) return { status: "audio-mismatch", reason: "Lyric timing belongs to different master audio bytes than this Atlas run." };
+  return null;
+}
+
 /** `lyricPhrases: "off"` (the earlier switch) still means off. */
 export function normalizeLyricControl(lyrics = {}, legacy = undefined) {
   const pick = PICKS.includes(lyrics?.pick) ? lyrics.pick : legacy === "off" ? "off" : "hooks";
@@ -51,9 +64,8 @@ function timedWords(line) {
 
 /** Exactly the chosen lines (by index), in time order; overlaps and unusable lines are reported. */
 export function chosenLyricPhrases(lines, timeline, indices, { lyricAudioHash = null, events = [] } = {}) {
-  if (lyricAudioHash && timeline.source?.sourceSha256 && strip(lyricAudioHash) !== strip(timeline.source.sourceSha256)) {
-    return { status: "audio-mismatch", reason: "Lyric timing belongs to different master audio bytes than this Atlas run.", phrases: [], skipped: [] };
-  }
+  const refused = lyricTimingRefusal(lyricAudioHash, timeline);
+  if (refused) return { ...refused, phrases: [], skipped: [] };
   const shocks = (events || []).filter((e) => e.response === "shock").map((e) => e.at), phrases = [], skipped = [];
   for (const index of indices) {
     const line = lines?.[index], start = lineTime(line, "start"), end = lineTime(line, "end");

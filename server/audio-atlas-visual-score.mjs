@@ -6,11 +6,14 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import {
   buildEchoMusicalTimelineFromAtlas, composeEchoVisualScore, validateEchoVisualScore, validateEchoScoreDirection,
-  normalizeDustPlaySettings, ECHO_SCORE_DIRECTION_SCHEMA, echoAtlasRunShape, selectEchoScoreDustRun,
+  normalizeDustPlaySettings, ECHO_SCORE_DIRECTION_SCHEMA, echoAtlasRunShape, selectEchoScoreDustRun, verifyScoreDustLyricTiming,
 } from '../src/domain/echo-visual-score.js';
 import { DUST_LOOK_SCHEMA, dustLookSlug, validateDustLook, mergeDustLooks } from '../src/domain/echo-score-dust-looks.js';
 import { albumDustColour } from '../src/domain/echo-score-dust-album.js';
 import { suggestDustDirection, interpretDustCue } from '../src/domain/echo-score-dust-director.js';
+
+// The master hash a caller verified its lyric timing against; without it no lyric words are formed.
+const lyricHash=input=>typeof input.lyricAudioHash==='string'&&input.lyricAudioHash?input.lyricAudioHash:null;
 
 function songCardFor(songs,songId){const list=typeof songs==='function'?songs():songs||[];return list.find(s=>[s?.id,s?.songId,s?.cardId].includes(songId))||null;}
 
@@ -20,7 +23,7 @@ export function suggestVisualScoreDirection(result,input={},{songs=[]}={}){
  const lyricLines=parseValue(input.lyricLines,'lyricLines',{array:true});
  const tags=Array.isArray(input.tags)?input.tags.map(String):typeof input.tags==='string'&&input.tags?input.tags.split(','):card?.tags||[];
  const suggestion=suggestDustDirection({timeline,mood:typeof input.mood==='string'?input.mood:card?.mood||'',tags,lyricLines,title:card?.title||''});
- const score=composeEchoVisualScore(timeline,suggestion.direction,{lyricLines});
+ const score=composeEchoVisualScore(timeline,suggestion.direction,{lyricLines,lyricAudioHash:lyricHash(input)});
  return {...suggestion,run_id:result.run_id,song_id:result.song_id,validation:validateEchoVisualScore(score,{timeline}),notice:'Suggested locally from mood words, Atlas candidates and lyrics; nothing is saved.'};
 }
 
@@ -44,16 +47,45 @@ export function createVisualScoreRunSelector({jobs,result}){
  };
 }
 
+/**
+ * Verified lyric lines for one run: the Song's Director project timed lyrics,
+ * accepted only when their timing source was measured and aligned on this
+ * run's master or on a source analysed alongside it. readProject(songId) and
+ * readTiming(path) are injected; the timing path always comes from the
+ * project file, never from a request. Source sets are cached per result hash.
+ */
+export function createVisualScoreLyricVerifier({jobs,result,readProject,readTiming}){
+ const sources=new Map();
+ const strip=v=>String(v||'').replace(/^sha256:/,'').toLowerCase();
+ const runSources=job=>{
+  const key=`${job.id}:${job.result_sha256}`;
+  if(!sources.has(key)){try{const assets=result(job.id).assets||[];sources.set(key,{master:strip(assets.find(a=>a.id==='master')?.source_sha256),all:assets.map(a=>strip(a.source_sha256)).filter(Boolean)});}catch{sources.set(key,{master:'',all:[]});}}
+  return sources.get(key);
+ };
+ return function visualScoreLyrics(id){
+  const r=result(id),master=strip(r.assets?.find(a=>a.id==='master')?.source_sha256);
+  const project=readProject(r.song_id);
+  const lines=Array.isArray(project?.timed_lyrics)?project.timed_lyrics:null;
+  const timingPath=project?.lyric_timing_heal?.timingPath||project?.lyric_timing_truth?.sourcePath||'';
+  const timing=timingPath?readTiming(timingPath):null;
+  const sameMaster=master?[...new Set(jobs(r.song_id).filter(job=>job.state==='complete').map(runSources).filter(s=>s.master===master).flatMap(s=>s.all))]:[];
+  const verdict=verifyScoreDustLyricTiming({project,timing,masterSha256:master,sameMasterSourceSha256s:sameMaster,
+   activeLinesSha256:lines?createHash('sha256').update(JSON.stringify(lines)).digest('hex'):null});
+  return {schema_version:'hapa.audio-atlas.visual-score-lyrics.v1',run_id:r.run_id,song_id:r.song_id,...verdict,
+   lyricAudioHash:verdict.status==='verified'?verdict.lyricAudioHash:null,lyricLines:verdict.status==='verified'?lines:null};
+ };
+}
+
 /** Apply a plain-language cue to a direction (the request's, else the latest saved one). */
 export function interpretVisualScoreCue(result,input={},{saved=null}={}){
  const timeline=buildEchoMusicalTimelineFromAtlas(result);
  if(typeof input.text!=='string'||!input.text.trim()||input.text.length>2000)throw fail('text must be a cue of 1–2000 characters');
  const base=parseValue(input.direction,'direction')||(saved&&validateEchoScoreDirection(saved.direction).ok?saved.direction:{});
  const lyricLines=parseValue(input.lyricLines,'lyricLines',{array:true});
- const before=composeEchoVisualScore(timeline,validateEchoScoreDirection(base).ok?base:{},{lyricLines});
+ const before=composeEchoVisualScore(timeline,validateEchoScoreDirection(base).ok?base:{},{lyricLines,lyricAudioHash:lyricHash(input)});
  const value=interpretDustCue(input.text,{timeline,score:before,direction:base});
  const check=validateEchoScoreDirection(value.direction);
- const score=check.ok?composeEchoVisualScore(timeline,value.direction,{lyricLines}):null;
+ const score=check.ok?composeEchoVisualScore(timeline,value.direction,{lyricLines,lyricAudioHash:lyricHash(input)}):null;
  return {...value,run_id:result.run_id,song_id:result.song_id,directionValidation:check,validation:score?validateEchoVisualScore(score,{timeline}):null,notice:'Interpreted locally; nothing is saved. Save the returned direction to keep it.'};
 }
 
@@ -107,6 +139,8 @@ export function createVisualScoreDirectionStore({dir,lock,release}){
 
 /**
  * {direction?, score?, assets?, lyricLines?, lyricAudioHash?, playSettings?, useSaved?}
+ * lyricLines form words only with the master lyricAudioHash they were verified
+ * against; the Atlas service resolves lyricLines:"project" to verified lines.
  * → timeline, score, validation and play settings. Without a request direction
  * the Song's latest saved direction is used, so UI, API and CLI agree.
  */
@@ -121,7 +155,7 @@ export function atlasVisualScore(result,input={},{saved=null,songs=[]}={}){
  const lyricLines=parseValue(input.lyricLines,'lyricLines',{array:true});
  if(lyricLines&&lyricLines.length>MAX_LYRIC_LINES)throw fail(`at most ${MAX_LYRIC_LINES} lyric lines`);
  const supplied=parseValue(input.score,'score');
- const score=supplied||composeEchoVisualScore(timeline,direction,{lyricLines,lyricAudioHash:typeof input.lyricAudioHash==='string'?input.lyricAudioHash:null});
+ const score=supplied||composeEchoVisualScore(timeline,direction,{lyricLines,lyricAudioHash:lyricHash(input)});
  const assets=Array.isArray(input.assets)?input.assets.map(String):typeof input.assets==='string'&&input.assets?input.assets.split(','):null;
  const play=parseValue(input.playSettings,'playSettings')||direction.playSettings||{};
  const playSettings=normalizeDustPlaySettings({...play,...(input.pulse?{pulse:input.pulse}:{}),...(input.seed!==undefined&&input.seed!==''?{seed:Number(input.seed)}:{}),...(input.particleCount?{particleCount:input.particleCount}:{})},timeline);

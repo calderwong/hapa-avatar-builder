@@ -12,7 +12,7 @@
 
 import { DUST_FORMATION_FAMILIES, seedFromString, hashUnit } from "./echo-dust-swarm.js";
 import { applySectionEdits, validateSectionEdits } from "./echo-score-dust-sections.js";
-import { normalizeLyricControl, validateLyricControl, chosenLyricPhrases, wordByWordPhrases, styleLyricPhrase } from "./echo-score-dust-lyrics.js";
+import { normalizeLyricControl, validateLyricControl, chosenLyricPhrases, wordByWordPhrases, styleLyricPhrase, lyricTimingRefusal } from "./echo-score-dust-lyrics.js";
 import { DUST_COLOUR_MODES, DUST_COLOUR_PRESETS, DUST_FLASH_LIMIT_PER_SECOND, normalizeDustColour, presetPaletteFor, albumPaletteFor, validateAlbumColourSpec, normalizeDustBackground, validateDustBackground } from "./echo-score-dust-colour.js";
 import { DUST_STEM_GROUPS, normalizeStemResponses } from "./echo-score-dust-stems.js";
 
@@ -435,6 +435,41 @@ export function reflexOnlyEchoTimeline(durationSeconds = 600) {
     qualification: { qualityQualified: false, basis: "none", limitations: ["No song structure; visuals follow live audio only."] } });
 }
 
+const stripSha = (value) => String(value || "").replace(/^sha256:/, "").toLowerCase();
+
+/** Lyric timing sources that are not measured from the performance (spread across the song or not yet aligned). */
+export const SCORE_DUST_UNMEASURED_TIMING_SOURCES = Object.freeze(["synthetic-weighted-lyric-heal", "instrumental-master-mix-arc", "alignment-pending"]);
+
+/**
+ * Decide whether a Director project's timed lyrics may become dust words for
+ * one Atlas run. Pure; the caller supplies hashes it computed:
+ * - project: { timed_lyrics, lyric_timing_heal, lyric_timing_truth }
+ * - timing: the timing file the project names (its provenance records the audio it was aligned on)
+ * - activeLinesSha256: sha256 of JSON.stringify(project.timed_lyrics), as Director V2 computes it
+ * - masterSha256: this run's master; sameMasterSourceSha256s: every source an Atlas run of this
+ *   same master analysed (master and stems), so vocal-stem alignments verify too.
+ * → { status: verified|synthetic|unverified|audio-mismatch|none, reason, basis?, lyricAudioHash? }
+ */
+export function verifyScoreDustLyricTiming({ project = null, timing = null, activeLinesSha256 = null, masterSha256 = null, sameMasterSourceSha256s = [] } = {}) {
+  const heal = project?.lyric_timing_heal || {}, truth = project?.lyric_timing_truth || {}, source = heal.timingSource || truth.source || null;
+  const base = { timingSource: source, confidence: Number.isFinite(Number(heal.timingConfidence)) ? Number(heal.timingConfidence) : null };
+  if (!project) return { ...base, status: "none", reason: "No Director project for this Song." };
+  if (!Array.isArray(project.timed_lyrics) || !project.timed_lyrics.length) return { ...base, status: "none", reason: "This Song has no timed lyrics." };
+  if (!source) return { ...base, status: "unverified", reason: "The lyric timing records no source." };
+  if (SCORE_DUST_UNMEASURED_TIMING_SOURCES.includes(source)) return { ...base, status: "synthetic", reason: `Lyric timing is ${source}, not measured from the performance.` };
+  const declared = stripSha(truth.activeTimingSha256 || heal.activeTimingSha256), sourceHash = stripSha(truth.timingSourceSha256 || heal.timingSourceSha256);
+  if (!declared || declared !== sourceHash || declared !== stripSha(activeLinesSha256) || truth.sourceMatchesActive === false) {
+    return { ...base, status: "unverified", reason: "The project's timed lyrics no longer match the timing source they were synced from." };
+  }
+  if (!timing || typeof timing !== "object") return { ...base, status: "unverified", reason: "The timing source file could not be read." };
+  const aligned = stripSha(timing.provenance?.masterAudioSha256 || timing.provenance?.audioSha256), master = stripSha(masterSha256);
+  if (!aligned) return { ...base, status: "unverified", reason: "The timing source does not record which audio it was aligned on." };
+  if (!master) return { ...base, status: "unverified", reason: "This Atlas run has no master hash to verify against." };
+  if (aligned === master) return { ...base, status: "verified", basis: "master", lyricAudioHash: master, reason: "Aligned on this recording's master." };
+  if (sameMasterSourceSha256s.map(stripSha).includes(aligned)) return { ...base, status: "verified", basis: "stem", lyricAudioHash: master, reason: "Aligned on a stem analysed alongside this master." };
+  return { ...base, status: "audio-mismatch", reason: "Lyric timing was aligned on different audio than this recording's master (another file or master revision)." };
+}
+
 /** What a completed Atlas run gives Score Dust: beat count and whether it measured sections. */
 export function echoAtlasRunShape(timeline) {
   return { beats: timeline?.beats?.length || 0, sections: timeline?.coverage?.sections === "present", repeats: timeline?.coverage?.repeats === "present" };
@@ -472,10 +507,8 @@ const lineTime = (line, key) => { const value = Number(line?.[key] ?? line?.[`${
  * use their own word timings for a 3–5 word window or are skipped.
  */
 export function selectEchoScorePhrases(lines, timeline, { lyricAudioHash = null, events = [], max = 8, maxShare = 0.12, minGapSeconds = 8 } = {}) {
-  const strip = (v) => String(v || "").replace(/^sha256:/, "").toLowerCase();
-  if (lyricAudioHash && timeline.source?.sourceSha256 && strip(lyricAudioHash) !== strip(timeline.source.sourceSha256)) {
-    return { status: "audio-mismatch", reason: "Lyric timing belongs to different master audio bytes than this Atlas run.", phrases: [] };
-  }
+  const refused = lyricTimingRefusal(lyricAudioHash, timeline);
+  if (refused) return { ...refused, phrases: [] };
   const duration = timeline.durationSeconds;
   const rows = (lines || []).map((line, index) => ({ line, index, start: lineTime(line, "start"), end: lineTime(line, "end"), text: String(line?.text || "").trim() }))
     .filter((row) => row.text && row.end > row.start && row.start >= 0 && row.end <= duration + 1e-3);

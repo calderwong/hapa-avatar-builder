@@ -2318,8 +2318,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   useEffect(() => { scoreDustPreviewRef.current = scoreDustPreview; }, [scoreDustPreview]);
   const usesScoreDust = useMemo(() => scoreDustPreview || (activeProject?.visualizer_timeline || []).some((item) => item?.visualizer_id === "builtin:score-dust"), [activeProject, scoreDustPreview]);
   const scoreDust = useEchoScoreDust({
+    // Lyric words come from the server-verified timing, not the cut's timed_lyrics.
     enabled: usesScoreDust, songId: selectedProjectSongId, apiBase: API_BASE, preparedPerformance: activePreparedPerformance,
-    lyricLines: Array.isArray(activeProject?.timed_lyrics) ? activeProject.timed_lyrics : null, lyricAudioHash: activeProject?.lyrics?.audioHash || null,
     durationSeconds: Number(activeProject?.duration) || 600, resolveUri: resolveMediaUri,
   });
   const scoreDustRef = useRef({ key: "", playback: null, settings: null, source: "reflex-only" });
