@@ -95,6 +95,8 @@ import {
   resolveTarotCardDetailTargetEntry,
 } from "../domain/tarot-card-detail-target.js";
 import BuilderOvercardPickupActions from "../overcard/BuilderOvercardPickupActions.jsx";
+import { createEchoScoreDustThreeLayer } from "./echo-score-dust-three.js";
+import { loadEchoScoreDustForSong } from "./echo-score-dust-loader.js";
 import { migrateTarotSceneSnapshot, tarotFormationToSceneSnapshot, tarotSceneSnapshotToFormation } from "../overcard/tarotFormationAdapter.js";
 
 const CARD_WIDTH = 0.92;
@@ -417,7 +419,10 @@ const CARD_TYPE_BACKS = [
 ];
 
 const MUSIC_VISUALIZER_MODES = [
-  { id: "anomaly", label: "Anomaly" }
+  { id: "anomaly", label: "Anomaly" },
+  // Score Dust rises from the middle visualizer when the table's Song has an
+  // Audio Atlas analysis; otherwise the Anomaly visualizer stays.
+  { id: "score-dust", label: "Score Dust" }
 ];
 
 function leftLaneSlots(slots) {
@@ -3633,6 +3638,10 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     callGame("setCenterVisualizerEnabled", !hud.centerVisualizerEnabled);
   }
 
+  function toggleCenterVisualizerMode() {
+    callGame("setMusicVisualizerMode", hud.musicVisualizerMode === "score-dust" ? "anomaly" : "score-dust");
+  }
+
   function toggleBackgroundVisualizer() {
     callGame("setBackgroundVisualizerEnabled", !hud.backgroundVisualizerEnabled);
   }
@@ -5414,6 +5423,18 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
             Mid {hud.centerVisualizerEnabled ? "On" : "Off"}
           </button>
           <button
+            className="hapa-btn tarot-music-viz-toggle tarot-center-viz-mode-toggle"
+            type="button"
+            aria-pressed={hud.musicVisualizerMode === "score-dust"}
+            data-viz="center-mode"
+            data-testid="tarot-score-dust-toggle"
+            onClick={toggleCenterVisualizerMode}
+            title={hud.centerVisualizer?.scoreDust?.reason || (hud.musicVisualizerMode === "score-dust" ? "Middle visualizer: Score Dust (switch back to Anomaly)" : "Middle visualizer: Anomaly (switch to Score Dust)")}
+          >
+            <Sparkles size={14} />
+            {hud.musicVisualizerMode === "score-dust" ? "Dust" : "Anomaly"}
+          </button>
+          <button
             className="hapa-btn tarot-music-viz-toggle tarot-bg-viz-toggle"
             type="button"
             aria-pressed={Boolean(hud.backgroundVisualizerEnabled)}
@@ -7133,6 +7154,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let dropPreviewSuspendedResetScreens = false;
   let dropPreviewResumeTimer = 0;
   let echoDirectorProject = null;
+  // Score Dust in the middle visualizer: loaded per Song, drawn by the shared 3D layer.
+  let scoreDustLayer = null;
+  const scoreDustState = { songId: "", playback: null, settings: null, key: "", reason: "", report: null };
   let echoDirectorProjectKey = "";
   let echoDirectorTimelineSourceKey = "";
   let echoDirectorCurrentSource = null;
@@ -16872,6 +16896,32 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     return hyperspaceTunnel;
   }
 
+  function centerScoreDustSongId() {
+    if (echoDirectorProjectIsActive()) return String(echoDirectorProject?.song_id || "");
+    if (!dropZoneEntry) return "";
+    const song = dropSong.snapshot().song;
+    return String(echoDirectorSongIdForCard(dropZoneEntry.card) || song?.songId || "");
+  }
+
+  function updateCenterScoreDust(wanted) {
+    if (!wanted) { scoreDustLayer?.update({ active: false }); scoreDustState.report = null; return null; }
+    const songId = centerScoreDustSongId();
+    if (songId !== scoreDustState.songId) {
+      Object.assign(scoreDustState, { songId, playback: null, settings: null, key: "", reason: songId ? "Loading Score Dust…" : "Put a Song card in the drop zone for Score Dust." });
+      if (songId) loadEchoScoreDustForSong({ apiBase: tarotDrawApiBase(apiBase), songId }).then((value) => {
+        if (scoreDustState.songId !== songId) return;
+        Object.assign(scoreDustState, { playback: value.playback, settings: value.settings || null, key: value.key || "", reason: value.playback ? "" : `${value.reason} Anomaly stays on.` });
+        publishHud(true);
+      });
+    }
+    if (!scoreDustState.playback) { scoreDustLayer?.update({ active: false }); return null; }
+    scoreDustLayer ||= createEchoScoreDustThreeLayer({ world, particleCount: 5000 });
+    scoreDustLayer.setPlayback(scoreDustState.playback, scoreDustState.settings, scoreDustState.key);
+    scoreDustLayer.setTarget(ensureCenterVisualizer());
+    scoreDustState.report = scoreDustLayer.update({ active: true, currentTime: dropSong.snapshot().currentTime, reducedMotion: stargateReducedMotion, radius: 0.85, heightOffset: 0.18, stage: { backgroundLuminance: 0.1 }, floorY: "target" });
+    return scoreDustState.report;
+  }
+
   function ensureCenterVisualizer() {
     if (!centerVisualizer) {
       centerVisualizer = createCenterMusicVisualizer(camera, renderer);
@@ -16983,13 +17033,15 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       updateMusicHyperspaceTunnel(ensureHyperspaceTunnel(), elapsed, songBands, hyperspaceActive);
     }
     const centerActive = centerVisualizerNeedsActiveLoop();
+    // Score Dust replaces the Anomaly only once its score is ready; the Anomaly fades out under it.
+    const scoreDustReport = updateCenterScoreDust(centerActive && musicVisualizerMode === "score-dust");
     if (centerActive || centerVisualizer?.visible) {
       updateCenterMusicVisualizer(
       ensureCenterVisualizer(),
       elapsed,
       songBands,
       musicVisualizerMode,
-      centerActive
+      centerActive && !scoreDustReport?.active
       );
     }
     const lyricActive = lyricsEnabled && playing && Boolean(dropZoneEntry) && !echoDirectorProjectIsActive();
@@ -18057,6 +18109,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       centerVideoSound: centerVideoSound.state,
       centerVisualizer: {
         mode: musicVisualizerMode,
+        scoreDust: musicVisualizerMode === "score-dust" ? { songId: scoreDustState.songId, ready: Boolean(scoreDustState.playback), reason: scoreDustState.reason, active: Boolean(scoreDustState.report?.active), formation: scoreDustState.report?.formation || null, visible: scoreDustState.report?.visible || 0 } : null,
         enabled: centerVisualizerEnabled,
         active: Boolean(centerVisualizer?.visible),
         blend: Number((centerVisualizer?.userData?.activeBlend || 0).toFixed(3))
@@ -18551,6 +18604,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     }
     window.cancelAnimationFrame(animationFrame);
     if (animationTimer) window.clearTimeout(animationTimer);
+    scoreDustLayer?.dispose(); scoreDustLayer = null;
     longTaskObserver?.disconnect?.();
     longTaskObserver = null;
     canvas.removeEventListener("pointermove", handlePointerMove);
@@ -21762,7 +21816,7 @@ function drawEchoDirectorShaderOverlay(ctx, source = {}, project = null, bands =
       ctx.lineTo(width, y - height * 0.03);
       ctx.stroke();
     }
-  } else if (mode === "particle-storm" || mode === "starfield-warp") {
+  } else if (mode === "particle-storm" || mode === "starfield-warp" || mode === "score-dust") {
     const count = mode === "starfield-warp" ? 72 : 54;
     for (let i = 0; i < count; i += 1) {
       const seed = i * 19.73;

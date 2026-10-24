@@ -81,6 +81,8 @@ import {
   updateEchoRecordGardenVisualSystem,
 } from "./echo-record-garden-visual-system.js";
 import { createEchoRecordGardenAudioVisualizer } from "./echo-record-garden-audio-visualizer.js";
+import { createEchoScoreDustThreeLayer } from "./echo-score-dust-three.js";
+import { useEchoScoreDust } from "./useEchoScoreDust.js";
 import {
   orientEchoGardenSurfaceTowardCamera,
   resolveEchoGardenSurfaceWheelTarget,
@@ -1468,6 +1470,12 @@ export default function EchoRecordGarden3DView({
   const [cratePage, setCratePage] = useState(preferences.cratePage);
   const [selectedRecordId, setSelectedRecordId] = useState(selectedSongId || preferences.selectedSongId);
   const [placedRecordId, setPlacedRecordId] = useState(preferences.placedSongId);
+  // Score Dust over the playing record: same score, direction and song clock as the Echo preview.
+  const [scoreDustOn, setScoreDustOn] = useState(false);
+  const scoreDustSongId = placedRecordId || selectedRecordId || "";
+  const scoreDust = useEchoScoreDust({ enabled: scoreDustOn, songId: scoreDustSongId, apiBase, durationSeconds: 600 });
+  const scoreDustRef = useRef(null);
+  scoreDustRef.current = { enabled: scoreDustOn, songId: scoreDustSongId, playback: scoreDust.playback, settings: scoreDust.settings, key: scoreDust.playbackKey, source: scoreDust.source };
   const [activeProjectPacket, setActiveProjectPacket] = useState(null);
   const [projectRevision, setProjectRevision] = useState(0);
   const [projectLoadError, setProjectLoadError] = useState("");
@@ -3371,6 +3379,7 @@ export default function EchoRecordGarden3DView({
         getAudioSignal: (seconds) => directorAudioSignalRef.current?.latest?.(seconds, {
           maxAgeSeconds: 1 / 30,
         }) || null,
+        getScoreDust: () => scoreDustRef.current,
         onCameraChange: () => setCameraRevision((revision) => revision + 1),
         onRecordTransform: (songId, transform) => {
           setRecordTransforms((current) => {
@@ -3574,6 +3583,18 @@ export default function EchoRecordGarden3DView({
         >
           {cinematicMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
           {cinematicMode ? "Exit · Esc" : "Cinematic Mode"}
+        </button>
+        <button
+          className="hapa-btn echo-record-score-dust-toggle"
+          data-intent={scoreDustOn ? "primary" : "secondary"}
+          data-testid="record-garden-score-dust"
+          type="button"
+          aria-pressed={scoreDustOn}
+          title={scoreDustOn ? `Score Dust · ${scoreDust.source}` : "Show Score Dust over the playing record"}
+          onClick={() => setScoreDustOn((on) => !on)}
+        >
+          <Sparkles size={15} />
+          {scoreDustOn ? "Score Dust on" : "Score Dust"}
         </button>
         <button
           className="hapa-btn echo-record-capture-toggle"
@@ -4071,6 +4092,7 @@ function createEchoRecordGardenGame({
   apiBase = "",
   getAudioClock,
   getAudioSignal,
+  getScoreDust,
   syncDirectorVisuals,
   onCameraChange,
   onRecordTransform,
@@ -4185,6 +4207,9 @@ function createEchoRecordGardenGame({
   const catalogConsole = createRecordCatalogConsole(tableInteractionRoot, sceneResources.materialKit);
   const audioVisualizer = createEchoRecordGardenAudioVisualizer({ world: tableInteractionRoot });
   diagnostics.visualizerProfile = audioVisualizer.metrics;
+  // Optional Score Dust layer over the playing record (stage contract in echo-score-dust-three.js).
+  const scoreDustLayer = createEchoScoreDustThreeLayer({ world: tableInteractionRoot, particleCount: 2400 });
+  diagnostics.scoreDustProfile = scoreDustLayer.metrics;
   const mediaPool = createScreenMediaPool({
     apiBase,
     renderer,
@@ -4241,6 +4266,7 @@ function createEchoRecordGardenGame({
     adaptiveDetailTier = nextTier;
     sceneResources.setDetailTier?.(nextTier);
     audioVisualizer.setDetailTier?.(nextTier);
+    scoreDustLayer.setDetailTier(nextTier);
     activePowerProfileId = "";
     applyPowerProfile(playback.reducedMotion);
     diagnostics.adaptiveDetailTier = nextTier;
@@ -5391,6 +5417,24 @@ function createEchoRecordGardenGame({
     const signalFrame = framePlayback.playing && visualizerEntry
       ? getAudioSignal?.(framePlayback.currentTime)
       : null;
+    const scoreDust = getScoreDust?.() || null;
+    const scoreDustActive = Boolean(scoreDust?.enabled && scoreDust.playback && visualizerEntry && framePlayback.playing && scoreDust.songId === visualizerRecordId);
+    if (scoreDustActive) scoreDustLayer.setPlayback(scoreDust.playback, scoreDust.settings, scoreDust.key);
+    scoreDustLayer.setTarget(scoreDustActive ? visualizerEntry.root : null);
+    const scoreDustReport = scoreDustLayer.update({
+      active: scoreDustActive,
+      currentTime: framePlayback.currentTime,
+      fft: signalFrame?.fft,
+      reducedMotion: framePlayback.reducedMotion,
+      radius: visualizerEntry?.placed ? 0.92 : 0.76,
+      heightOffset: visualizerEntry?.placed ? 0.22 : 0.16,
+      stage: { backgroundLuminance: 0.12 },
+      // A soft reflection pool on the record's surface.
+      floorY: "target",
+    });
+    diagnostics.scoreDust = scoreDustReport.active
+      ? { active: true, cueId: scoreDustReport.cueId, formation: scoreDustReport.formation, visible: scoreDustReport.visible, energy: Number(scoreDustReport.energy.toFixed(3)) }
+      : { active: false };
     audioVisualizer.setTarget(visualizerEntry?.root || null);
     audioVisualizer.update({
       fft: signalFrame?.fft,
@@ -5400,7 +5444,8 @@ function createEchoRecordGardenGame({
       reducedMotion: framePlayback.reducedMotion,
       heightOffset: visualizerEntry?.placed ? 0.22 : 0.16,
       radius: visualizerEntry?.placed ? 0.92 : 0.76,
-      accent: visualizerEntry?.edgeMaterial?.emissive?.getHex?.() || 0x56f0cf,
+      // The stage answers the dust: the ring takes the dust's mean colour.
+      accent: scoreDustReport.active ? scoreDustReport.meanColor : visualizerEntry?.edgeMaterial?.emissive?.getHex?.() || 0x56f0cf,
     });
     diagnostics.visualizerStatus = visualizerEntry && framePlayback.playing
       ? signalFrame?.status === "live" ? "live" : "warming"
@@ -5575,6 +5620,7 @@ function createEchoRecordGardenGame({
       screens.forEach(disposeAlbumScreen);
       catalogConsole.dispose();
       audioVisualizer.dispose();
+      scoreDustLayer.dispose();
       player.dispose();
       sceneResources.dispose();
       renderer.dispose();

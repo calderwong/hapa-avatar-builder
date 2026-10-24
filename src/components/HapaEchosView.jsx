@@ -5,6 +5,11 @@ import SongAudioUpload from './SongAudioUpload.jsx';
 import { matchesFileFilter } from '../domain/audio-atlas-ui.js';
 import SongAudioAvailability, { useSongAudioInventory } from "./SongAudioAvailability.jsx";
 import AudioAtlasPanel from "./AudioAtlasPanel.jsx";
+import { createEchoScoreDustRenderer } from "./echo-score-dust-renderer.js";
+import { createEchoScoreDustAutoRenderer } from "./echo-score-dust-gpu.js";
+import { useEchoScoreDust } from "./useEchoScoreDust.js";
+import { scoreDustShotPlacements } from "../domain/echo-score-dust-cut.js";
+import EchoScoreDustPanel from "./EchoScoreDustPanel.jsx";
 import { echoTimelineMediaInstances, hyperFramesMediaOpacityState } from "../domain/echo-media-presentation.js";
 import { prepareEchoAudioPlayback } from '../domain/echo-audio-playback.js';
 import { transitionLivingLightAudition } from '../domain/living-light-audition.js';
@@ -2304,6 +2309,23 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const activeVisualSignalSolo = activePreparedPerformance && visualSignalSolo.key === preparedAudioKey
     && (visualSignalSolo.role === "__silence__" || visualSignalRoles.includes(visualSignalSolo.role)) ? visualSignalSolo.role : "";
   const visualSignalIsolation = useMemo(() => echoVisualSignalIsolation(activePreparedPerformance, activeVisualSignalSolo), [activePreparedPerformance, activeVisualSignalSolo]);
+  // Score Dust: whole-song structure from the Audio Atlas (prepared performance
+  // second), an editable direction, and per-frame reflexes in the canvas loop.
+  // Ingress: a cue can name Score Dust, or the preview toggle shows it over any
+  // Song without editing the Director cut (it is not final-render ready).
+  const [scoreDustPreview, setScoreDustPreview] = useState(false);
+  const scoreDustPreviewRef = useRef(false);
+  useEffect(() => { scoreDustPreviewRef.current = scoreDustPreview; }, [scoreDustPreview]);
+  const usesScoreDust = useMemo(() => scoreDustPreview || (activeProject?.visualizer_timeline || []).some((item) => item?.visualizer_id === "builtin:score-dust"), [activeProject, scoreDustPreview]);
+  const scoreDust = useEchoScoreDust({
+    enabled: usesScoreDust, songId: selectedProjectSongId, apiBase: API_BASE, preparedPerformance: activePreparedPerformance,
+    lyricLines: Array.isArray(activeProject?.timed_lyrics) ? activeProject.timed_lyrics : null, lyricAudioHash: activeProject?.lyrics?.audioHash || null,
+    durationSeconds: Number(activeProject?.duration) || 600, resolveUri: resolveMediaUri,
+  });
+  const scoreDustRef = useRef({ key: "", playback: null, settings: null, source: "reflex-only" });
+  useEffect(() => {
+    scoreDustRef.current = { key: scoreDust.playbackKey, playback: scoreDust.playback, settings: scoreDust.settings, source: scoreDust.source, stems: scoreDust.stems };
+  }, [scoreDust.playbackKey, scoreDust.playback, scoreDust.settings, scoreDust.source, scoreDust.stems]);
   const preparedBindingsKey = JSON.stringify(activeShowGraph?.directorV2?.modulationBindings || []);
   const preparedModulationResult = useMemo(() => {
     if (!activePreparedPerformance || preparedBindingsKey === "[]") return { timeline: null, error: null };
@@ -3314,6 +3336,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     { id: "builtin:waveform-horizon", title: "Waveform Horizon", shaderType: "generator" },
     { id: "builtin:beat-grid-pulse", title: "Beat Grid Pulse", shaderType: "generator" },
     { id: "builtin:particle-storm", title: "Particle Storm", shaderType: "generator" },
+    { id: "builtin:score-dust", title: "Score Dust", shaderType: "generator" },
     { id: "builtin:cymatic-rings", title: "Cymatic Rings", shaderType: "generator" },
     { id: "builtin:liquid-aurora", title: "Liquid Aurora", shaderType: "generator" },
     { id: "builtin:starfield-warp", title: "Starfield Warp", shaderType: "generator" },
@@ -3544,6 +3567,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     const horizonHistory = [];
     const particles = [];
     const stars = [];
+    // CPU by default; the dense GPU tier when the direction's play settings ask for it.
+    const scoreDustRenderer = createEchoScoreDustAutoRenderer({ createCpu: createEchoScoreDustRenderer });
+    let scoreDustKey = "";
 
     const publishExactStatus = (next = {}) => {
       if (disposed) return;
@@ -3777,7 +3803,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         || null;
 
       const budgetHoldsAllShaders = directorPreviewFrame?.visualBudget?.status === "within-budget" && directorPreviewFrame.visualizers.length === 0 && directorPreviewFrame.visualBudget.suppressedIds.length > 0;
-      if (hasDirectorShowGraph && budgetHoldsAllShaders) {
+      if (scoreDustPreviewRef.current) {
+        // Preview toggle: Score Dust replaces the cut's visualizers on screen only.
+        pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
+        publishExactStatus({ status: "idle", sourceId: "", error: "" });
+        if (scoreDustKey !== scoreDustRef.current.key) {
+          scoreDustKey = scoreDustRef.current.key;
+          scoreDustRenderer.setPlayback(scoreDustRef.current.playback, scoreDustRef.current.settings, scoreDustRef.current.source, { stems: scoreDustRef.current.stems });
+        }
+        scoreDustRenderer.draw(ctx, { width, height, t, fft: f.fft, beatFlash: f.beatFlash, playing: isPlayingRef.current });
+      } else if (hasDirectorShowGraph && budgetHoldsAllShaders) {
         pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
         publishExactStatus({ status: "idle", sourceId: "", error: "" });
       } else if (hasDirectorShowGraph) {
@@ -4471,6 +4506,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
           ctx.arc(p.x, p.y, p.size * (1 + f.beatFlash), 0, Math.PI * 2);
           ctx.fill();
         }
+      } else if (renderMode === "score-dust") {
+        // Score Dust: persistent particles directed by the visual score.
+        if (scoreDustKey !== scoreDustRef.current.key) {
+          scoreDustKey = scoreDustRef.current.key;
+          scoreDustRenderer.setPlayback(scoreDustRef.current.playback, scoreDustRef.current.settings, scoreDustRef.current.source, { stems: scoreDustRef.current.stems });
+        }
+        scoreDustRenderer.draw(ctx, { width, height, t, fft: f.fft, beatFlash: f.beatFlash, playing: isPlayingRef.current });
       } else if (renderMode === "cymatic-rings") {
         // Cymatic Rings
         const cxC = width / 2, cyC = height / 2;
@@ -4651,6 +4693,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     render();
     return () => {
       disposed = true;
+      scoreDustRenderer.dispose();
       cancelAnimationFrame(animFrame);
       window.clearTimeout(cadenceTimer);
       pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
@@ -7806,6 +7849,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
 
                                 <div role="status" style={{ fontSize: 13, padding: 8 }}>
                                   <label>Audio visuals <select aria-label="Audio visuals" value={audioVisualMode} disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current} onChange={event => setAudioVisualMode(event.target.value)}><option value="prepared">Prepared song timing</option><option value="live">Live monitoring</option>{recordedSignalReplay && <option value="replay">Recorded signals</option>}</select></label>{" "}
+                                  <label title="Preview only: shows Score Dust over this Song without changing the Director cut."><input type="checkbox" data-testid="echo-score-dust-toggle" checked={scoreDustPreview} disabled={previewRecordingActiveRef.current} onChange={event => setScoreDustPreview(event.target.checked)} /> Score Dust preview</label>{" "}
                                   {audioVisualMode === "prepared" ? activePreparedPerformance ? "Prepared signals ready. Seeking reuses cached timing." : preparedAudio.message || "Loading prepared timing…" : audioVisualMode === "replay" ? activeRecordedSignalReplay ? `Recorded signals: ${activeRecordedSignalReplay.startSeconds.toFixed(2)}–${activeRecordedSignalReplay.endSeconds.toFixed(2)}s. Outside this interval signals are silent.` : "Select the original song and cut to replay these signals." : "Live monitoring depends on playback history."}
                                   {audioVisualMode === "live" && <label><input type="checkbox" checked={captureLiveSignals} disabled={previewRecordingActiveRef.current} onChange={event => setCaptureLiveSignals(event.target.checked)} /> Save replayable signals with recording (64 MB limit)</label>}
                                   {activePreparedPerformance?.missingData?.unverifiedOrigins?.length > 0 && <span> Stem alignment pending review.</span>}
@@ -7827,6 +7871,30 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                     <span data-testid="echo-visual-signal-summary">{activeVisualSignalSolo === "__silence__" ? "All audio influence muted." : activeVisualSignalSolo ? `Only ${activeVisualSignalSolo.replaceAll("-", " ")} drives audio-reactive channels.` : "All prepared buses drive their assigned channels."}</span>
                                   </details>
                                 </div>
+                                {usesScoreDust && (
+                                  <EchoScoreDustPanel dust={scoreDust} currentTime={currentTime} sessionControls={{
+                                    playing: isPlaying, playPause: handlePlayPause,
+                                    getActual: () => audioRef.current?.currentTime ?? currentTimeRef.current,
+                                    seek: (seconds) => { currentTimeRef.current = seconds; echoPlaybackEngineRef.current?.seek(seconds); setCurrentTime(seconds); if (audioRef.current) audioRef.current.currentTime = seconds; },
+                                  }} exportContext={{
+                                    apiBase: API_BASE, songId: selectedProjectSongId, songTitle: activeProject?.song_title || activeProject?.title || "",
+                                    shots: activeProject?.timeline || [], resolveUri: resolveMediaUri,
+                                    // Place a Score Dust render on the shots it fully covers (working copy of the cut).
+                                    placeInCut: (render) => {
+                                      if (directorEditingLocked || !activeProject) return { placed: 0, skipped: [], error: "The cut is busy or locked; try again when it is idle." };
+                                      const { placements, skipped } = scoreDustShotPlacements(activeProject.timeline || [], render);
+                                      for (const { index, patch } of placements) handleUpdateShot(index, patch);
+                                      return { placed: placements.length, skipped };
+                                    },
+                                    // Atlas master bytes when the score came from Atlas; otherwise the player's current source.
+                                    audioUrl: scoreDust.kind === "atlas" && scoreDust.runId ? `${API_BASE}/api/echos/audio-atlas/jobs/${encodeURIComponent(scoreDust.runId)}/audio/master` : (audioRef.current?.currentSrc || audioBlobUrl || ""),
+                                  }} onSeek={(seconds) => {
+                                    currentTimeRef.current = seconds;
+                                    echoPlaybackEngineRef.current?.seek(seconds);
+                                    setCurrentTime(seconds);
+                                    if (audioRef.current) audioRef.current.currentTime = seconds;
+                                  }} />
+                                )}
                                 <fieldset data-testid="echo-preview-quality" disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current}
                                   style={{ margin: '8px 0', padding: '8px 12px', border: '1px solid rgba(255,255,255,.18)', borderRadius: 6, minWidth: 0, fontSize: 13 }}>
                                   <legend>Preview quality</legend>

@@ -26,6 +26,36 @@ The shared output schemas are `hapa.echo-album-master-reference.v1` and
 `docs/ECHO_MASTER_REFERENCE_EXPORT.md` and
 `tests/echo-master-reference-export.test.mjs`.
 
+## Echo Score Dust visual-score parity
+
+All three surfaces call the same pure builders in
+`src/domain/echo-visual-score.js` over one saved Audio Atlas run. The operation
+is read-only: it composes or validates a score and never writes Atlas results,
+reviews, Songs or Director projects.
+
+| Surface | Behavior |
+| --- | --- |
+| UI | **Score Dust** (`builtin:score-dust`) in the Echo preview visualizer list loads the newest completed Atlas run's timeline and saved direction for the selected Song, falls back to the prepared performance, then to an explicit live-reflex-only mode. The **Score Dust** panel shows the score strip, validation, motif/look/moment/lyric-hook controls and **Save direction rN**; the canvas footer names the source, cue, formation and next event. |
+| API | `GET /api/echos/audio-atlas/jobs/RUN/query?op=visual-score[&pulse=half\|normal\|double&seed=N]` returns `timeline`, `score`, `validation` and `playSettings`. `POST /api/echos/audio-atlas/jobs/RUN/visual-score` accepts `{direction?, score?, assets?, playSettings?}` to compose a directed score or validate a supplied one. |
+| CLI | `node cli/audio-atlas.mjs visual-score RUN [--direction=FILE] [--score=FILE] [--lyrics=FILE] [--saved=false] [--assets=a,b] [--pulse=…] [--seed=N]`; `visual-score-directions RUN`; `save-visual-score-direction RUN --file=FILE --base-revision=N [--note=…]`. |
+| Export | UI only: **Export video** in the Score Dust panel renders frames at exact song times in the browser (WebCodecs + WebM with song audio) and uploads them through the existing `POST /api/echo/preview-recordings`; recordings are listed by `GET /api/echo/preview-recordings?songId=…`. |
+| Guests (cross-device) | Owner (admin): `POST /api/echos/score-dust/sessions/ID/invites` `{ttlMinutes?, maxUses?}`, `GET …/ID/guests`, `DELETE …/ID/guests/GUEST`, `PUT …/ID/controller` `{controller: "owner" \| GUEST}`, `GET /api/echos/score-dust/guest-origin`. Guest (invite/token, no admin): `POST /api/echos/score-dust/guest/join` `{sessionId, invite, name}`, `GET …/guest/session`, `POST …/guest/reactions` `{kind}`, `PUT …/guest/control` `{baseRevision, state?, positionSeconds?}`. UI: panel **Invite phones and other devices**; guest page `/score-dust-guest`. No CLI: sessions are live, process-scoped state. |
+| Listen together | `POST /api/echos/score-dust/sessions` creates a session; `GET /api/echos/score-dust/sessions/ID` reads it; `PUT` with `{baseRevision, state?, positionSeconds?, direction?, playSettings?, …}` updates it (409 on a stale revision). Every response includes `clock.serverReceiveMs/serverSendMs`. UI: panel **Host session / Join** or a `?scoreDustSession=ID` link. No CLI: sessions are live, process-scoped state. |
+| Record Garden | UI: **Score Dust** in the Record Garden mode dock uses the same Atlas score and saved direction as the preview. |
+| Tarot Draw | UI: **Dust / Anomaly** beside **Mid On/Off** turns the middle visualizer into Score Dust for the drop-zone Song (newest completed Atlas run + latest saved direction via the same API). Read-only. |
+| Background and album colour | Direction `background` (`black\|solid\|gradient\|palette`) composes into `score.background` on every surface. `colour.preset: "album"` without a stored `colour.album` spec is resolved from the Song store by the UI hook, `visual-score` and `save-visual-score-direction` alike (`src/domain/echo-score-dust-album.js`); a save stores the resolved spec. Transparent export is UI only (WebM alpha). |
+| Use in the cut | UI: after an export, **Use in the cut (working copy)** places the render on the shots it fully covers. API: `POST /api/echos/score-dust/renders` `{recordingId}` publishes it as media; placement is the pure `scoreDustShotPlacements`. CLI: `node cli/score-dust.mjs publish-render RECORDING_ID`; editing the cut stays with the Director save path. |
+| Loops on cards | UI: after an export, **Attach loop to** this Song's card or a Tarot card. API: `POST /api/echos/score-dust/loops` `{recordingId, target: {kind: "tarot", cardId} \| {kind: "song", songId}, title?, receipt?}`. CLI: `node cli/score-dust.mjs attach-loop RECORDING_ID (--tarot=CARD_ID \| --song=SONG_ID)` (backs the store up first). One module: `server/echo-score-dust-loops.mjs`. |
+| Lyric control | Direction `lyrics` (`pick hooks\|chosen\|off`, `lines`, `max`, `font`, `textCase`, `wordByWord`) composes identically on every surface when the same `lyricLines` are supplied (`visual-score --lyrics=FILE`). UI: panel **Lyrics**. |
+| Director | UI: **Direct with words** (cue box, Suggest a direction). API: `POST /api/echos/audio-atlas/jobs/RUN/visual-score-suggest` and `…/visual-score-cue`. CLI: `visual-score-suggest RUN [--mood=] [--tags=]`, `visual-score-cue RUN --text=…`. All call `src/domain/echo-score-dust-director.js`; read-only, nothing is saved. |
+| Section edits | Direction `sections` (`merge`, `move`, `split`, `cues`) composes identically in UI, API and CLI (`src/domain/echo-score-dust-sections.js`); skipped edits are reported in `score.sectionEdits`. UI: panel **Section**. |
+| Looks | `GET /api/echos/audio-atlas/visual-score-looks` lists saved looks (latest revision per name) followed by unclaimed built-ins; `POST` with `{name, look}` appends a revision, `{name, deleted: true}` a tombstone. CLI: `visual-score-looks`; `save-visual-score-look NAME (--file=LOOK.json \| --delete)`. UI: panel **Looks** (Apply, Save current look, Remove). Looks hold only song-independent fields (`src/domain/echo-score-dust-looks.js`). |
+| Saved directions | `GET /api/echos/audio-atlas/jobs/RUN/visual-score-directions` lists the Song's append-only ledger; `POST` with `{baseRevision, direction, note?, lyricLines?}` appends one validated revision (409 on a stale base). Without a request direction, UI, API and CLI all compose from the latest saved revision. |
+
+Schemas: `hapa.echo.musical-timeline.v1`, `hapa.echo.visual-score.v1`,
+`hapa.echo.dust-play-settings.v1`, `hapa.echo.visual-score-direction.v1`, `hapa.echo.dust-look.v1`. See `docs/ECHO_SCORE_DUST.md`,
+`tests/echo-visual-score.test.mjs` and `tests/echo-dust-swarm.test.mjs`.
+
 ## Per-Card Hypercore custody parity
 
 Every durable Builder Card receives a real per-Card Hypercore when it first becomes durable. This root `card.created` event is separate from mint, Overwind acknowledgement, Catalog publication, commerce eligibility, and canon.
