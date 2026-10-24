@@ -50,12 +50,24 @@ export function assembleEchoLyricIntervals({ lines, alignedWords, windows = [], 
       else end = w.end;
     }
   }
+  // An overlap with the previous measured line is evidence of a mistake, not a reason to lose the
+  // song: the overlapping anchors are demoted (the words are re-placed between neighbours) and the
+  // line is held for review, so the promotion gate decides with the evidence visible. This runs
+  // before any line bounds exist, so the earlier measured line is never clipped.
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i], prior = rows.slice(0, i).reverse().find(r => hits(r).length);
+    if (!prior || !hits(row).length || hits(prior).at(-1).end <= hits(row)[0].start + epsilon) continue;
+    const previousEnd = hits(prior).at(-1).end;
+    for (const w of hits(row)) if (w.start < previousEnd - epsilon) {
+      repairs.push({ line: i + 1, word: w.text, oldStart: w.start, oldEnd: w.end, previousLineEnd: previousEnd, reason: 'overlapping-measured-lines-held' });
+      w.matched = false;
+    }
+    row.needsReview = true;
+  }
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i], measured = hits(row);
     if (!measured.length) continue;
     const prior = rows.slice(0, i).reverse().find(r => hits(r).length);
-    if (prior && hits(prior).at(-1).end > measured[0].start + epsilon)
-      throw new Error(`Overlapping measured lyric lines ${prior.index + 1}/${i + 1}; realign or review this section`);
     const next = rows.slice(i + 1).find(r => hits(r).length);
     const leading = row.lineWords.findIndex(w => w.matched), trailing = row.lineWords.length - 1 - row.lineWords.findLastIndex(w => w.matched);
     const previousEnd = prior?.end ?? 0;
@@ -91,13 +103,16 @@ export function assembleEchoLyricIntervals({ lines, alignedWords, windows = [], 
   const observations = new Map(pairs.map(([i,j]) => [i, transcriptWords[j]]));
   let offset = 0;
   for (const row of rows) {
-    const residuals = row.lineWords.flatMap((w,k) => w.matched && observations.has(offset+k) ? [Math.abs(w.start - observations.get(offset+k).start)] : []);
+    // Words timed by the recognizer itself (agreementExempt) cannot agree with themselves; agreement is
+    // measured only over words an independent aligner placed.
+    const independent = row.lineWords.map((w, k) => [w, k]).filter(([w]) => w.matched && !w.agreementExempt);
+    const residuals = independent.flatMap(([w, k]) => observations.has(offset + k) ? [Math.abs(w.start - observations.get(offset + k).start)] : []);
     row.agreeingWords = residuals.filter(d => d <= 1).length;
-    row.agreementRatio = row.hits.length ? row.agreeingWords / row.hits.length : 0;
+    row.agreementRatio = independent.length ? row.agreeingWords / independent.length : 0;
     row.maxStartDisagreementSeconds = residuals.length ? Math.max(...residuals) : null;
     offset += row.lineWords.length;
   }
-  return { rows, repairs, alignedCount: flattened.filter(w => w.matched).length, agreeing: rows.reduce((n,r) => n+r.agreeingWords,0) };
+  return { rows, repairs, alignedCount: flattened.filter(w => w.matched).length, independentCount: flattened.filter(w => w.matched && !w.agreementExempt).length, agreeing: rows.reduce((n,r) => n+r.agreeingWords,0) };
 }
 
 // Explicit omissions affect display only; canonical lyrics and confidence denominator remain intact.

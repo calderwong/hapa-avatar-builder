@@ -12,7 +12,7 @@ import subprocess
 import time
 from importlib.metadata import version
 import numpy as np
-from audio_atlas_word_alignment import validate_alignment, RMS_FLOOR
+from audio_atlas_word_alignment import validate_alignment, condition_model_input, RMS_FLOOR
 
 
 def digest(file):
@@ -78,9 +78,11 @@ def main():
         samples = np.fromfile(pcm_file, dtype='<f4')
         if len(samples) != clip_end - clip_start:
             raise RuntimeError('Decoded excerpt length differs from requested input samples')
-        pcm_hash = digest(pcm_file)
     finally:
         pcm_file.unlink(missing_ok=True)
+    # Resampling/down-mixing can overshoot full scale on loud peaks; scale once, never fail on it.
+    samples, conditioning = condition_model_input(samples)
+    pcm_hash = hashlib.sha256(samples.astype('<f4').tobytes()).hexdigest()
     source_offset = round(clip_start * sr / 16000)
     validation_args = dict(text=request['text'], pcm=samples, source_rate=sr,
                            source_sample_count=asset['sample_count'], crop_start_sample=source_offset)
@@ -110,6 +112,7 @@ def main():
            'model_revision': config['revision'], 'checkpoint_files': config['sha256'],
            'package_version': version('mlx-audio'), 'runtime': {'transformers': version('transformers'), 'mlx': version('mlx')},
            'inference_skipped': 'silent_or_below_energy_floor' if skipped else None,
+           'input_conditioning': conditioning,
            'network': 'disabled', 'quality_qualified': False}
     write(folder / 'forced-alignment-raw.json', raw)
     validation = validate_alignment(items=items, **validation_args)
@@ -117,6 +120,7 @@ def main():
         validation['unresolved'] = [{'reason': 'silent_or_below_energy_floor', 'supplied_token_count': len(validation['supplied_tokens'])}]
     raw_hash = digest(folder / 'forced-alignment-raw.json')
     analysis_view = {**validation['analysis_view'], 'resampler': 'FFmpeg aresample, mono 16 kHz before crop',
+                     'input_conditioning': conditioning,
                      'model_crop_start_sample': clip_start,
                      'source_crop_rounding_error_samples': source_offset - clip_start * sr / 16000}
     for row in validation['candidates']:

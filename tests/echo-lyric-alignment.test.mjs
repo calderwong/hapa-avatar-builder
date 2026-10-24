@@ -18,7 +18,12 @@ test('crop-boundary repair preserves preceding words and demotes intruding prefi
   valid(result);assert.equal(result.repairs.length,1);assert.equal(result.rows[0].lineWords[0].end,2);assert.equal(result.rows[1].lineWords[0].matched,false);assert.equal(result.alignedCount,2);assert.equal(result.agreeing,2);assert.equal(input[1][0].matched,true);
 });
 test('unexplained cross-line acoustic conflicts are held, not clipped into a passing file',()=>{
-  assert.throws(()=>assemble(['one','two'],[[word('one',1,3)],[word('two',2,4)]]),/Overlapping measured/);
+  // The song is no longer lost: the later overlapping anchor is demoted and its line held for review.
+  const result=assemble(['one','two'],[[word('one',1,3)],[word('two',2,4)]]);
+  valid(result);
+  assert.deepEqual([result.rows[0].lineWords[0].start,result.rows[0].lineWords[0].end],[1,3],'the earlier measured word is never clipped');
+  assert.equal(result.rows[1].lineWords[0].matched,false);assert.equal(result.rows[1].needsReview,true);
+  assert.equal(result.repairs[0].reason,'overlapping-measured-lines-held');assert.equal(result.alignedCount,1);
 });
 test('consecutive unanchored lines share available space without overlaps',()=>{
   const result=assemble(['a','missing one','missing two','b'],[[word('a',1,2)],[word('missing',null,null,false),word('one',null,null,false)],[word('missing',null,null,false),word('two',null,null,false)],[word('b',6,7)]]);

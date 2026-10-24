@@ -11,6 +11,40 @@ from fractions import Fraction
 
 VERSION = 'hapa.forced-word-alignment-validation.v1'
 RMS_FLOOR = 1e-4
+CONDITIONING_VERSION = 'hapa.model-input-conditioning.v1'
+INPUT_PEAK_CEILING = 0.999
+MAX_NONFINITE_FRACTION = 0.001
+
+
+def condition_model_input(pcm):
+    """Bring a decoded mono model clip into [-1, 1] without moving any sample in time.
+
+    Down-mixing and resampling legitimately overshoot full scale on loud vocal
+    peaks (American Kings' lead stem reached 1.07 after 16 kHz conversion), so
+    one scalar gain is applied when the peak exceeds INPUT_PEAK_CEILING. A
+    handful of non-finite decoder samples are zeroed; more than
+    MAX_NONFINITE_FRACTION means the decode is corrupt and still fails.
+    Returns (samples, receipt); the receipt records exactly what changed.
+    """
+    import numpy as np
+    samples = np.asarray(pcm, dtype=np.float32).copy()
+    if samples.ndim != 1 or not len(samples):
+        raise ValueError('invalid_analysis_clip')
+    finite = np.isfinite(samples)
+    nonfinite = int(len(samples) - int(finite.sum()))
+    if nonfinite > MAX_NONFINITE_FRACTION * len(samples):
+        raise ValueError('corrupt_decoded_pcm')
+    if nonfinite:
+        samples[~finite] = 0.0
+    peak = float(np.max(np.abs(samples))) if len(samples) else 0.0
+    gain = 1.0
+    if peak > INPUT_PEAK_CEILING:
+        gain = INPUT_PEAK_CEILING / peak
+        samples *= np.float32(gain)
+        np.clip(samples, -1.0, 1.0, out=samples)
+    return samples, {'schema_version': CONDITIONING_VERSION, 'input_peak': peak, 'gain': gain,
+                     'overshoot_samples': int(np.sum(np.abs(np.asarray(pcm, dtype=np.float32)[finite]) > 1.0)) if peak > 1.0 else 0,
+                     'nonfinite_samples_zeroed': nonfinite, 'timing_changed': False}
 
 
 def supplied_tokens(text):

@@ -19,7 +19,14 @@ test('missing consecutive lines share a gap and no line is discarded',()=>{
  const lines=['alpha beta','missing one','missing two','gamma delta'];const m=echoLyricPerformanceMap(lines,[{text:'alpha',start:1,end:2},{text:'beta',start:2,end:3},{text:'gamma',start:10,end:11},{text:'delta',start:11,end:12}]);
  const w=echoLyricAlignmentWindows(lines,m,13);assert.deepEqual(w.flatMap(x=>x.lines),[0,1,2,3]);assert.equal(w[0].text,lines.join('\n'));
 });
-test('long lyric passage refuses truncation',()=>assert.throws(()=>echoLyricAlignmentWindows(['unrecognized long verse'],echoLyricPerformanceMap(['unrecognized long verse'],[]),90),/needs passage review/));
+test('a long unresolved passage gets a flagged search window instead of failing or being clipped',()=>{
+ const lines=['unrecognized long verse'];
+ const [w]=echoLyricAlignmentWindows(lines,echoLyricPerformanceMap(lines,[]),90);
+ assert.equal(w.searchLimited,true);assert.ok(w.endSeconds-w.startSeconds<30,"inside the aligner crop limit");assert.equal(w.text,lines[0],'the written line is never shortened');
+ const several=['first unheard line','second unheard line','third unheard line'];
+ const ws=echoLyricAlignmentWindows(several,echoLyricPerformanceMap(several,[]),200);
+ assert.deepEqual(ws.flatMap(x=>x.lines),[0,1,2]);assert.ok(ws.every(x=>x.endSeconds-x.startSeconds<30));
+});
 test('high whole-song score cannot bypass one bad passage or omission',()=>{
  const t={confidence:.99,lines:[{start:1,end:4,words:[{matched:true}],alignmentReview:{modelAgreementRatio:0}}]};assert.equal(inspectEchoLyricPassages(t).accepted,false);
  t.lines[0].alignmentReview.modelAgreementRatio=1;assert.equal(inspectEchoLyricPassages(t).accepted,true);

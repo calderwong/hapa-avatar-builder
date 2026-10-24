@@ -1,5 +1,5 @@
 import unittest
-from audio_atlas_word_alignment import validate_alignment
+from audio_atlas_word_alignment import validate_alignment, condition_model_input, INPUT_PEAK_CEILING
 
 
 class AlignmentValidation(unittest.TestCase):
@@ -74,6 +74,37 @@ class AlignmentValidation(unittest.TestCase):
     def test_empty_subsample_interval_is_unresolved(self):
         r = self.validate(text='Hi', items=[{'text':'Hi','start_seconds':0,'end_seconds':1e-9}])
         self.assertEqual(r['candidates'], [])
+
+
+class ModelInputConditioning(unittest.TestCase):
+    def test_resample_overshoot_is_scaled_once_and_then_validates(self):
+        # American Kings' lead stem peaked at 1.0705 after the 16 kHz mono conversion.
+        pcm = [.2] * 16000
+        pcm[100], pcm[5000], pcm[9000] = 1.0705, -1.02, .5
+        with self.assertRaises(ValueError):
+            validate_alignment(text='Hi hi.', items=[], pcm=pcm, source_rate=48000, source_sample_count=48000)
+        samples, receipt = condition_model_input(pcm)
+        self.assertLessEqual(float(abs(samples).max()), INPUT_PEAK_CEILING + 1e-6)
+        self.assertEqual(len(samples), len(pcm), 'no sample moves in time')
+        self.assertAlmostEqual(float(samples[9000] / samples[0]), .5 / .2, places=5, msg='one scalar gain keeps the waveform shape')
+        self.assertAlmostEqual(receipt['input_peak'], 1.0705, places=4)
+        self.assertEqual(receipt['overshoot_samples'], 2)
+        self.assertFalse(receipt['timing_changed'])
+        validate_alignment(text='Hi hi.', items=[], pcm=samples, source_rate=48000, source_sample_count=48000)
+
+    def test_in_range_audio_is_untouched(self):
+        samples, receipt = condition_model_input([.1, -.4, .9])
+        self.assertEqual(receipt['gain'], 1.0)
+        self.assertEqual([round(float(x), 6) for x in samples], [.1, -.4, .9])
+
+    def test_rare_nonfinite_samples_are_zeroed_but_corrupt_decodes_fail(self):
+        pcm = [.1] * 10000
+        pcm[3] = float('nan')
+        samples, receipt = condition_model_input(pcm)
+        self.assertEqual(float(samples[3]), 0.0)
+        self.assertEqual(receipt['nonfinite_samples_zeroed'], 1)
+        with self.assertRaises(ValueError):
+            condition_model_input([float('inf')] * 50 + [.1] * 50)
 
 
 if __name__ == '__main__': unittest.main()

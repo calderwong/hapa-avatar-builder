@@ -96,6 +96,9 @@ def transcribe_result(manifest, result, out, ffmpeg, vocal_source=None):
             # Local array input prevents mlx_whisper from spawning its own unbounded decoder.
             command([ffmpeg,'-nostdin','-v','error','-xerror','-threads','1','-protocol_whitelist','file,pipe','-i',source['path'],'-t',str(MAX_SECONDS+1),'-ac','1','-ar','16000','-f','f32le','-y',str(asr_audio)])
             samples=np.fromfile(asr_audio,dtype='<f4')
+            # Same rule as alignment: a resampled peak above full scale is scaled once, never fatal.
+            from audio_atlas_word_alignment import condition_model_input
+            samples,conditioning=condition_model_input(samples)
             model=manifest['model'];model_path=Path(model['path'])
             if sha(model_path/'weights.npz')!=model['weights_sha256'] or sha(model_path/'config.json')!=model['config_sha256']: raise ValueError('model_changed')
             import socket
@@ -122,7 +125,7 @@ def transcribe_result(manifest, result, out, ffmpeg, vocal_source=None):
             result['observations'].extend(words)
             result['transcript_candidate']={'text':transcript.get('text',''),'source_asset_id':asset['id'],'word_count':len(words),
               'method':'mlx-whisper word timestamps','model_revision':model['revision'],'weights_sha256':model['weights_sha256'],
-              'package_version':version('mlx-whisper'),'language':transcript.get('language','unknown'),'requested_language':manifest.get('transcription',{}).get('language','en'),'quality_qualified':False,'network':'disabled','source_timeline_only':True,'decode':decode}
+              'package_version':version('mlx-whisper'),'language':transcript.get('language','unknown'),'requested_language':manifest.get('transcription',{}).get('language','en'),'quality_qualified':False,'network':'disabled','source_timeline_only':True,'decode':{**decode,'input_conditioning':conditioning}}
             result['coverage']['word_timing']={'state':'candidate','method':'MLX Whisper word timestamps','new_inference':True,'human_reviewed':False,'phoneme_or_syllable_timing':False}
         except Exception as e:
             result['coverage']['word_timing']={'state':'failed','error':str(e)[:500],'imported_candidates_preserved':True}

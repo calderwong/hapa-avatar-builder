@@ -15,6 +15,71 @@ timing remains readable.
 
 Whole-song transcription prefers the song's **isolated Lead Vocals / Vocals stem** from its single current stem set (`src/domain/echo-stem-set.js`). The catalog repair can compare that transcript with a separate transcription of the exact master recording. These are two views through the same recognizer, not independent models. Never analyze duplicate stem files or both formats.
 
+## Lead and backing vocals, matched to the original lyrics (2026-10-24)
+
+The written lyrics are the text of record. Recognizers mishear and misspell; their words only
+contribute **timing evidence** for written words. Since 2026-10-24 the pipeline:
+
+- **Transcribes every vocal source of the current stem set** — lead (or combined) vocals, backing
+  vocals and the master — and matches each one to the written lyrics *on its own*
+  (`src/domain/echo-lyric-voices.js`). Lead and backing vocals overlap in time, so one combined
+  word order cannot represent both; each voice is its own monotonic match. `plan --transcribe-voices`
+  (and the catalog runner's `--analyze-missing`) requests the missing transcriptions through the
+  Atlas owner; a failed transcription only removes that voice's evidence.
+- **Matches by sound, not only spelling** (`echoLyricTokenMatch`). A recognizer word matches a
+  written word when it is identical, sounds the same (`Sea`/see, `Herd`/heard, `Ruff`/rough),
+  is a close spelling (one edit per four letters, same first letter, ≥ 5 letters), or when two
+  written words were heard as one (`Wanna Bees`/wannabes) or one as two. Common words still match
+  only exactly, a vowel-only word (`I`, `a`) is never joined, and each heard word is used once.
+  Every non-exact match is kept on the word as `recognitionMatches` (written vs heard, kind).
+- **Gives every line a voice and keeps every performance.** A line takes the lead (or combined
+  vocals) first, then the master, then backing vocals — a line only the backing singers carry
+  becomes a `voice: "backing"` line if it fits the song's order. Every other voice that sang it is
+  kept on the line in `voices[]` with its own word timing and a `relation`: `doubles` (within 1 s),
+  `echoes` (after), `precedes` or `overlaps`. Backing singers often repeat a line more times than
+  it is written; a second pass over the unused backing words finds those repeats and attaches each
+  to the nearest written occurrence sung before it. Backing words that match no written line are
+  counted (`provenance.voices.unplacedRecognizedWords`) and never turned into lyrics.
+- **Aligns on the singer's own stem.** Forced-alignment windows never mix stems: a lead line is
+  aligned on the lead stem even when the master timed it better; lines heard only in the master
+  (`voice: "mix"`, singer not attributed) are aligned on the master. Each additional performance
+  gets its own windows on its own stem (`plan.voiceWindows`).
+- **Never loses a song to one problem.** Model input is conditioned once for both recognizer and
+  aligner: down-mixing and 16 kHz resampling overshoot full scale on loud peaks (American Kings'
+  lead stem reached 1.07 and its 2026-10-14 alignment failed with `invalid_normalized_pcm`), so a
+  single scalar gain brings the clip to ≤ 0.999 without moving any sample in time; a few
+  non-finite decoder samples are zeroed; the receipt (`input_conditioning`) records peak and gain.
+  A long unresolved passage gets a flagged full-length search window (`searchLimited`) instead of
+  failing the plan. A failed alignment window is recorded and the others continue; its lines are
+  timed from the recognizer evidence (`alignmentReview.evidence: "transcript-timestamps"`) and
+  held for review. Overlapping measured lines demote the later anchors and hold that line
+  (`overlapping-measured-lines-held`) instead of aborting assembly.
+
+Each line is judged on the evidence that timed it: aligned lines need aligner/recognizer agreement
+(≥ 0.4 of their words within ±1 s); recognizer-timed lines need distinctive transcript support
+covering ≥ 0.45 of their words. Every written line is still preserved; nothing here authorizes
+omitting a line or claims human listening review. `--voices=off` reproduces the previous
+single-source plan. Candidates record `provenance.pipeline: audio-atlas-lyric-timing.v3-voices`.
+
+Per written word, the forced aligner's placement wins; where it placed nothing, the recognizer's
+matched time for that word is used if it fits between the line's aligned neighbours
+(`evidence: "recognizer"`, excluded from the agreement score). When the aligner contradicts a
+well-supported recognizer reading of a whole line (fewer than 40 % of its placed words within
+±1 s), the line takes the recognizer's timing and is judged by the recognizer rules
+(`aligner-disagreed-recognizer-timed`). Lines heard only in the master are still aligned on the
+vocal stem: the aligner collapses on the full mix (zero-length words on 3 s master windows).
+
+**American Kings, 2026-10-24.** Its only previous alignment (2026-10-14) crashed on
+`invalid_normalized_pcm`, so the song shipped synthetic, spread-out timing. With this process:
+lead, backing and master transcripts (635, 232 and 628 words); sounds-alike matching raised lead
+support from 114 to 119 of 124 lines, and the voices together support all 124. Sixteen windows
+(9 lead-stem primary, 7 backing) aligned with no failures; 9 needed input conditioning (peaks up
+to 1.10 on the lead stem, 1.32 on the master), each of which would have failed before. The
+candidate times 539 of 615 written words (87.6 %, 532 by the aligner), agreement 0.929,
+confidence 0.814, every passage accepted, plus 42 backing performances (39 doubles, 2 overlaps,
+1 repeat) with 144 of 192 words aligned on the backing stem. The promotion dry run selects it.
+Not yet applied, synced or listened to.
+
 ## Procedure (one song)
 
 ```sh
@@ -22,8 +87,8 @@ Whole-song transcription prefers the song's **isolated Lead Vocals / Vocals stem
 node cli/audio-atlas.mjs analyze SONG_ID --transcribe --beats --acoustic --pitch-source=stem-N
 
 # 2. Window the canonical lyrics with the Atlas transcript, then forced-align every window
-node scripts/atlas-lyric-timing.mjs plan --song=SONG_ID --out=WORK_DIR
-node scripts/atlas-lyric-timing.mjs align --plan=WORK_DIR/plan.json      # resumable; one Atlas job per ≤30 s window
+node scripts/atlas-lyric-timing.mjs plan --song=SONG_ID --out=WORK_DIR --transcribe-voices   # lead, backing and master, each matched to the written lyrics
+node scripts/atlas-lyric-timing.mjs align --plan=WORK_DIR/plan.json      # resumable; one Atlas job per ≤30 s window, each on its line's own stem; failures are recorded, never fatal
 node scripts/atlas-lyric-timing.mjs assemble --plan=WORK_DIR/plan.json --candidates=WORK_DIR/candidates
 
 # 3. Promote through the shared gate (dry run first), then sync Song Card + Director project

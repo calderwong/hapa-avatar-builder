@@ -6,10 +6,11 @@ import {createAudioAtlas} from '../server/audio-atlas.mjs';
 import {plan,assemble,alignmentCorroboration} from './atlas-lyric-timing.mjs';
 import {evaluateEchoLyricTimingPromotion} from '../src/domain/echo-lyric-promotion.js';
 import {echoLyricComparePerformanceMaps,echoLyricPerformanceMap} from '../src/domain/echo-lyric-performance.js';
+import {echoLyricVoiceOf} from '../src/domain/echo-lyric-voices.js';
 import {echoLyricHasManualTiming,echoLyricSourceLines,echoLyricRegistryTrackId,echoLyricDuplicateRegistryIds} from '../src/domain/echo-lyric-sync-safety.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const opts=Object.fromEntries(process.argv.slice(2).map(a=>{const i=a.indexOf('=');return i<0?[a.slice(2),true]:[a.slice(2,i),a.slice(i+1)];}));
-if(!opts.out)throw Error('Usage: atlas-lyric-mass-heal.mjs --out=DIR [--analyze-missing] [--compare-master] [--song=ID]');
+if(!opts.out)throw Error('Usage: atlas-lyric-mass-heal.mjs --out=DIR [--analyze-missing] [--song=ID] [--voices=off [--compare-master]]');
 if(process.env.HAPA_AUDIO_ATLAS_WORKER)throw Error('Worker cannot coordinate catalog');
 const batchId=new Date().toISOString().replace(/[:.]/g,'-');
 const out=path.resolve(opts.out),candidateDir=path.join(out,'candidate-batches',batchId),atlas=createAudioAtlas({root}),rows=[];fs.mkdirSync(out,{recursive:true});let stopping=false;
@@ -41,16 +42,31 @@ try{
       if(!transcripts.has(t.source_asset_id)||score>transcripts.get(t.source_asset_id).score)transcripts.set(t.source_asset_id,{run:job.id,result,score});
     }catch{/* corrupt historical evidence cannot qualify */}
    }
-   let primary=[...transcripts.values()].find(t=>t.result.assets.some(a=>a.id===t.result.transcript_candidate.source_asset_id&&/^(lead )?vocals$/i.test(a.role)))||transcripts.get('master')||[...transcripts.values()][0];
+   let primary=[...transcripts.values()].find(t=>t.result.assets.some(a=>a.id===t.result.transcript_candidate.source_asset_id&&['lead','vocals'].includes(echoLyricVoiceOf(a.role))))||transcripts.get('master')||[...transcripts.values()][0];
    if(!primary&&opts['analyze-missing']){row.status='transcribing';report();const start=await atlas.start(song.id,{transcribe:true,transcriptionLanguage:'auto'}),done=await atlas.wait(start.id);if(done.state!=='complete')throw Error(done.error||done.state);primary={run:done.id,result:atlas.result(done.id)};transcripts.set(primary.result.transcript_candidate?.source_asset_id,primary);}
    if(!primary?.result.transcript_candidate?.word_count){row.status='needs-transcription';report();continue;}
    row.transcriptRun=primary.run;
-   const first=await plan(atlas,{song:song.id,out:path.join(folder,'primary'),'transcript-run':primary.run});
+   // Default: every vocal source (lead or combined vocals, backing, master) is matched to the written
+   // lyrics on its own in one plan; --analyze-missing transcribes absent voices first. --voices=off
+   // keeps the earlier single-source plans compared against the master.
+   if(opts.voices!=='off'){
+    row.status=opts['analyze-missing']?'transcribing-voices':'planning-voices';report();
+    const voiced=await plan(atlas,{song:song.id,out:path.join(folder,'voices'),'transcript-run':primary.run,...(opts['analyze-missing']?{'transcribe-voices':true}:{})});
+    row.voices=voiced.voices;row.voiceTranscriptions=voiced.transcriptions;
+    const attempts=[];
+    try{const built=assemble(atlas,{plan:voiced.plan,'transcript-only':true,candidates:path.join(folder,'voices-candidate')});const timing=JSON.parse(fs.readFileSync(built.candidate)),gate=evaluateEchoLyricTimingPromotion(timing,{sourcePathExists:true,sttPathExists:true});attempts.push({...built,kind:'voices',gate,unresolvedLines:timing.passageReview?.unresolvedLines,voicePerformances:timing.stats.voicePerformances});}catch(error){attempts.push({kind:'voices',error:error.message});}
+    row.attempts=attempts;const accepted=attempts.find(a=>a.gate?.accepted&&a.gate&&!a.unresolvedLines?.length);
+    if(accepted){fs.mkdirSync(candidateDir,{recursive:true});for(const suffix of ['.json','.stt.json'])fs.copyFileSync(accepted.candidate.replace(/\.json$/,suffix),path.join(candidateDir,path.basename(accepted.candidate).replace(/\.json$/,suffix)));row.candidate=path.join(candidateDir,path.basename(accepted.candidate));row.confidence=accepted.confidence;row.selectedEvidence='voices';row.status='accepted-candidate';}
+    else row.status='held-for-passage-review';
+    row.finishedAt=new Date().toISOString();report();console.log(JSON.stringify({title:row.title,status:row.status,confidence:row.confidence,voices:row.voices?.map(v=>`${v.voice}:${v.supportedLines}`).join(' '),error:attempts[0]?.error}));
+    continue;
+   }
+   const first=await plan(atlas,{song:song.id,out:path.join(folder,'primary'),'transcript-run':primary.run,voices:'off'});
    let master=transcripts.get('master');
    if(!master&&opts['compare-master']&&primary.result.transcript_candidate.source_asset_id!=='master'){
     row.status='comparing-master';report();const started=await atlas.start(song.id,{transcribe:true,transcriptionBaseRunId:primary.run,transcriptionSourceId:'master',transcriptionLanguage:'auto'}),done=await atlas.wait(started.id);if(done.state!=='complete')throw Error(done.error||done.state);master={run:done.id,result:atlas.result(done.id)};
    }
-   let second=null;if(master&&master.run!==primary.run&&master.result.transcript_candidate?.word_count){row.masterTranscriptRun=master.run;second=await plan(atlas,{song:song.id,out:path.join(folder,'master'),'transcript-run':master.run});}
+   let second=null;if(master&&master.run!==primary.run&&master.result.transcript_candidate?.word_count){row.masterTranscriptRun=master.run;second=await plan(atlas,{song:song.id,out:path.join(folder,'master'),'transcript-run':master.run,voices:'off'});}
    const corroboration=alignmentCorroboration(atlas,alignmentRuns,primary.run);
    const maps=[first,second].map(p=>p?JSON.parse(fs.readFileSync(p.plan)).performanceMap:null);
    row.conflictingPassages=maps[1]?echoLyricComparePerformanceMaps(maps[0],maps[1],{corroboratingWords:corroboration.words}).conflictingLines:[];
