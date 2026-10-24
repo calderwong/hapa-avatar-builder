@@ -103,6 +103,8 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
   // Comfort: reduced motion calms kicks, replaces shocks, stops spin and orbit.
   const reduced = settings.reducedMotion === true, flashGate = createFlashGate(settings.flashLimitPerSecond ?? 3);
   let simulated = null, formationKey = "", resets = 0, stepsRun = 0, lastDrumOnset = 0, drumHits = 0;
+  // Vocal gate: fast attack, slow release, so a sung word snaps in and lingers.
+  let vocalGate = 0, vocalWordOnsets = 0;
   const stemWeights = playback.score.stemResponses || {};
 
   function formationFor(state, upcoming = null) {
@@ -137,6 +139,12 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
       participation: reading ? 1 : state.density, calm: Math.max(state.calm, 0.95 * motion.faceAt(t)), rotation: reduced ? 0 : motion.rotationAt(t),
       ...(reduced ? { flow: 0.03 + 0.15 * busy } : {}),
     };
+    if (reading && stems?.vocalsPresent) {
+      // Words follow the singer: held loosely until the vocal arrives, then
+      // they snap tight; a 0 vocal weight keeps the fixed stiff hold.
+      const g = 1 - (stemWeights.vocals ?? 1) * (1 - clamp(vocalGate / 0.5));
+      return { ...base, hold: 0.6 + 0.4 * g, omega: 5 + 3 * g };
+    }
     if (!stems || reading) return base;
     // Each instrument keeps its own job: bass swells, vocals draw dust in,
     // harmony stirs the flow, cymbals sparkle.
@@ -167,6 +175,11 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
     }
     const bands = bandsAt?.(to, state) || scoreDerivedBands(state, derived);
     const reading = Boolean((state.phrase || upcoming) && !(state.phrase || upcoming).burst);
+    if (stems?.vocalsPresent) {
+      const dt = 1 / SCORE_DUST_STEP_HZ, before = vocalGate;
+      vocalGate += (stems.vocals - vocalGate) * (1 - Math.exp(-dt / (stems.vocals > vocalGate ? 0.05 : 0.4)));
+      if (reading && before < 0.3 && vocalGate >= 0.3) vocalWordOnsets++;
+    }
     swarm.step(1 / SCORE_DUST_STEP_HZ, controlsFor(state, bands, to, reading, stems));
     stepsRun++;
   }
@@ -181,7 +194,7 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
     if (simulated === null || target < simulated || target - simulated > gapSteps) {
       const start = Math.max(0, target - prerollSteps), startTime = start / SCORE_DUST_STEP_HZ;
       swarm.reset(startTime);
-      flashGate.reset(); lastDrumOnset = 0;
+      flashGate.reset(); lastDrumOnset = 0; vocalGate = 0;
       formationKey = "";
       applyFormation(playback.stateAt(startTime), motion.rotationAt(startTime));
       simulated = start; reset = true; resets++;
@@ -205,6 +218,6 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
 
   return {
     swarm, motion, playback, advanceTo, camera, style, reducedMotion: reduced,
-    diagnostics: () => ({ simulatedTime: simulated === null ? null : simulated / SCORE_DUST_STEP_HZ, resets, stepsRun, formation: swarm.formation, formationKey, particles: swarm.count, seed: swarm.seed, flashes: flashGate.stats(), reducedMotion: reduced, drumHits }),
+    diagnostics: () => ({ simulatedTime: simulated === null ? null : simulated / SCORE_DUST_STEP_HZ, resets, stepsRun, formation: swarm.formation, formationKey, particles: swarm.count, seed: swarm.seed, flashes: flashGate.stats(), reducedMotion: reduced, drumHits, vocalWordOnsets, vocalGate }),
   };
 }

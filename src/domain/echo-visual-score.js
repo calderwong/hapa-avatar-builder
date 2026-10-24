@@ -11,6 +11,7 @@
 // score so one score can be replayed with controlled variation.
 
 import { DUST_FORMATION_FAMILIES, seedFromString, hashUnit } from "./echo-dust-swarm.js";
+import { applySectionEdits, validateSectionEdits } from "./echo-score-dust-sections.js";
 import { DUST_COLOUR_MODES, DUST_COLOUR_PRESETS, DUST_FLASH_LIMIT_PER_SECOND, normalizeDustColour, presetPaletteFor, albumPaletteFor, validateAlbumColourSpec, normalizeDustBackground, validateDustBackground } from "./echo-score-dust-colour.js";
 import { DUST_STEM_GROUPS, normalizeStemResponses } from "./echo-score-dust-stems.js";
 
@@ -254,6 +255,8 @@ export function composeEchoVisualScore(timeline, direction = {}, { lyricLines = 
       reason: `section ${section.index + 1} · ${section.repeatGroup} occurrence ${section.occurrence + 1} · relative energy ${round(energy, 2)}`,
     };
   });
+  // Per-section edits (split/merge/move boundaries, one-occurrence overrides).
+  const edited = direction.sections ? applySectionEdits({ cues, motifs, palettes, maxDensity, minCueSeconds: ECHO_VISUAL_SCORE_MIN_CUE_SECONDS }, direction.sections) : null;
   const events = timeline.events.map((event) => ({ id: `event-${event.id}`, sourceEventId: event.id, kind: event.kind, at: event.at,
     response: direction.eventResponses?.[event.kind] || DEFAULT_RESPONSE[event.kind] || "none", reason: `Atlas ${event.kind} candidate${event.deltaDb === null ? "" : ` (${event.deltaDb} dB)`}` }));
   // Explicit phrases win; otherwise pick a few hooks from measured lyric timing.
@@ -265,7 +268,8 @@ export function composeEchoVisualScore(timeline, direction = {}, { lyricLines = 
   const score = {
     schemaVersion: ECHO_VISUAL_SCORE_SCHEMA, version: 1, revision: Number.isSafeInteger(direction.revision) ? direction.revision : 0,
     author: direction.author || "hapa-score-composer", timelineRef: { schemaVersion: timeline.schemaVersion, fingerprint: timeline.fingerprint, sourceSha256: timeline.source.sourceSha256, runId: timeline.source.runId },
-    durationSeconds: timeline.durationSeconds, palettes, motifs, cues, events, phrases,
+    durationSeconds: timeline.durationSeconds, palettes: edited?.palettes || palettes, motifs: edited?.motifs || motifs, cues: edited?.cues || cues, events, phrases,
+    ...(edited ? { sectionEdits: edited.report } : {}),
     phraseSource: direction.phrases ? "direction" : lyricSelection ? { kind: "lyrics", status: lyricSelection.status, reason: lyricSelection.reason } : "none",
     cameraMoves: structuredClone(direction.cameraMoves || []),
     colour: normalizeDustColour(direction.colour),
@@ -326,6 +330,7 @@ export function validateEchoVisualScore(score, { timeline = null, assets = null 
     if (!finite(cue.density) || cue.density <= 0 || cue.density > (score.limits?.maxDensity ?? 1) + epsilon) error("density", "Density must be within (0, limits.maxDensity].", ref);
     if (!ECHO_VISUAL_SCORE_CAMERA_MODES.includes(cue.camera?.mode)) error("camera-mode", `Unknown camera mode ${cue.camera?.mode}.`, ref);
   }
+  for (const skipped of score.sectionEdits?.skipped || []) warn("section-edit-skipped", `Section ${skipped.op} at ${typeof skipped.at === "number" ? `${round(skipped.at, 2)}s` : skipped.at} was skipped: ${skipped.reason}.`);
   if (cues.length && cursor < duration - epsilon) warn("cue-tail", `Score ends at ${round(cursor, 3)}s; the tail holds the last motif.`);
   if (score.colour !== undefined && (!DUST_COLOUR_MODES.includes(score.colour?.mode) || (score.colour.preset && !DUST_COLOUR_PRESETS[score.colour.preset] && !(score.colour.preset === "album" && validateAlbumColourSpec(score.colour.album))))) error("colour", "Unknown colour mode or preset.");
   if (score.background !== undefined && !validateDustBackground(score.background)) error("background", "Unknown background kind, shape or colour.");
@@ -482,7 +487,7 @@ export function selectEchoScorePhrases(lines, timeline, { lyricAudioHash = null,
   return { status: phrases.length ? "selected" : "none-readable", reason: `${phrases.length} of ${rows.length} measured lines chosen`, phrases };
 }
 
-const DIRECTION_KEYS = new Set(["colour", "background", "stemResponses", "families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
+const DIRECTION_KEYS = new Set(["colour", "background", "sections", "stemResponses", "families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
 
 /** Strict check for a saved or submitted direction (the human intent, not the composed score). */
 export function validateEchoScoreDirection(direction) {
@@ -510,6 +515,7 @@ export function validateEchoScoreDirection(direction) {
   if (colour !== undefined && (!colour || typeof colour !== "object" || Array.isArray(colour) || (colour.mode !== undefined && !DUST_COLOUR_MODES.includes(colour.mode)) || (colour.preset !== undefined && colour.preset !== null && !DUST_COLOUR_PRESETS[colour.preset] && colour.preset !== "album")
     || (colour.album !== undefined && !validateAlbumColourSpec(colour.album))
     || Object.keys(colour).some((k) => !["mode", "preset", "album", "crossfadeSeconds", "liftFlash", "breakDesaturate", "brighterReturns"].includes(k)))) error("colour", `colour allows mode (${DUST_COLOUR_MODES.join("/")}), a preset (or "album" with an album spec) and the dynamics switches.`);
+  for (const message of validateSectionEdits(direction.sections)) error("sections", message);
   if (!validateDustBackground(direction.background)) error("background", "background allows kind black|solid|gradient|palette, #rrggbb colour/colour2 and shape linear|radial.");
   return { ok: errors.length === 0, errors };
 }

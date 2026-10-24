@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DUST_FORMATION_FAMILIES } from "../domain/echo-dust-swarm.js";
 import { ECHO_VISUAL_SCORE_CAMERA_MODES, ECHO_VISUAL_SCORE_EVENT_RESPONSES, ECHO_VISUAL_SCORE_PULSES, placeCameraMove } from "../domain/echo-visual-score.js";
 import { applyDustLook, extractDustLook, BUILTIN_DUST_LOOKS, dustLookSlug } from "../domain/echo-score-dust-looks.js";
+import { splitSectionAt, mergeSectionBoundary, moveSectionBoundary, editSectionCue, resetSectionCue } from "../domain/echo-score-dust-sections.js";
 import { createAtlasClient } from "../domain/audio-atlas-ui.js";
 import { DUST_COLOUR_MODES, DUST_COLOUR_PRESET_LABELS, DUST_FLASH_LIMIT_PER_SECOND, DUST_BACKGROUND_KINDS, normalizeDustBackground, hexToHsl, hslToHex } from "../domain/echo-score-dust-colour.js";
 import { decodeSongAudio, exportScoreDustVideo, SCORE_DUST_EXPORT_FORMATS, SCORE_DUST_EXPORT_BACKGROUNDS } from "./echo-score-dust-export.js";
@@ -45,7 +46,7 @@ function ScoreStrip({ dust, currentTime, onSeek }) {
         return (
           <g key={cue.id}>
             <title>{`${time(cue.start)}–${time(cue.end)} · ${motif.family} (${motif.repeatGroup}) · ${cue.reason}`}</title>
-            <rect x={x(cue.start)} y={6} width={Math.max(1, x(cue.end) - x(cue.start) - 1)} height={40} fill={hsl(palette[0], 0.32 + 0.5 * cue.busy[1])} />
+            <rect x={x(cue.start)} y={6} width={Math.max(1, x(cue.end) - x(cue.start) - 1)} height={40} fill={hsl(palette[0], 0.32 + 0.5 * cue.busy[1])} className={cue.edited || cue.mergedCueIds || cue.id.includes("-split-") ? "score-dust-strip-edited" : undefined} />
             <rect x={x(cue.start)} y={42} width={Math.max(1, x(cue.end) - x(cue.start) - 1)} height={4} fill={hsl(palette[1] || palette[0])} />
             {x(cue.end) - x(cue.start) > 60 && <text x={x(cue.start) + 5} y={22} className="score-dust-strip-label">{motif.family}</text>}
             {x(cue.end) - x(cue.start) > 60 && <text x={x(cue.start) + 5} y={36} className="score-dust-strip-sub">{motif.repeatGroup.replace("group-", "")}</text>}
@@ -110,16 +111,17 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
         onProgress: ({ phase, frame, frames }) => setJob({ state: "running", progress: frame / Math.max(1, frames), message: phase === "audio" ? "Encoding audio…" : `Rendering frame ${frame} of ${frames}` }) });
       download.current = URL.createObjectURL(result.blob);
       const r = result.receipt;
-      let saved = "";
+      let saved = "", recordingId = null;
       try {
         await ensureEchoPreviewRecordingLocalSession(exportContext?.apiBase || "");
         const query = new URLSearchParams({ songId: exportContext?.songId || "", songTitle: exportContext?.songTitle || "", projectTitle: `Score Dust · ${EXPORT_RANGES[range]}`,
           orientation: r.height > r.width ? "portrait" : "landscape", width: String(r.width), height: String(r.height), fps: String(r.fps), durationMs: String(Math.round(r.durationSeconds * 1000)), captureStatus: "complete" });
         const response = await fetch(`${exportContext?.apiBase || ""}/api/echo/preview-recordings?${query}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "video/webm" }, body: result.blob });
         saved = response.ok ? "Saved to Recordings." : `Not saved to Recordings (${response.status}); download it below.`;
+        if (response.ok) recordingId = (await response.json().catch(() => ({})))?.recording?.id || null;
       } catch (error) { saved = `Not saved to Recordings (${error.message}); download it below.`; }
       const mediaNote = r.background === "transparent" ? " · transparent (alpha)" : r.background === "cut" ? ` · over the cut (${r.media.drawn} media frames${r.media.unavailable.length ? `, ${r.media.unavailable.length} source${r.media.unavailable.length === 1 ? "" : "s"} unavailable` : ""})` : "";
-      setJob({ state: "done", receipt: r, message: `${r.frames} frames · ${(r.bytes / 1048576).toFixed(1)} MB · ${r.audio ? "with song audio" : "no audio"}${mediaNote}${r.loopBridgeSeconds ? ` · ${r.loopBridgeSeconds}s loop bridge` : ""}. ${saved}` });
+      setJob({ state: "done", receipt: r, recordingId, loop: range === "loop", message: `${r.frames} frames · ${(r.bytes / 1048576).toFixed(1)} MB · ${r.audio ? "with song audio" : "no audio"}${mediaNote}${r.loopBridgeSeconds ? ` · ${r.loopBridgeSeconds}s loop bridge` : ""}. ${saved}` });
     } catch (error) {
       setJob({ state: controller.current?.signal.aborted ? "idle" : "error", message: controller.current?.signal.aborted ? "Export cancelled." : String(error?.message || error) });
     }
@@ -139,6 +141,7 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
       {!supported && <span className="score-dust-hint">This browser has no WebCodecs encoder.</span>}
       {job.message && <span role={job.state === "error" ? "alert" : "status"} className="score-dust-hint">{job.message}</span>}
       {job.state === "done" && download.current && <a className="hapa-btn" href={download.current} download={`score-dust-${exportContext?.songId || "song"}-${Math.round(job.receipt.startSeconds)}s.webm`}>Download .webm</a>}
+      {job.state === "done" && job.recordingId && <AttachLoop job={job} exportContext={exportContext} />}
     </fieldset>
   );
 }
@@ -160,6 +163,52 @@ function BackgroundControls({ background, update }) {
         <label>Shape <select aria-label="Background shape" value={bg.shape} onChange={(e) => set({ shape: e.target.value })}><option value="radial">Radial</option><option value="linear">Top to bottom</option></select></label>
       )}
     </>
+  );
+}
+
+/** Edit the section under the playhead: boundaries and this occurrence's look. */
+function ScoreDustSection({ dust, currentTime, onSeek, update }) {
+  const { score } = dust, cues = score.cues, duration = score.durationSeconds;
+  const index = Math.max(0, cues.findIndex((c) => currentTime >= c.start && currentTime < c.end)), cue = cues[index];
+  if (!cue) return null;
+  const motif = score.motifs.find((m) => m.id === cue.motifId), group = score.motifs.find((m) => m.repeatGroup === motif.repeatGroup && !m.occurrenceOf) || motif;
+  const patch = dust.direction.sections?.cues?.[cue.id] || {}, min = 0.5;
+  const sections = (fn) => update((current) => ({ sections: fn(current.sections || {}) }));
+  const canSplit = currentTime - cue.start >= min && cue.end - currentTime >= min;
+  const busy = (cue.busy[0] + cue.busy[1]) / 2;
+  return (
+    <fieldset data-testid="score-dust-section">
+      <legend>Section <span>{time(cue.start)}–{time(cue.end)} · {motif.repeatGroup.replace("group-", "Group ")} #{(cue.occurrence ?? 0) + 1}{cue.edited || cue.mergedCueIds || cue.id.includes("-split-") ? " · edited" : ""}</span></legend>
+      <span className="score-dust-moves">
+        <button type="button" className="hapa-btn" disabled={!canSplit} onClick={() => sections((s) => splitSectionAt(s, currentTime))} data-testid="score-dust-section-split">Split at playhead</button>
+        <button type="button" className="hapa-btn" disabled={index === 0} onClick={() => sections((s) => mergeSectionBoundary(s, cue.start))}>Merge with previous</button>
+        <button type="button" className="hapa-btn" disabled={index === cues.length - 1} onClick={() => sections((s) => mergeSectionBoundary(s, cue.end))} data-testid="score-dust-section-merge-next">Merge with next</button>
+      </span>
+      <label>Starts <input type="number" step="0.1" aria-label="Section start" disabled={index === 0} value={cue.start}
+        onChange={(e) => { const to = Number(e.target.value); if (to > cues[index - 1].start + min && to < cue.end - min) sections((s) => moveSectionBoundary(s, cue.start, to)); }} /></label>
+      <label>Ends <input type="number" step="0.1" aria-label="Section end" disabled={index === cues.length - 1} value={cue.end}
+        onChange={(e) => { const to = Number(e.target.value); if (to > cue.start + min && to < Math.min(duration, cues[index + 1]?.end ?? duration) - min) sections((s) => moveSectionBoundary(s, cue.end, to)); }} /></label>
+      <label>Shape here <select aria-label="Formation for this section" value={patch.family || ""} onChange={(e) => sections((s) => editSectionCue(s, cue.id, { family: e.target.value || undefined }))}>
+        <option value="">Same as group ({group.family})</option>
+        {DUST_FORMATION_FAMILIES.map((f) => <option key={f} value={f}>{f}</option>)}
+      </select></label>
+      {dust.pictures?.options?.length > 0 && (
+        <label>Picture here <select aria-label="Picture for this section" value={patch.image === null ? "none" : patch.image?.assetId || ""}
+          onChange={(e) => { const v = e.target.value, option = dust.pictures.options.find((o) => o.assetId === v); sections((s) => editSectionCue(s, cue.id, { image: v === "" ? undefined : v === "none" ? null : { assetId: option.assetId, url: option.url, label: option.label, avatarId: option.avatarId } })); }}>
+          <option value="">Same as group</option><option value="none">Shape only</option>
+          {dust.pictures.options.map((o) => <option key={o.assetId} value={o.assetId}>{o.label}</option>)}
+        </select></label>
+      )}
+      <label>Density <input type="range" min="0.05" max="1" step="0.05" aria-label="Density for this section" value={cue.density}
+        onChange={(e) => sections((s) => editSectionCue(s, cue.id, { density: Number(e.target.value) }))} /></label>
+      <label>Busy <input type="range" min="0.07" max="0.93" step="0.01" aria-label="Busy for this section" value={busy}
+        onChange={(e) => { const v = Number(e.target.value); sections((s) => editSectionCue(s, cue.id, { busy: [Math.max(0, v - 0.07), Math.min(1, v + 0.07)] })); }} /></label>
+      <span className="score-dust-moves">
+        <button type="button" className="hapa-btn" onClick={() => onSeek?.(cue.start)}>Seek to start</button>
+        <button type="button" className="hapa-btn" onClick={() => sections((s) => resetSectionCue(s, cue))} data-testid="score-dust-section-reset">Reset this section</button>
+      </span>
+      {score.sectionEdits?.skipped?.length > 0 && <span className="score-dust-hint">{score.sectionEdits.skipped.length} edit{score.sectionEdits.skipped.length === 1 ? "" : "s"} skipped; see notes.</span>}
+    </fieldset>
   );
 }
 
@@ -235,6 +284,39 @@ function ScoreDustLooks({ dust, apiBase }) {
   );
 }
 
+/** Attach a finished export to this Song's card or a Tarot card's loop videos. */
+function AttachLoop({ job, exportContext }) {
+  const apiBase = exportContext?.apiBase || "";
+  const [cards, setCards] = useState([]), [target, setTarget] = useState("song"), [state, setState] = useState({ state: "idle", message: "" });
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiBase}/api/tarot`, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null))
+      .then((store) => { if (!cancelled && store) setCards((store.cards || []).map((c) => ({ id: c.id, title: c.title || c.id })).slice(0, 500)); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [apiBase]);
+  const attach = async () => {
+    setState({ state: "working", message: "Attaching…" });
+    try {
+      const body = { recordingId: job.recordingId, receipt: job.receipt, title: `Score Dust ${job.loop ? "loop" : "clip"} · ${exportContext?.songTitle || exportContext?.songId || "song"}`,
+        target: target === "song" ? { kind: "song", songId: exportContext?.songId } : { kind: "tarot", cardId: target.slice(6) } };
+      const response = await fetch(`${apiBase}/api/echos/score-dust/loops`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const value = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(value.message || `Attach failed (${response.status})`);
+      setState({ state: "done", message: target === "song" ? `Attached to this Song's card (${value.loops} Score Dust loop${value.loops === 1 ? "" : "s"}).` : `Attached to ${cards.find((c) => `tarot:${c.id}` === target)?.title || "the Tarot card"} (${value.loops} loop video${value.loops === 1 ? "" : "s"}).` });
+    } catch (error) { setState({ state: "error", message: error.message }); }
+  };
+  return (
+    <span className="score-dust-attach" data-testid="score-dust-attach">
+      <label>{job.loop ? "Attach loop to" : "Attach clip to"} <select aria-label="Attach to" value={target} onChange={(e) => setTarget(e.target.value)}>
+        <option value="song">This Song's card</option>
+        {cards.length > 0 && <optgroup label="Tarot card loop videos">{cards.map((c) => <option key={c.id} value={`tarot:${c.id}`}>{c.title}</option>)}</optgroup>}
+      </select></label>
+      <button type="button" className="hapa-btn" disabled={state.state === "working"} onClick={attach} data-testid="score-dust-attach-button">Attach</button>
+      {state.message && <span role={state.state === "error" ? "alert" : "status"} className="score-dust-hint">{state.message}</span>}
+    </span>
+  );
+}
+
 /** Shared listening: everyone renders locally from the same score, seed and schedule. */
 function ScoreDustListenTogether({ dust, songId, apiBase, controls }) {
   const session = useScoreDustSession({ apiBase, songId, dust, ...controls });
@@ -270,7 +352,9 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
   const [note, setNote] = useState("");
   if (!dust?.enabled) return null;
   const { score, validation, settings, direction } = dust;
-  const groups = score ? score.motifs.map((motif) => ({ motif, returns: score.cues.filter((c) => c.motifId === motif.id).length, palette: score.palettes[motif.paletteId] })) : [];
+  const motifById = score ? new Map(score.motifs.map((m) => [m.id, m])) : new Map();
+  // One-occurrence motifs (section edits) are edited in the Section box, not here.
+  const groups = score ? score.motifs.filter((motif) => !motif.occurrenceOf).map((motif) => ({ motif, returns: score.cues.filter((c) => motifById.get(c.motifId)?.repeatGroup === motif.repeatGroup).length, palette: score.palettes[motif.paletteId] })) : [];
   const update = (patch) => dust.setDraft((current) => ({ ...current, ...patch(current) }));
   const lyricStatus = score?.phraseSource?.kind === "lyrics" ? score.phraseSource : null;
   return (
@@ -301,7 +385,7 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
                       return { palettes: { ...(current.palettes || {}), [motif.repeatGroup]: next } };
                     })} />
                 ))}</span>
-                <span>{motif.repeatGroup.replace("group-", "Group ")} · {returns}×</span>
+                <span>{motif.repeatGroup.replace("group-", "Group ")} · {returns ? `${returns}×` : "unused"}</span>
                 <select aria-label={`Formation for ${motif.repeatGroup}`} value={direction.families?.[motif.repeatGroup] || ""}
                   onChange={(event) => update((current) => {
                     const families = { ...(current.families || {}) };
@@ -385,6 +469,7 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
             })}
             <span className="score-dust-hint">{dust.stems ? `Stems: ${dust.stems.available.join(", ")} (prepared song timing).` : "No separated stems loaded. Choose Audio visuals → Prepared song timing on a song with stems."}</span>
           </fieldset>
+          <ScoreDustSection dust={dust} currentTime={currentTime} onSeek={onSeek} update={update} />
           <ScoreDustCamera dust={dust} currentTime={currentTime} onSeek={onSeek} update={update} />
           <ScoreDustLooks dust={dust} apiBase={exportContext?.apiBase || ""} />
           <fieldset>

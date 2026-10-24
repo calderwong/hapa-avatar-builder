@@ -60,3 +60,5 @@
 .score-dust-export legend span { font-weight: 400; color: #64748b; margin-left: 4px; }
 .score-dust-export select { background: #0f172a; color: #e2e8f0; border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 4px; padding: 2px 4px; }
 .score-dust-export progress { width: 160px; }
+.score-dust-attach { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex-basis: 100%; }
+.score-dust-strip-edited { stroke: #f8fafc; stroke-width: 1.5; stroke-dasharray: 4 3; }

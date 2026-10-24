@@ -41,12 +41,12 @@ Saved directions, a score inspector and direction editor in the Echo preview
 | Surface | How to reach it | What it does |
 | --- | --- | --- |
 | Echo preview | Echos Album → Director Workbench → song → Preview → tick **Score Dust preview** | Score Dust replaces the cut's visualizers on screen (preview only) and opens the panel |
-| Score Dust panel | Below *Audio visuals* in the preview | Score strip (click to seek; camera lane), validation, motif shape/picture/colours per repeating section, hue, pulse, seed, **Colour**, **Comfort**, **Instruments**, **Camera**, **Looks**, moment responses, lyric hooks, **Save direction** |
-| Export | Panel → **Export video** | 15 s clip, current section, whole song or 8 s seamless loop; landscape/HD/portrait/square, 30/60 fps; over the Director cut's media or black; saved to **Recordings** + .webm download |
+| Score Dust panel | Below *Audio visuals* in the preview | Score strip (click to seek; camera lane), validation, motif shape/picture/colours per repeating section, hue, pulse, seed, **Colour** (with Background), **Comfort**, **Instruments**, **Section**, **Camera**, **Looks**, moment responses, lyric hooks, **Save direction** |
+| Export | Panel → **Export video** | 15 s clip, current section, whole song or 8 s seamless loop; landscape/HD/portrait/square, 30/60 fps; over the score background, the Director cut's media or transparent (alpha); saved to **Recordings** + .webm download; **Attach loop to** a Song Card or Tarot card |
 | Listen together | Panel → **Host session** / **Join** (or open a `?scoreDustSession=<id>` link) | Shared play/pause/seek/direction; each screen renders locally |
 | Record Garden | Echo Record Garden → mode dock → **Score Dust** | 3D dust over the playing record, same score and direction |
 | API | `/api/echos/audio-atlas/jobs/RUN/query?op=visual-score`, `…/visual-score`, `…/visual-score-directions`, `/api/echos/audio-atlas/visual-score-looks`, `/api/echos/score-dust/sessions` | See parity doc |
-| CLI | `node cli/audio-atlas.mjs visual-score | visual-score-directions | save-visual-score-direction | visual-score-looks | save-visual-score-look` | Compose, validate, list and save directions and looks |
+| CLI | `node cli/audio-atlas.mjs visual-score | visual-score-directions | save-visual-score-direction | visual-score-looks | save-visual-score-look`; `node cli/score-dust.mjs attach-loop` | Compose, validate, list and save directions and looks; attach loops |
 
 
 ### Musical timeline (`buildEchoMusicalTimelineFromAtlas`)
@@ -404,6 +404,53 @@ composes identically everywhere. A direction that only says `"preset":
 alike. Looks keep `"album"` and drop the spec, so each Song resolves its own.
 The built-in **Album** look combines album colour with a palette background.
 
+**Loops on cards** (P2 item 8). After an export is saved to Recordings, the
+panel offers **Attach loop to**: this Song's card, or any Tarot card's loop
+videos. `server/echo-score-dust-loops.mjs` copies the recording out of the
+admin-only Preview Recordings store into the public media root
+(`/media/score-dust-loops/<recordingId>.webm`), so Tarot Draw and Song
+surfaces can play it. It then attaches the copy:
+- On a Tarot card it is a `loop_video` asset (tagged `tarot-loop`,
+  `score-dust-loop`); the card face stays its image.
+- On a Song Card it is a media link with role `score-dust-loop`.
+
+The asset's metadata keeps the recording id, Song, score fingerprint, seed,
+range, loop bridge and background. Attaching the same recording again
+replaces the asset instead of duplicating it. The target is checked before
+anything is copied. API: `POST /api/echos/score-dust/loops` with
+`{recordingId, target: {kind: "tarot", cardId} | {kind: "song", songId},
+title?, receipt?}`. CLI: `node cli/score-dust.mjs attach-loop RECORDING_ID
+(--tarot=CARD_ID | --song=SONG_ID) [--title=…] [--receipt=FILE]`. The CLI
+backs the store up under `data/backups/` before writing it.
+
+**Per-section editing** (P2 item 10, direction `sections`; panel
+**Section**, which edits the section under the playhead).
+`src/domain/echo-score-dust-sections.js` applies, in order:
+- `merge: [t]` removes the boundary at t. The merged section keeps the first
+  motif and the wider busy range.
+- `move: [{from, to}]` slides a boundary. Moving the same boundary again
+  updates the move instead of stacking edits.
+- `split: [t]` adds a boundary; both halves keep the repeat motif.
+- `cues: {cueId: {family, image | null, palette, density, busy}}` edits one
+  occurrence only, through its own motif (`motif-…@cueId`, `occurrenceOf`),
+  so the repeat group and its other returns are untouched.
+
+An edit that would leave a section shorter than 0.5 s, or that no longer
+matches a boundary, is skipped. The score reports it in `sectionEdits`, the
+validator shows it as a note, and nothing is forced. **Reset this section**
+removes that section's patch and any boundary edit at or inside it. Edited
+sections have a dashed outline on the strip. Limits: sections are edited with
+buttons and number fields, not by dragging on the strip. Busy and density are
+one value per section, not drawn curves.
+
+**Words follow the singer** (rest of P2 item 9). When the prepared performance
+has a vocal stem, a readable phrase is held loosely (hold 0.6, ω 5) until the
+vocal arrives. It then snaps tight (hold 1, ω 8) through a vocal gate with a
+50 ms attack and 400 ms release. The Vocals instrument weight scales this, and
+0 restores the fixed stiff hold. Diagnostics count `vocalWordOnsets`. Phrase
+timing still comes from measured lyrics; the vocal stem shapes how a word
+forms, not which words appear.
+
 ### Saved directions
 
 Directions, not composed scores, are saved. A direction is the compact human
@@ -611,27 +658,43 @@ real Echo Song is still open.
     trimmed remainder was dropped. Ids are now made unique after placement.
   - New guardrail: a look must never carry repeat-group keys, because group
     names belong to one analysis. `validateDustLook` refuses them.
+- **P2 batch 2 (same day):**
+  - Reused: the album visual bible for album colour, the Tarot
+    `attachTarotCardMedia` contract and Song media links for loops, the
+    Preview Recordings store as the source of truth for exports, and the WebM
+    alpha layout browsers already decode.
+  - Misunderstood, then fixed: transparent export looked like a one-line
+    WebCodecs option, but Chromium rejects alpha encoding. Encoding the alpha
+    plane as its own VP9 stream, muxed as `BlockAdditional`, is what made it
+    work. Proof: Chromium plays it with 93% clear pixels, and ffprobe reports
+    `alpha_mode=1`.
+  - Noise: a vocal-words test asserted an onset before the fixture's vocal
+    entry. The code was right and the test was wrong.
+  - New guardrail: anything that depends on another store (album colour from
+    Song Cards) is resolved into the direction when saved. A saved score must
+    never change because a Song Card changed later.
 - **Candidates:** Decision Card — *keep the reusable score separate from play
-  seed/settings*; Decision Card — *looks hold only song-independent fields*; Lesson Card — *readable particle material must face the
+  seed/settings*; Decision Card — *looks hold only song-independent fields*;
+  Lesson Card — *resolve cross-store inputs into the saved direction*; Lesson Card — *readable particle material must face the
   camera*; Skill candidate — *Atlas run → musical timeline → directed score*;
   Flow explainer — *three time scales of a music visual*.
 
 ## P2 backlog (defined 2026-10-24)
 
-Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) is done (2026-10-24); see *P2 batch 1* above.
+Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) and **batch 2** (◆) are done (2026-10-24); see *P2 batch 1* and *P2 batch 2* above.
 
 | # | Item | Size |
 | --- | --- | --- |
 | 1 ★ | Palette editor: three colour pickers per section; presets (Neon, Monochrome, Sunset, Ice, Ember, Red, Green, Blue) | S |
 | 2 ★ | Colour modes: palette, by frequency, by speed, along the shape, by depth, from the picture | M |
 | 3 ★ | Colour dynamics: palette crossfades at section changes, lift flash, break desaturation, brighter returns | S |
-| 4 | Background and export colour: solid, gradient or transparent | S |
-| 5 | Album colour language as default palettes (`album-visual-language.js`) | S |
+| 4 ◆ | Background and export colour: solid, gradient or transparent | S |
+| 5 ◆ | Album colour language as palettes (`album-visual-language.js`); a preset and the Album look, not an automatic default | S |
 | 6 ★ | Composite exports with the Director cut's media (hard cuts) | L |
 | 7 | Certify the fixed-step renderer as Final render ready; per-cue scheduling and mixing with ISF shaders | M |
-| 8 | Loops attached to Song Card / Tarot card loops | S |
-| 9 ★ | Stem-aware responses: drums kick, bass swells, vocals bring more dust in, cymbals sparkle. Vocal onsets triggering words is not built | M |
-| 10 | Per-section editing: edit one occurrence, drag/split/merge sections, busy/density curves | M |
+| 8 ◆ | Loops attached to Song Card / Tarot card loops | S |
+| 9 ★ | Stem-aware responses: drums kick, bass swells, vocals bring more dust in, cymbals sparkle; ◆ words follow the singer | M |
+| 10 ◆ | Per-section editing: edit one occurrence, split/merge/move sections, busy/density per section (no strip dragging or drawn curves) | M |
 | 11 ★ | Camera moves authored on the score strip | S |
 | 12 | Lyric control: line choice, font, word-by-word mode | M |
 | 13 | Avatar 3D models sampled into shapes | M |
@@ -652,6 +715,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) is
 3. Make the cue picker accept Score Dust once its fixed-step export is
    certified as a final renderer; today it stays a preview visualizer.
 4. Tune family pools, exposure and phrase limits on real Echo Songs.
-5. P2 batch 2 candidates: background colour and transparent exports (4),
-   album colour language defaults (5), Song/Tarot loop attachment (8),
-   per-section editing (10), and vocal onsets triggering words (rest of 9).
+5. Remaining P2 items: certify the fixed-step renderer as Final render ready
+   (7), lyric control (12), Avatar 3D models as shapes (13), SVG/text logos
+   (14), agent-written direction (15), GPU simulation (16), cross-device
+   Listen together (17), more 3D stages (18).

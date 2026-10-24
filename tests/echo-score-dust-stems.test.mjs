@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createStemReflex, normalizeStemResponses } from "../src/domain/echo-score-dust-stems.js";
 import { buildEchoMusicalTimelineFromAtlas, composeEchoVisualScore, prepareEchoScorePlayback, validateEchoScoreDirection } from "../src/domain/echo-visual-score.js";
 import { createScoreDustPerformance } from "../src/domain/echo-score-dust-performance.js";
+import { sampleDustTargetsFromPixels } from "../src/domain/echo-dust-swarm.js";
 import { atlasFixture } from "./echo-score-dust-fixture.mjs";
 
 const timeline = buildEchoMusicalTimelineFromAtlas(atlasFixture());
@@ -56,4 +57,25 @@ test("stem responses are deterministic across frame rates", () => {
   const stems = createStemReflex(performanceFixture());
   const at = (fps) => { const p = createScoreDustPerformance({ playback, settings: { seed: 3, particleCount: 400 } }); for (let f = 0; f <= 3 * fps; f++) p.advanceTo(70 + f / fps, { stemsAt: (t) => stems.at(t) }); return p.swarm.fingerprint(); };
   assert.equal(at(24), at(60));
+});
+
+test("words follow the singer: loose before the vocal arrives, tight once it does", () => {
+  // Vocals enter at 60 s in the fixture; the phrase starts forming 0.4 s before 59.
+  const playbackFor = (vocals) => prepareEchoScorePlayback(composeEchoVisualScore(timeline, { phrases: [{ text: "to the edge", start: 59, end: 64 }], stemResponses: { vocals } }), timeline);
+  const pixels = { width: 64, height: 20, data: new Uint8ClampedArray(64 * 20 * 4) };
+  for (let y = 4; y < 16; y++) for (let x = 4; x < 60; x += 3) pixels.data.set([255, 255, 255, 255], (y * 64 + x) * 4);
+  const phraseTargets = (phrase, count, seed) => sampleDustTargetsFromPixels(pixels, { count, seed });
+  const spread = (vocals, at) => {
+    const p = createScoreDustPerformance({ playback: playbackFor(vocals), settings: { seed: 5, particleCount: 400 }, phraseTargets });
+    const stems = createStemReflex(performanceFixture());
+    p.advanceTo(at - 1.4, { stemsAt: (t) => stems.at(t) }); p.advanceTo(at, { stemsAt: (t) => stems.at(t) });
+    let error = 0; for (let i = 0; i < p.swarm.count * 3; i++) error += Math.abs(p.swarm.position[i] - p.swarm.target[i]);
+    return { error: error / p.swarm.count, diagnostics: p.diagnostics() };
+  };
+  const waiting = spread(1, 59.9), stiff = spread(0, 59.9), sung = spread(1, 61.5);
+  assert.ok(waiting.error > stiff.error * 1.15, `${waiting.error} vs ${stiff.error}: held loosely until the vocal`);
+  assert.ok(sung.error < waiting.error, "tight once the singer comes in");
+  assert.equal(sung.diagnostics.vocalWordOnsets, 1);
+  assert.equal(stiff.diagnostics.vocalWordOnsets, 0, "no vocal yet at 59.9 s");
+  assert.equal(spread(0, 61.5).diagnostics.vocalWordOnsets, 1, "the onset is still detected at weight 0; only the response is weighted");
 });

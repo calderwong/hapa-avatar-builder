@@ -13,7 +13,7 @@ export const DUST_STEM_GROUPS = Object.freeze({
   vocals: ["vocals", "backing-vocals"],
   harmony: ["keyboard", "synth", "guitar", "strings", "piano", "other", "instrumental"],
 });
-export const DUST_STEM_LABELS = Object.freeze({ drums: "Drums → kicks and sparkle", bass: "Bass → swell", vocals: "Vocals → more dust", harmony: "Keys, synth, guitar → swirl" });
+export const DUST_STEM_LABELS = Object.freeze({ drums: "Drums → kicks and sparkle", bass: "Bass → swell", vocals: "Vocals → more dust; words follow the singer", harmony: "Keys, synth, guitar → swirl" });
 const clamp = (v, min = 0, max = 1) => Math.min(max, Math.max(min, Number.isFinite(v) ? v : 0));
 
 export function normalizeStemResponses(input = {}) {
@@ -45,6 +45,7 @@ export function createStemReflex(performance) {
         bass: groups.bass ? clamp(level(groups.bass, t)) : 0,
         vocals: groups.vocals ? clamp(level(groups.vocals, t)) : 0,
         harmony: groups.harmony ? clamp(level(groups.harmony, t)) : 0,
+        vocalsPresent: Boolean(groups.vocals),
       };
     },
   };

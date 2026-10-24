@@ -5,6 +5,7 @@ import { createSongAudioUpload } from './song-audio-upload.mjs';
 import { createAudioAtlas } from './audio-atlas.mjs';
 import { handleAudioAtlas } from './audio-atlas-routes.mjs';
 import { createScoreDustSessionStore, handleScoreDustSessions } from './echo-score-dust-sessions.mjs';
+import { attachScoreDustLoop } from './echo-score-dust-loops.mjs';
 import { verifyEchoPlaybackAudioReceipt } from './echo-playback-audio.mjs';
 import { readSongCardPlanRequest } from './song-card-plan-request.mjs';
 import { readEchoPlaybackProxyFrameIndex } from './echo-playback-proxy.mjs';
@@ -2674,6 +2675,19 @@ async function route(req, res) {
 
   if (pathname.startsWith('/api/echos/score-dust/sessions')) {
     if (await handleScoreDustSessions({ req, res, url, store: scoreDustSessionStore, requireAdmin, readBody, sendJson })) return;
+  }
+
+  if (pathname === '/api/echos/score-dust/loops' && req.method === 'POST') {
+    // Attach a Score Dust loop export to a Tarot card's loops or a Song Card's media.
+    if (!requireAdmin(req, res)) return;
+    try {
+      const value = await attachScoreDustLoop({ recordings: previewRecordingStore, mediaDir: MEDIA_DIR,
+        tarot: { read: readTarotStore, write: writeTarotStore }, songs: { read: readHapaSongStore, write: writeHapaSongStore } }, await readBody(req));
+      sendJson(res, 201, { ok: true, ...value });
+    } catch (error) {
+      sendJson(res, error.statusCode || 500, { ok: false, error: error.code || 'score_dust_loop_failed', message: error.message });
+    }
+    return;
   }
 
   if (pathname.startsWith('/api/echos/audio-atlas')) {
