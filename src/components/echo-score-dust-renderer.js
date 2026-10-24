@@ -7,7 +7,7 @@
 // (prepareFrame/paintFrame) so existing packaging can consume it.
 import { projectDustSwarm, dustBandsFromSpectrum, sampleDustTargetsFromPixels, DUST_BAND_COUNT } from "../domain/echo-dust-swarm.js";
 import { createScoreDustPerformance } from "../domain/echo-score-dust-performance.js";
-import { computeDustColours } from "../domain/echo-score-dust-colour.js";
+import { computeDustColours, paintDustBackground } from "../domain/echo-score-dust-colour.js";
 import { composeEchoVisualScore, prepareEchoScorePlayback, reflexOnlyEchoTimeline } from "../domain/echo-visual-score.js";
 
 const LIVE_PARTICLE_CAP = 4000;
@@ -157,6 +157,13 @@ function reflexPlayback(durationSeconds = 3600) {
   return prepareEchoScorePlayback(composeEchoVisualScore(timeline), timeline);
 }
 
+/** Authored score background (solid, gradient or section palette); black draws nothing. */
+export function paintScoreBackground(ctx, performanceHost, t, state, width, height) {
+  const background = performanceHost.playback?.score?.background;
+  if (!background || background.kind === "black" || !state) return false;
+  return paintDustBackground(ctx, background, width, height, performanceHost.style(t, state));
+}
+
 /** Live Echo preview host with an adaptive draw budget. */
 export function createEchoScoreDustRenderer() {
   const painter = createScoreDustPainter(), bands = new Float32Array(DUST_BAND_COUNT), images = new Map();
@@ -190,6 +197,7 @@ export function createEchoScoreDustRenderer() {
     const liveKick = beatFlash > 0.6 && previousBeatFlash <= 0.6 ? 0.3 + 0.5 * beatFlash : 0;
     previousBeatFlash = beatFlash;
     const { state } = performanceHost.advanceTo(t, { bandsAt: () => bands, liveKick, stemsAt });
+    paintScoreBackground(ctx, performanceHost, t, state, width, height);
     const budget = BUDGET_LEVELS[level];
     const next = state?.nextEvent ? ` · next ${state.nextEvent.kind} ${state.nextEvent.in.toFixed(1)}s` : "";
     const visible = painter.paint(ctx, { performance: performanceHost, state, t, width, height, frameSeconds: wallDt || 1 / 60, ...budget,
@@ -246,6 +254,7 @@ export function createEchoScoreDustOfflineRenderer({ width, height, fps = 30, du
     if (lastFrame === null || frameIndex !== lastFrame + 1) { painter.dispose(); }
     const t = songUs / 1e6, { state } = performanceHost.advanceTo(t, { bandsAt });
     context.clearRect(0, 0, width, height);
+    paintScoreBackground(context, performanceHost, t, state, width, height);
     const visible = painter.paint(context, { performance: performanceHost, state, t, width, height, frameSeconds: 1 / fps, label: labels ? `${state.cue.id} · ${performanceHost.swarm.formation}` : "" });
     lastFrame = frameIndex;
     prepared = { schemaVersion: "hapa.echo.score-dust.offline-frame.v1", frameIndex, songUs, width, height, fps, cueId: state.cue.id, formation: performanceHost.swarm.formation, visible, stateFingerprint: performanceHost.swarm.fingerprint() };

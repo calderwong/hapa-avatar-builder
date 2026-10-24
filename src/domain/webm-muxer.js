@@ -2,6 +2,9 @@
 // optional Opus audio track. Built for deterministic offline exports: every
 // block carries the explicit timestamp it was encoded with, never wall time.
 // Output includes SeekHead, Info (with Duration), Tracks, Clusters and Cues.
+// With `video.alpha`, each video frame carries a second VP8/VP9 frame (the
+// alpha plane encoded as luma) in BlockAdditional ID 1 and the track sets
+// AlphaMode, the layout browsers and libvpx decode as transparent video.
 
 const ID = Object.freeze({
   EBML: 0x1a45dfa3, EBMLVersion: 0x4286, EBMLReadVersion: 0x42f7, EBMLMaxIDLength: 0x42f2, EBMLMaxSizeLength: 0x42f3,
@@ -10,7 +13,8 @@ const ID = Object.freeze({
   Info: 0x1549a966, TimecodeScale: 0x2ad7b1, MuxingApp: 0x4d80, WritingApp: 0x5741, Duration: 0x4489,
   Tracks: 0x1654ae6b, TrackEntry: 0xae, TrackNumber: 0xd7, TrackUID: 0x73c5, TrackType: 0x83, CodecID: 0x86, CodecPrivate: 0x63a2,
   CodecDelay: 0x56aa, SeekPreRoll: 0x56bb, Video: 0xe0, PixelWidth: 0xb0, PixelHeight: 0xba, Audio: 0xe1, SamplingFrequency: 0xb5, Channels: 0x9f,
-  Cluster: 0x1f43b675, Timecode: 0xe7, SimpleBlock: 0xa3,
+  Cluster: 0x1f43b675, Timecode: 0xe7, SimpleBlock: 0xa3, AlphaMode: 0x53c0,
+  BlockGroup: 0xa0, Block: 0xa1, ReferenceBlock: 0xfb, BlockAdditions: 0x75a1, BlockMore: 0xa6, BlockAddID: 0xee, BlockAdditional: 0xa5,
   Cues: 0x1c53bb6b, CuePoint: 0xbb, CueTime: 0xb3, CueTrackPositions: 0xb7, CueTrack: 0xf7, CueClusterPosition: 0xf1,
 });
 const encoder = new TextEncoder();
@@ -53,6 +57,7 @@ function element(id, body) {
 }
 const elUint = (id, value, width) => element(id, uint(value, width));
 const elString = (id, value) => element(id, encoder.encode(value));
+const elInt = (id, value) => { const out = new Uint8Array(2); new DataView(out.buffer).setInt16(0, value); return element(id, out); };
 
 /** Standard OpusHead identification header (RFC 7845 §5.1). */
 export function opusHead({ channels = 2, sampleRate = 48000, preSkip = 312 } = {}) {
@@ -65,17 +70,21 @@ export function opusHead({ channels = 2, sampleRate = 48000, preSkip = 312 } = {
 
 /**
  * createWebmMuxer({video:{codec:'V_VP9',width,height}, audio?:{sampleRate,channels,codecPrivate,codecDelayNs}})
- * addVideoChunk({data, timestampUs, keyframe}); addAudioChunk({data, timestampUs});
+ * addVideoChunk({data, timestampUs, keyframe, alphaData?}); addAudioChunk({data, timestampUs});
  * finalize({durationUs}) → Uint8Array
  */
 export function createWebmMuxer({ video, audio = null, writingApp = "Hapa Echo Score Dust" } = {}) {
   if (!video?.width || !video?.height || !["V_VP8", "V_VP9"].includes(video.codec || "V_VP9")) throw new TypeError("A VP8/VP9 video track with width and height is required.");
   const blocks = [];
   let lastVideoUs = -1, lastAudioUs = -1;
-  function addVideoChunk({ data, timestampUs, keyframe }) {
+  let previousVideoMs = null;
+  function addVideoChunk({ data, timestampUs, keyframe, alphaData = null }) {
     if (!(timestampUs > lastVideoUs)) throw new RangeError("Video chunks must have increasing timestamps.");
+    if (video.alpha && !alphaData) throw new Error("This muxer has an alpha track; every video chunk needs alphaData.");
     lastVideoUs = timestampUs;
-    blocks.push({ track: 1, data: Uint8Array.from(data), us: timestampUs, keyframe: Boolean(keyframe) });
+    const ms = Math.round(timestampUs / 1000);
+    blocks.push({ track: 1, data: Uint8Array.from(data), us: timestampUs, keyframe: Boolean(keyframe), alpha: alphaData ? Uint8Array.from(alphaData) : null, referenceMs: keyframe || previousVideoMs === null ? null : previousVideoMs - ms });
+    previousVideoMs = ms;
   }
   function addAudioChunk({ data, timestampUs }) {
     if (!audio) throw new Error("This muxer has no audio track.");
@@ -92,7 +101,7 @@ export function createWebmMuxer({ video, audio = null, writingApp = "Hapa Echo S
       elString(ID.DocType, "webm"), elUint(ID.DocTypeVersion, 4), elUint(ID.DocTypeReadVersion, 2)]);
     const info = element(ID.Info, [elUint(ID.TimecodeScale, 1_000_000), elString(ID.MuxingApp, "hapa-webm-muxer"), elString(ID.WritingApp, writingApp), element(ID.Duration, float64(durationMs))]);
     const trackEntries = [element(ID.TrackEntry, [elUint(ID.TrackNumber, 1), elUint(ID.TrackUID, 1), elUint(ID.TrackType, 1), elString(ID.CodecID, video.codec || "V_VP9"),
-      element(ID.Video, [elUint(ID.PixelWidth, video.width), elUint(ID.PixelHeight, video.height)])])];
+      element(ID.Video, [elUint(ID.PixelWidth, video.width), elUint(ID.PixelHeight, video.height), ...(video.alpha ? [elUint(ID.AlphaMode, 1)] : [])])])];
     if (audio) trackEntries.push(element(ID.TrackEntry, [elUint(ID.TrackNumber, 2), elUint(ID.TrackUID, 2), elUint(ID.TrackType, 2), elString(ID.CodecID, "A_OPUS"),
       element(ID.CodecPrivate, audio.codecPrivate || opusHead(audio)), elUint(ID.CodecDelay, Math.round(audio.codecDelayNs ?? 6_500_000)), elUint(ID.SeekPreRoll, 80_000_000),
       element(ID.Audio, [element(ID.SamplingFrequency, float64(audio.sampleRate || 48000)), elUint(ID.Channels, audio.channels || 2)])]));
@@ -109,7 +118,14 @@ export function createWebmMuxer({ video, audio = null, writingApp = "Hapa Echo S
       }
       const head = new Uint8Array(4), view = new DataView(head.buffer);
       head[0] = 0x80 | block.track; view.setInt16(1, ms - current.ms); head[3] = block.keyframe ? 0x80 : 0;
-      current.parts.push(element(ID.SimpleBlock, concat([head, block.data])));
+      if (block.alpha) {
+        // BlockGroup: Block (flags carry no keyframe bit), the alpha frame as
+        // BlockAdditional ID 1, and a ReferenceBlock on non-keyframes.
+        head[3] = 0;
+        current.parts.push(element(ID.BlockGroup, [element(ID.Block, concat([head, block.data])),
+          element(ID.BlockAdditions, [element(ID.BlockMore, [elUint(ID.BlockAddID, 1), element(ID.BlockAdditional, block.alpha)])]),
+          ...(block.referenceMs !== null ? [elInt(ID.ReferenceBlock, block.referenceMs)] : [])]));
+      } else current.parts.push(element(ID.SimpleBlock, concat([head, block.data])));
     }
     flush();
     // Fixed-width positions keep the SeekHead and Cues sizes independent of offsets.

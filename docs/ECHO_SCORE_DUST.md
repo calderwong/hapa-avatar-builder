@@ -367,6 +367,43 @@ Song (`data/echo-visual-score-looks/looks.ndjson`, ignored by Git, own lock).
 The latest revision per name wins, a saved look replaces a built-in of the
 same name, and a removal is a tombstone, so history is kept.
 
+### P2 batch 2: backgrounds, album colour, loops, per-section editing, vocal words
+
+**Backgrounds** (P2 item 4, direction `background`; Colour → Background).
+- `black` (default) draws nothing. The preview canvas stays clear, so the
+  stage underneath shows, and exports use black.
+- `solid` and `gradient` take `#rrggbb` colours; gradients are radial or top to
+  bottom.
+- `palette` follows the current section's palette (crossfades and
+  desaturation included), darkened to at most 20% so the dust stays brightest.
+- The preview, the offline renderer and exports paint the same background.
+  The Record Garden 3D stage keeps its own environment.
+
+**Export background** is one of Score background, Director cut media or
+**Transparent (alpha)**. WebCodecs in Chromium cannot encode alpha
+(`NotSupportedError`), so a transparent export renders on pure black and
+splits each frame (`splitDustAlpha`). Alpha is the brightest channel; colour
+is un-premultiplied by it, which suits light-like dust. Colour and alpha are
+two VP9 encodes paired by timestamp, with matching keyframes. The muxer writes
+the alpha frame as WebM `BlockAdditional` ID 1 and sets `AlphaMode` on the
+track: the layout that browsers and libvpx decode as transparent. The receipt
+records `alpha.keyframeMismatches`. Composited over another picture, the
+result matches additive light, not opaque particles.
+
+**Album colour** (P2 item 5; Colour → Preset → *Album colour · phase · team*).
+`albumDustColour` (`src/domain/echo-score-dust-album.js`) places the Song in
+the album visual bible (`album-visual-language.js`). Songs of the same album
+are ordered by track number; the bible's phase (threshold → descent → signal →
+confrontation → return) chooses the palette-arc lightness and saturation; and
+the performance perspective's team colour gives the hue (a name, "Team Blue",
+or `#rrggbb`; otherwise the bible's violet). The arc is lifted into a readable
+band for light dust (lightness 0.5 + 0.4 × arc), a Hapa choice. The resolved
+spec is stored on the direction (`colour.album`), so a saved direction
+composes identically everywhere. A direction that only says `"preset":
+"album"` is resolved from the Song store by the UI hook and by the API/CLI
+alike. Looks keep `"album"` and drop the spec, so each Song resolves its own.
+The built-in **Album** look combines album colour with a palette background.
+
 ### Saved directions
 
 Directions, not composed scores, are saved. A direction is the compact human

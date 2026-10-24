@@ -45,7 +45,8 @@ export function presetPaletteFor(preset, groupIndex = 0) {
 export function normalizeDustColour(colour = {}) {
   return {
     mode: DUST_COLOUR_MODES.includes(colour.mode) ? colour.mode : "palette",
-    preset: DUST_COLOUR_PRESETS[colour.preset] ? colour.preset : null,
+    preset: DUST_COLOUR_PRESETS[colour.preset] || (colour.preset === "album" && validateAlbumColourSpec(colour.album)) ? colour.preset : null,
+    ...(colour.preset === "album" && validateAlbumColourSpec(colour.album) ? { album: { ...colour.album } } : {}),
     crossfadeSeconds: Number.isFinite(colour.crossfadeSeconds) ? clamp(colour.crossfadeSeconds, 0, 4) : 1.2,
     liftFlash: colour.liftFlash !== false,
     breakDesaturate: colour.breakDesaturate !== false,
@@ -146,4 +147,86 @@ export function hexToHsl(hex) {
   let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
   h = (h * 60 + 360) % 360;
   return { h: Math.round(h * 10) / 10 % 360, s: Math.round(clamp(s) * 1000) / 1000, l: Math.round(l * 1000) / 1000 };
+}
+
+// Backgrounds (P2 item 4). Black keeps the host's own backdrop (the preview
+// canvas stays clear); solid and gradient use authored colours; "palette"
+// follows the current section's palette, darkened so the dust stays brightest.
+export const DUST_BACKGROUND_KINDS = Object.freeze(["black", "solid", "gradient", "palette"]);
+export const DUST_BACKGROUND_SHAPES = Object.freeze(["linear", "radial"]);
+const HEX = /^#[0-9a-f]{6}$/i;
+
+export function normalizeDustBackground(background = {}) {
+  const kind = DUST_BACKGROUND_KINDS.includes(background?.kind) ? background.kind : "black";
+  return { kind, colour: HEX.test(background?.colour || "") ? background.colour.toLowerCase() : "#0b1026", colour2: HEX.test(background?.colour2 || "") ? background.colour2.toLowerCase() : "#020409",
+    shape: DUST_BACKGROUND_SHAPES.includes(background?.shape) ? background.shape : "radial" };
+}
+
+export function validateDustBackground(background) {
+  if (background === undefined) return true;
+  if (!background || typeof background !== "object" || Array.isArray(background)) return false;
+  if (Object.keys(background).some((k) => !["kind", "colour", "colour2", "shape"].includes(k))) return false;
+  if (background.kind !== undefined && !DUST_BACKGROUND_KINDS.includes(background.kind)) return false;
+  if (background.shape !== undefined && !DUST_BACKGROUND_SHAPES.includes(background.shape)) return false;
+  return [background.colour, background.colour2].every((c) => c === undefined || HEX.test(String(c)));
+}
+
+const css = ({ r, g, b }) => `rgb(${Math.round(clamp(r) * 255)} ${Math.round(clamp(g) * 255)} ${Math.round(clamp(b) * 255)})`;
+const hexRgb = (hex) => ({ r: parseInt(hex.slice(1, 3), 16) / 255, g: parseInt(hex.slice(3, 5), 16) / 255, b: parseInt(hex.slice(5, 7), 16) / 255 });
+
+/** The two background stops at this moment (pure; used by painters and tests). */
+export function dustBackgroundStops(background, style = null) {
+  const bg = normalizeDustBackground(background);
+  if (bg.kind === "black") return null;
+  if (bg.kind === "solid") { const c = hexRgb(bg.colour); return { shape: "solid", inner: c, outer: c }; }
+  if (bg.kind === "gradient") return { shape: bg.shape, inner: hexRgb(bg.colour), outer: hexRgb(bg.colour2) };
+  const palette = style?.palette?.length ? style.palette : [{ r: 0.2, g: 0.3, b: 0.6 }];
+  const a = palette[0], b = palette[1] || palette[0], grey = style?.desaturate || 0;
+  const dim = (c, k) => { const m = (c.r + c.g + c.b) / 3; return { r: (c.r + (m - c.r) * grey) * k, g: (c.g + (m - c.g) * grey) * k, b: (c.b + (m - c.b) * grey) * k }; };
+  return { shape: bg.shape, inner: dim(a, 0.2), outer: dim(b, 0.05) };
+}
+
+/** Paint the background onto a 2D context. Returns false for "black" (nothing drawn). */
+export function paintDustBackground(ctx, background, width, height, style = null) {
+  const stops = dustBackgroundStops(background, style);
+  if (!stops) return false;
+  if (stops.shape === "solid") ctx.fillStyle = css(stops.inner);
+  else {
+    const gradient = stops.shape === "radial"
+      ? ctx.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, Math.hypot(width, height) / 2)
+      : ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, css(stops.inner)); gradient.addColorStop(1, css(stops.outer));
+    ctx.fillStyle = gradient;
+  }
+  ctx.fillRect(0, 0, width, height);
+  return true;
+}
+
+// Album colour language (P2 item 5): the album visual bible gives each Song a
+// phase on the album's arc (threshold → return) and a primary colour from its
+// performance perspective's team colour. "album" resolves that into a stored
+// spec on the direction, so the score composes the same on every surface.
+const TEAM_HUES = Object.freeze({ red: 0, crimson: 348, scarlet: 8, orange: 28, amber: 40, gold: 46, yellow: 54, lime: 90, green: 135, emerald: 150, teal: 176, cyan: 188, aqua: 186, sky: 200, blue: 220, cobalt: 222, indigo: 245, violet: 268, purple: 285, magenta: 305, pink: 330, rose: 342, white: 220, silver: 215, black: 240 });
+
+/** Hue for a free-text team colour ("violet", "Team Blue", "#3355ff"); null when unknown. */
+export function teamColourHue(name) {
+  const text = String(name || "").trim().toLowerCase();
+  if (HEX.test(text)) return Math.round(hexToHsl(text).h);
+  const word = Object.keys(TEAM_HUES).find((key) => new RegExp(`\\b${key}\\b`).test(text));
+  return word ? TEAM_HUES[word] : null;
+}
+
+export function validateAlbumColourSpec(spec) {
+  return Boolean(spec && typeof spec === "object" && !Array.isArray(spec) && Number.isFinite(spec.hue) && spec.hue >= 0 && spec.hue < 360
+    && Number.isFinite(spec.saturation) && spec.saturation >= 0 && spec.saturation <= 1 && Number.isFinite(spec.lightness) && spec.lightness >= 0 && spec.lightness <= 1
+    && Object.keys(spec).every((k) => ["hue", "saturation", "lightness", "phase", "teamColour", "position", "of", "bibleHash"].includes(k))
+    && ["phase", "teamColour", "bibleHash"].every((k) => spec[k] === undefined || (typeof spec[k] === "string" && spec[k].length <= 80)));
+}
+
+/** Palette for one repeat group from a stored album spec. */
+export function albumPaletteFor(spec, groupIndex = 0) {
+  if (!validateAlbumColourSpec(spec)) return null;
+  const shift = (groupIndex * 17) % 40 - 20, h = (d) => Math.round(((spec.hue + shift + d) % 360 + 360) % 360);
+  const s = spec.saturation, l = spec.lightness;
+  return [{ h: h(0), s, l }, { h: h(28), s: Math.round(s * 85) / 100, l: Math.min(0.86, Math.round((l + 0.1) * 100) / 100) }, { h: h(-24), s: Math.round(s * 90) / 100, l: Math.max(0.3, Math.round((l - 0.08) * 100) / 100) }];
 }

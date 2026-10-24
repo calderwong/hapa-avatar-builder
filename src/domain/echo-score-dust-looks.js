@@ -6,14 +6,15 @@
 import { validateEchoScoreDirection } from "./echo-visual-score.js";
 
 export const DUST_LOOK_SCHEMA = "hapa.echo.dust-look.v1";
-const LOOK_KEYS = ["colour", "stemResponses", "eventResponses", "baseHue", "maxDensity"];
+const LOOK_KEYS = ["colour", "background", "stemResponses", "eventResponses", "baseHue", "maxDensity"];
 const LOOK_PLAY_KEYS = ["reducedMotion", "flashLimitPerSecond", "particleCount"];
 
 /** Built-in starting points; saved looks with the same name take precedence. */
 export const BUILTIN_DUST_LOOKS = Object.freeze([
   { name: "Club", builtin: true, look: { colour: { preset: "neon", mode: "frequency", liftFlash: true, brighterReturns: true }, eventResponses: { lift: "shock" }, stemResponses: { drums: 1, bass: 1, vocals: 0.8, harmony: 0.6 } } },
   { name: "Calm", builtin: true, look: { colour: { preset: "ice", mode: "height", liftFlash: false, crossfadeSeconds: 2.5 }, eventResponses: { lift: "gather", fall: "calm" }, stemResponses: { drums: 0.3, bass: 0.6, vocals: 1, harmony: 1 }, playSettings: { flashLimitPerSecond: 1 } } },
-  { name: "Film", builtin: true, look: { colour: { preset: "monochrome", mode: "depth", liftFlash: false, breakDesaturate: true }, maxDensity: 0.8 } },
+  { name: "Film", builtin: true, look: { colour: { preset: "monochrome", mode: "depth", liftFlash: false, breakDesaturate: true }, background: { kind: "gradient", colour: "#1a1a1f", colour2: "#050506", shape: "radial" }, maxDensity: 0.8 } },
+  { name: "Album", builtin: true, look: { colour: { preset: "album", mode: "palette", crossfadeSeconds: 2 }, background: { kind: "palette", shape: "radial" } } },
   { name: "Ember", builtin: true, look: { colour: { preset: "ember", mode: "speed" }, eventResponses: { lift: "kick" } } },
 ]);
 
@@ -25,6 +26,8 @@ export function dustLookSlug(name) {
 export function extractDustLook(direction = {}) {
   const look = {};
   for (const key of LOOK_KEYS) if (direction[key] !== undefined && direction[key] !== null) look[key] = structuredClone(direction[key]);
+  // An album spec belongs to one Song; the look keeps "album" and each Song resolves its own.
+  if (look.colour?.album) delete look.colour.album;
   const play = Object.fromEntries(LOOK_PLAY_KEYS.filter((key) => direction.playSettings?.[key] !== undefined).map((key) => [key, direction.playSettings[key]]));
   if (Object.keys(play).length) look.playSettings = play;
   return look;
@@ -34,6 +37,7 @@ export function extractDustLook(direction = {}) {
 export function applyDustLook(direction = {}, look = {}) {
   const next = { ...direction };
   for (const key of LOOK_KEYS) { if (look[key] !== undefined) next[key] = structuredClone(look[key]); else delete next[key]; }
+  if (next.colour?.album) delete next.colour.album;
   const play = { ...(direction.playSettings || {}) };
   for (const key of LOOK_PLAY_KEYS) { if (look.playSettings?.[key] !== undefined) play[key] = look.playSettings[key]; else delete play[key]; }
   if (Object.keys(play).length) next.playSettings = play; else delete next.playSettings;

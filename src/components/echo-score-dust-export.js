@@ -9,7 +9,7 @@
 import { createScoreDustPerformance } from "../domain/echo-score-dust-performance.js";
 import { createPcmBandSampler } from "../domain/echo-audio-bands.js";
 import { createWebmMuxer, opusHead } from "../domain/webm-muxer.js";
-import { createScoreDustPainter, rasterizePhraseTargets, loadImageTargets } from "./echo-score-dust-renderer.js";
+import { createScoreDustPainter, rasterizePhraseTargets, loadImageTargets, paintScoreBackground } from "./echo-score-dust-renderer.js";
 import { createCutMediaCompositor } from "./echo-score-dust-composite.js";
 
 export const SCORE_DUST_EXPORT_SCHEMA = "hapa.echo.score-dust.export.v1";
@@ -19,7 +19,27 @@ export const SCORE_DUST_EXPORT_FORMATS = Object.freeze({
   portrait: { width: 1080, height: 1920, label: "Portrait 1080×1920" },
   square: { width: 1080, height: 1080, label: "Square 1080×1080" },
 });
+export const SCORE_DUST_EXPORT_BACKGROUNDS = Object.freeze({ score: "Score background", cut: "Director cut media", transparent: "Transparent (alpha)" });
 const AUDIO_RATE = 48000, MAX_FILE_BYTES = 120 * 1024 * 1024;
+
+/**
+ * Split a frame rendered on pure black into straight-alpha colour (RGBX) and
+ * an I420 frame whose luma is the alpha. Dust is light, so alpha is the
+ * brightest channel and colour is un-premultiplied by it; composited over any
+ * background this reproduces the additive look.
+ */
+export function splitDustAlpha(rgba, width, height, colourOut = null, alphaOut = null) {
+  const pixels = width * height, colour = colourOut || new Uint8Array(pixels * 4), alpha = alphaOut || new Uint8Array(pixels * 1.5);
+  for (let i = 0, p = 0; i < pixels; i++, p += 4) {
+    const r = rgba[p], g = rgba[p + 1], b = rgba[p + 2], a = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    alpha[i] = a;
+    if (a) { const k = 255 / a; colour[p] = Math.min(255, Math.round(r * k)); colour[p + 1] = Math.min(255, Math.round(g * k)); colour[p + 2] = Math.min(255, Math.round(b * k)); }
+    else { colour[p] = colour[p + 1] = colour[p + 2] = 0; }
+    colour[p + 3] = 255;
+  }
+  alpha.fill(128, pixels);
+  return { colour, alpha };
+}
 const smoothstep = (x) => { const v = Math.min(1, Math.max(0, x)); return v * v * (3 - 2 * v); };
 
 function surface(width, height) {
@@ -88,7 +108,7 @@ async function encodeAudio({ audio, startSeconds, durationSeconds, bridgeSeconds
  * → { blob, mimeType, receipt }
  */
 export async function exportScoreDustVideo({ playback, settings = {}, audio = null, startSeconds = 0, durationSeconds = 15, format = "landscape", width = null, height = null,
-  fps = 30, loopBridgeSeconds = 0, particleCount = null, stems = null, background = "black", shots = null, resolveUri = (uri) => uri, signal = null, onProgress = () => {} } = {}) {
+  fps = 30, loopBridgeSeconds = 0, particleCount = null, stems = null, background = "score", shots = null, resolveUri = (uri) => uri, signal = null, onProgress = () => {} } = {}) {
   if (typeof VideoEncoder !== "function") throw new Error("This browser has no WebCodecs video encoder.");
   if (!playback?.stateAt) throw new Error("A prepared score playback is required.");
   const size = SCORE_DUST_EXPORT_FORMATS[format] || SCORE_DUST_EXPORT_FORMATS.landscape;
@@ -97,7 +117,9 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
   const start = Math.max(0, Math.min(Number(startSeconds) || 0, songEnd - 0.5)), length = Math.max(0.5, Math.min(Number(durationSeconds) || 15, songEnd - start));
   const bridge = Math.max(0, Math.min(Number(loopBridgeSeconds) || 0, length / 2, start));
   const frameCount = Math.round(length * fps), bridgeFrames = Math.round(bridge * fps);
-  const canvas = surface(w, h), ctx = canvas.getContext("2d", { alpha: false });
+  const transparent = background === "transparent";
+  if (transparent && (w % 2 || h % 2)) throw new Error("Transparent exports need even dimensions.");
+  const canvas = surface(w, h), ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: transparent });
   const painter = createScoreDustPainter(surface);
   const count = Math.min(20000, particleCount || settings.particleCount || 6000);
   // Pictures must be resident before the first frame so every frame sees the same targets.
@@ -115,26 +137,32 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
   let codec = "vp09.00.10.08", muxCodec = "V_VP9";
   if (!(await VideoEncoder.isConfigSupported({ codec, width: w, height: h, bitrate, framerate: fps })).supported) { codec = "vp8"; muxCodec = "V_VP8"; }
   const muxerAudio = audio ? { sampleRate: AUDIO_RATE, channels: 2 } : null;
-  const muxer = createWebmMuxer({ video: { codec: muxCodec, width: w, height: h }, audio: muxerAudio });
+  const muxer = createWebmMuxer({ video: { codec: muxCodec, width: w, height: h, alpha: transparent }, audio: muxerAudio });
   let encoderError = null;
+  // Transparent: colour and alpha are separate encodes paired by timestamp.
+  const colourChunks = new Map(), alphaChunks = new Map();
+  const take = (chunk) => { const data = new Uint8Array(chunk.byteLength); chunk.copyTo(data); return { data, timestampUs: chunk.timestamp, keyframe: chunk.type === "key" }; };
   const videoEncoder = new VideoEncoder({
-    output: (chunk) => { const data = new Uint8Array(chunk.byteLength); chunk.copyTo(data); muxer.addVideoChunk({ data, timestampUs: chunk.timestamp, keyframe: chunk.type === "key" }); },
+    output: (chunk) => { const c = take(chunk); if (transparent) colourChunks.set(c.timestampUs, c); else muxer.addVideoChunk(c); },
     error: (error) => { encoderError = error; },
   });
   videoEncoder.configure({ codec, width: w, height: h, bitrate, framerate: fps, latencyMode: "quality" });
+  const alphaEncoder = transparent ? new VideoEncoder({ output: (chunk) => { const c = take(chunk); alphaChunks.set(c.timestampUs, c); }, error: (error) => { encoderError = error; } }) : null;
+  alphaEncoder?.configure({ codec, width: w, height: h, bitrate: Math.max(300_000, Math.floor(bitrate / 2)), framerate: fps, latencyMode: "quality" });
+  const split = transparent ? { colour: new Uint8Array(w * h * 4), alpha: new Uint8Array(w * h * 1.5) } : null;
 
   // Background: black, or the Director cut's media drawn under the dust.
   const compositor = background === "cut" && Array.isArray(shots) && shots.length ? createCutMediaCompositor({ shots, resolveUri }) : null;
-  const drawBackground = async (t, loopTarget = null, weight = 0) => {
-    ctx.fillStyle = "#020409"; ctx.fillRect(0, 0, w, h);
-    if (!compositor) return;
+  const drawBackground = async (t, loopTarget = null, weight = 0, state = null) => {
+    ctx.fillStyle = transparent ? "#000" : "#020409"; ctx.fillRect(0, 0, w, h);
+    if (!compositor) { if (!transparent && state) paintScoreBackground(ctx, performance, t, state, w, h); return; }
     await compositor.drawAt(ctx, t, w, h);
     // Loop bridge: crossfade the footage back toward what precedes the loop start.
     if (loopTarget !== null && weight > 0) await compositor.drawAt(ctx, loopTarget, w, h, { alpha: weight });
   };
   const paintAt = async (t, extra = {}) => {
     const { state } = performance.advanceTo(t, { bandsAt: bandHook, stemsAt });
-    await drawBackground(t);
+    await drawBackground(t, null, 0, state);
     painter.paint(ctx, { performance, state, t, width: w, height: h, frameSeconds: 1 / fps, ...extra });
     return state;
   };
@@ -159,20 +187,40 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
         for (let i = 0; i < live.position.length; i++) view.position[i] = live.position[i] + (target.view.position[i] - live.position[i]) * weight;
         for (let i = 0; i < live.count; i++) { view.visibility[i] = live.visibility[i] + (target.view.visibility[i] - live.visibility[i]) * weight; view.band[i] = live.band[i] + (target.view.band[i] - live.band[i]) * weight; }
         const blendCamera = Object.fromEntries(Object.keys(camera).map((key) => [key, camera[key] + (target.camera[key] - camera[key]) * weight]));
-        await drawBackground(t, t - length, weight);
+        await drawBackground(t, t - length, weight, state);
         painter.paint(ctx, { performance, state, t, width: w, height: h, frameSeconds: 1 / fps, view, camera: blendCamera });
       } else await paintAt(t);
-      const frame = new VideoFrame(canvas, { timestamp: Math.round((k * 1e6) / fps), duration: Math.round(1e6 / fps) });
-      videoEncoder.encode(frame, { keyFrame: k % (fps * 2) === 0 });
-      frame.close();
-      while (videoEncoder.encodeQueueSize > 6) await new Promise((resolve) => setTimeout(resolve, 2));
+      const timing = { timestamp: Math.round((k * 1e6) / fps), duration: Math.round(1e6 / fps) }, keyFrame = k % (fps * 2) === 0;
+      if (transparent) {
+        splitDustAlpha(ctx.getImageData(0, 0, w, h).data, w, h, split.colour, split.alpha);
+        const colourFrame = new VideoFrame(split.colour, { format: "RGBX", codedWidth: w, codedHeight: h, ...timing });
+        const alphaFrame = new VideoFrame(split.alpha, { format: "I420", codedWidth: w, codedHeight: h, ...timing });
+        videoEncoder.encode(colourFrame, { keyFrame }); alphaEncoder.encode(alphaFrame, { keyFrame });
+        colourFrame.close(); alphaFrame.close();
+      } else {
+        const frame = new VideoFrame(canvas, timing);
+        videoEncoder.encode(frame, { keyFrame });
+        frame.close();
+      }
+      while (videoEncoder.encodeQueueSize > 6 || (alphaEncoder?.encodeQueueSize || 0) > 6) await new Promise((resolve) => setTimeout(resolve, 2));
       if (k % 5 === 0) onProgress({ phase: "video", frame: k, frames: frameCount });
     }
     await videoEncoder.flush();
+    await alphaEncoder?.flush();
   } finally {
     if (videoEncoder.state !== "closed") videoEncoder.close();
+    if (alphaEncoder && alphaEncoder.state !== "closed") alphaEncoder.close();
   }
   if (encoderError) throw encoderError;
+  let alphaKeyMismatches = 0;
+  if (transparent) {
+    for (const [us, chunk] of [...colourChunks].sort((a, b) => a[0] - b[0])) {
+      const alpha = alphaChunks.get(us);
+      if (!alpha) throw new Error(`Missing alpha frame at ${us} µs.`);
+      if (alpha.keyframe !== chunk.keyframe) alphaKeyMismatches++;
+      muxer.addVideoChunk({ ...chunk, alphaData: alpha.data });
+    }
+  }
   let audioBlocks = 0;
   if (audio) {
     onProgress({ phase: "audio", frame: frameCount, frames: frameCount });
@@ -189,6 +237,6 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
     blob: new Blob([bytes], { type: "video/webm" }), mimeType: "video/webm",
     receipt: { schemaVersion: SCORE_DUST_EXPORT_SCHEMA, scoreFingerprint: playback.score.fingerprint, seed: performance.swarm.seed, particles: count, codec,
       width: w, height: h, fps, frames: frameCount, startSeconds: start, durationSeconds: length, loopBridgeSeconds: bridge, bitrate,
-      audio: audio ? { codec: "opus", blocks: audioBlocks, bands: "pcm-spectrum" } : null, stems: stems?.available || [], background: compositor ? "cut" : "black", media, bytes: bytes.length, finalStateFingerprint: performance.swarm.fingerprint() },
+      audio: audio ? { codec: "opus", blocks: audioBlocks, bands: "pcm-spectrum" } : null, stems: stems?.available || [], background: compositor ? "cut" : transparent ? "transparent" : "score", scoreBackground: playback.score.background?.kind || "black", ...(transparent ? { alpha: { mode: "webm-block-additional", keyframeMismatches: alphaKeyMismatches } } : {}), media, bytes: bytes.length, finalStateFingerprint: performance.swarm.fingerprint() },
   };
 }

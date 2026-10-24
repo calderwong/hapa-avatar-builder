@@ -322,9 +322,10 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
   // The direction ledger has its own lock: an Atlas analysis holds the writer lock for minutes.
   const directionLock=()=>{fs.mkdirSync(visualScoreDirectionDir,{recursive:true});return acquireOwnedFileLock({lockPath:path.join(visualScoreDirectionDir,'.writer.lock'),schemaVersion:'hapa.echo.visual-score-directions.lock.v1',staleLegacyMs:120000});};
   const directionStore=createVisualScoreDirectionStore({dir:visualScoreDirectionDir,lock:directionLock,release:releaseOwnedFileLock});
-  function visualScore(id,input={}){const r=result(id);return atlasVisualScore(r,input,{saved:directionStore.list(r.song_id).latest});}
+  const songCards=()=>{try{return songs();}catch{return [];}};
+  function visualScore(id,input={}){const r=result(id);return atlasVisualScore(r,input,{saved:directionStore.list(r.song_id).latest,songs:songCards});}
   function visualScoreDirections(id){return directionStore.list(result(id).song_id);}
-  function saveVisualScoreDirectionFor(id,input={}){return saveVisualScoreDirection(result(id),directionStore,input);}
+  function saveVisualScoreDirectionFor(id,input={}){return saveVisualScoreDirection(result(id),directionStore,input,{songs:songCards});}
   const lookLock=()=>{fs.mkdirSync(visualScoreLookDir,{recursive:true});return acquireOwnedFileLock({lockPath:path.join(visualScoreLookDir,'.writer.lock'),schemaVersion:'hapa.echo.visual-score-looks.lock.v1',staleLegacyMs:120000});};
   const lookStore=createVisualScoreLookStore({dir:visualScoreLookDir,lock:lookLock,release:releaseOwnedFileLock});
   function query(id,options={}){

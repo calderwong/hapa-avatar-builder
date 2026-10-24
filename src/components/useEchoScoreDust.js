@@ -9,6 +9,7 @@ import {
 } from "../domain/echo-visual-score.js";
 import { scoreDustCastFor, scoreDustPictureOption } from "../domain/echo-score-dust-pictures.js";
 import { createStemReflex } from "../domain/echo-score-dust-stems.js";
+import { albumDustColour } from "../domain/echo-score-dust-album.js";
 
 const NO_DIRECTION = Object.freeze({});
 
@@ -19,6 +20,16 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
   const [save, setSave] = useState({ state: "idle", message: "" });
   const [reload, setReload] = useState(0);
   const [pictures, setPictures] = useState({ status: "idle", options: [] });
+  const [album, setAlbum] = useState(null);
+
+  // The Song's place in the album colour language, from Song Cards.
+  useEffect(() => {
+    if (!enabled || !songId) { setAlbum(null); return undefined; }
+    let cancelled = false;
+    fetch(`${apiBase}/api/hapa-songs`, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null))
+      .then((store) => { if (!cancelled) setAlbum(store ? albumDustColour(store.songs || [], songId) : null); }).catch(() => { if (!cancelled) setAlbum(null); });
+    return () => { cancelled = true; };
+  }, [enabled, songId, apiBase]);
 
   // Cast portraits available as picture motifs (song bindings, then evergreen cast).
   useEffect(() => {
@@ -69,7 +80,11 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
   // Stable identity: the host view re-renders on every playhead tick.
   // Same rule as the API: a saved revision that no longer validates is skipped.
   const savedInvalid = Boolean(remote.saved && !validateEchoScoreDirection(remote.saved.direction).ok);
-  const direction = useMemo(() => draft ?? (remote.saved && !savedInvalid ? remote.saved.direction : NO_DIRECTION), [draft, remote.saved, savedInvalid]);
+  const direction = useMemo(() => {
+    const chosen = draft ?? (remote.saved && !savedInvalid ? remote.saved.direction : NO_DIRECTION);
+    // "album" without a stored spec resolves here exactly as the API does.
+    return chosen.colour?.preset === "album" && !chosen.colour.album && album ? { ...chosen, colour: { ...chosen.colour, album } } : chosen;
+  }, [draft, remote.saved, savedInvalid, album]);
   const composed = useMemo(() => {
     if (!enabled) return null;
     const { timeline } = timelineInfo;
@@ -112,6 +127,6 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     score: composed?.score || null, validation: composed?.validation || null, settings: composed?.settings || null, playback: composed?.playback || null, playbackKey,
     setDraft: (update) => setDraft((current) => (typeof update === "function" ? update(current ?? (savedInvalid ? {} : remote.saved?.direction ?? {})) : update)),
     discard: () => { setDraft(null); setSave({ state: "idle", message: "" }); },
-    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures, stems,
+    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures, stems, album,
   };
 }

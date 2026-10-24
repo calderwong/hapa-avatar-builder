@@ -3,8 +3,8 @@ import { DUST_FORMATION_FAMILIES } from "../domain/echo-dust-swarm.js";
 import { ECHO_VISUAL_SCORE_CAMERA_MODES, ECHO_VISUAL_SCORE_EVENT_RESPONSES, ECHO_VISUAL_SCORE_PULSES, placeCameraMove } from "../domain/echo-visual-score.js";
 import { applyDustLook, extractDustLook, BUILTIN_DUST_LOOKS, dustLookSlug } from "../domain/echo-score-dust-looks.js";
 import { createAtlasClient } from "../domain/audio-atlas-ui.js";
-import { DUST_COLOUR_MODES, DUST_COLOUR_PRESET_LABELS, DUST_FLASH_LIMIT_PER_SECOND, hexToHsl, hslToHex } from "../domain/echo-score-dust-colour.js";
-import { decodeSongAudio, exportScoreDustVideo, SCORE_DUST_EXPORT_FORMATS } from "./echo-score-dust-export.js";
+import { DUST_COLOUR_MODES, DUST_COLOUR_PRESET_LABELS, DUST_FLASH_LIMIT_PER_SECOND, DUST_BACKGROUND_KINDS, normalizeDustBackground, hexToHsl, hslToHex } from "../domain/echo-score-dust-colour.js";
+import { decodeSongAudio, exportScoreDustVideo, SCORE_DUST_EXPORT_FORMATS, SCORE_DUST_EXPORT_BACKGROUNDS } from "./echo-score-dust-export.js";
 import { ensureEchoPreviewRecordingLocalSession } from "../domain/echo-preview-recording.js";
 import { useScoreDustSession } from "./useScoreDustSession.js";
 import { DUST_STEM_LABELS } from "../domain/echo-score-dust-stems.js";
@@ -13,6 +13,8 @@ import "./EchoScoreDustPanel.css";
 const EVENT_KINDS = ["lift", "fall", "build", "break", "change"];
 const COLOUR_MODE_LABELS = { palette: "Palette", frequency: "By frequency", speed: "By speed", height: "Along the shape", depth: "By depth", picture: "From the picture" };
 const COLOUR_SWITCHES = [["crossfadeSeconds", "Crossfade between sections"], ["liftFlash", "Flash on lifts"], ["breakDesaturate", "Drain colour in breaks"], ["brighterReturns", "Brighter returns"]];
+const BACKGROUND_LABELS = { black: "Black (preview shows the stage)", solid: "Solid colour", gradient: "Gradient", palette: "Follows section colours" };
+const title = (text) => String(text || "").replace(/^./, (c) => c.toUpperCase());
 const CAMERA_LABELS = { hold: "Hold still", drift: "Slow drift", orbit: "Orbit", push: "Push in" };
 const EVENT_LABELS = { lift: "Energy lift", fall: "Energy fall", build: "Gradual build", break: "Quiet break", change: "Spectral change" };
 const time = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -87,7 +89,7 @@ const EXPORT_RANGES = {
 function ScoreDustExport({ dust, currentTime, exportContext }) {
   const [range, setRange] = useState("clip"), [format, setFormat] = useState("landscape"), [fps, setFps] = useState(30);
   const hasCut = Boolean(exportContext?.shots?.some((shot) => shot?.media_uri || shot?.media_contract?.runtimeUri));
-  const [background, setBackground] = useState(hasCut ? "cut" : "black");
+  const [background, setBackground] = useState(hasCut ? "cut" : "score");
   const [job, setJob] = useState({ state: "idle" });
   const controller = useRef(null), download = useRef("");
   useEffect(() => () => { controller.current?.abort(); if (download.current) URL.revokeObjectURL(download.current); }, []);
@@ -116,7 +118,7 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
         const response = await fetch(`${exportContext?.apiBase || ""}/api/echo/preview-recordings?${query}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "video/webm" }, body: result.blob });
         saved = response.ok ? "Saved to Recordings." : `Not saved to Recordings (${response.status}); download it below.`;
       } catch (error) { saved = `Not saved to Recordings (${error.message}); download it below.`; }
-      const mediaNote = r.background === "cut" ? ` · over the cut (${r.media.drawn} media frames${r.media.unavailable.length ? `, ${r.media.unavailable.length} source${r.media.unavailable.length === 1 ? "" : "s"} unavailable` : ""})` : "";
+      const mediaNote = r.background === "transparent" ? " · transparent (alpha)" : r.background === "cut" ? ` · over the cut (${r.media.drawn} media frames${r.media.unavailable.length ? `, ${r.media.unavailable.length} source${r.media.unavailable.length === 1 ? "" : "s"} unavailable` : ""})` : "";
       setJob({ state: "done", receipt: r, message: `${r.frames} frames · ${(r.bytes / 1048576).toFixed(1)} MB · ${r.audio ? "with song audio" : "no audio"}${mediaNote}${r.loopBridgeSeconds ? ` · ${r.loopBridgeSeconds}s loop bridge` : ""}. ${saved}` });
     } catch (error) {
       setJob({ state: controller.current?.signal.aborted ? "idle" : "error", message: controller.current?.signal.aborted ? "Export cancelled." : String(error?.message || error) });
@@ -128,7 +130,7 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
       <label>Range <select aria-label="Export range" value={range} onChange={(e) => setRange(e.target.value)}>{Object.entries(EXPORT_RANGES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
       <label>Format <select aria-label="Export format" value={format} onChange={(e) => setFormat(e.target.value)}>{Object.entries(SCORE_DUST_EXPORT_FORMATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></label>
       <label>Background <select aria-label="Export background" value={background} onChange={(e) => setBackground(e.target.value)}>
-        <option value="cut" disabled={!hasCut}>Director cut media{hasCut ? "" : " (none in this cut)"}</option><option value="black">Black</option>
+        {Object.entries(SCORE_DUST_EXPORT_BACKGROUNDS).map(([k, v]) => <option key={k} value={k} disabled={k === "cut" && !hasCut}>{v}{k === "cut" && !hasCut ? " (none in this cut)" : ""}</option>)}
       </select></label>
       <label>FPS <select aria-label="Export frame rate" value={fps} onChange={(e) => setFps(Number(e.target.value))}><option value={30}>30</option><option value={60}>60</option></select></label>
       {job.state === "running"
@@ -138,6 +140,26 @@ function ScoreDustExport({ dust, currentTime, exportContext }) {
       {job.message && <span role={job.state === "error" ? "alert" : "status"} className="score-dust-hint">{job.message}</span>}
       {job.state === "done" && download.current && <a className="hapa-btn" href={download.current} download={`score-dust-${exportContext?.songId || "song"}-${Math.round(job.receipt.startSeconds)}s.webm`}>Download .webm</a>}
     </fieldset>
+  );
+}
+
+/** Score background: black, solid, gradient, or following the section palette. */
+function BackgroundControls({ background, update }) {
+  const bg = normalizeDustBackground(background);
+  const set = (patch) => update((current) => ({ background: { ...normalizeDustBackground(current.background), ...patch } }));
+  return (
+    <>
+      <label>Background <select aria-label="Background" value={bg.kind} onChange={(e) => (e.target.value === "black" ? update(() => ({ background: undefined })) : set({ kind: e.target.value }))}>
+        {DUST_BACKGROUND_KINDS.map((k) => <option key={k} value={k}>{BACKGROUND_LABELS[k]}</option>)}
+      </select></label>
+      {(bg.kind === "solid" || bg.kind === "gradient") && (
+        <label className="score-dust-swatches"><input type="color" aria-label="Background colour" value={bg.colour} onChange={(e) => set({ colour: e.target.value })} />
+          {bg.kind === "gradient" && <input type="color" aria-label="Background second colour" value={bg.colour2} onChange={(e) => set({ colour2: e.target.value })} />}</label>
+      )}
+      {(bg.kind === "gradient" || bg.kind === "palette") && (
+        <label>Shape <select aria-label="Background shape" value={bg.shape} onChange={(e) => set({ shape: e.target.value })}><option value="radial">Radial</option><option value="linear">Top to bottom</option></select></label>
+      )}
+    </>
   );
 }
 
@@ -324,11 +346,14 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
             </select></label>
             <label>Preset <select aria-label="Colour preset" value={direction.colour?.preset || ""} onChange={(e) => update((current) => ({ colour: { ...(current.colour || {}), preset: e.target.value || null } }))}>
               <option value="">Generated</option>
+              <option value="album" disabled={!dust.album}>{dust.album ? `Album colour · ${title(dust.album.phase)} · ${dust.album.teamColour}` : "Album colour (Song not in the album)"}</option>
               {Object.entries(DUST_COLOUR_PRESET_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select></label>
+            {direction.colour?.preset === "album" && score.colour?.album && <span className="score-dust-hint" data-testid="score-dust-album">Track {score.colour.album.position} of {score.colour.album.of}: {score.colour.album.phase} phase, {score.colour.album.teamColour} perspective.</span>}
             {direction.colour?.preset && direction.palettes && Object.keys(direction.palettes).length > 0 && (
               <button type="button" className="hapa-btn" onClick={() => update(() => ({ palettes: {} }))}>Apply preset to edited sections</button>
             )}
+            <BackgroundControls background={direction.background} update={update} />
             {COLOUR_SWITCHES.map(([key, label]) => (
               <label key={key}><input type="checkbox" aria-label={label}
                 checked={key === "crossfadeSeconds" ? (score.colour?.crossfadeSeconds ?? 1.2) > 0 : score.colour?.[key] !== false}

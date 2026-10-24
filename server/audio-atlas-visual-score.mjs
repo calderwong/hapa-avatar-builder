@@ -9,6 +9,14 @@ import {
   normalizeDustPlaySettings, ECHO_SCORE_DIRECTION_SCHEMA,
 } from '../src/domain/echo-visual-score.js';
 import { DUST_LOOK_SCHEMA, dustLookSlug, validateDustLook, mergeDustLooks } from '../src/domain/echo-score-dust-looks.js';
+import { albumDustColour } from '../src/domain/echo-score-dust-album.js';
+
+/** "album" without a stored spec resolves from the Song store, then composes like any preset. */
+function withAlbumColour(direction,songs,songId){
+ if(direction?.colour?.preset!=='album'||direction.colour.album)return direction;
+ const album=albumDustColour(typeof songs==='function'?songs():songs||[],songId);
+ return album?{...direction,colour:{...direction.colour,album}}:direction;
+}
 
 const fail=(message,statusCode=422)=>Object.assign(new Error(`Visual score: ${message}`),{statusCode});
 const MAX_INPUT_BYTES=64*1024;
@@ -56,14 +64,14 @@ export function createVisualScoreDirectionStore({dir,lock,release}){
  * → timeline, score, validation and play settings. Without a request direction
  * the Song's latest saved direction is used, so UI, API and CLI agree.
  */
-export function atlasVisualScore(result,input={},{saved=null}={}){
+export function atlasVisualScore(result,input={},{saved=null,songs=[]}={}){
  const timeline=buildEchoMusicalTimelineFromAtlas(result);
  const requested=parseValue(input.direction,'direction');
  const useSaved=input.useSaved!==false&&input.useSaved!=='false';
  if(requested){const check=validateEchoScoreDirection(requested);if(!check.ok)throw fail(`invalid direction: ${check.errors.map(e=>e.message).join(' ')}`);}
  // A saved revision that no longer validates is reported and skipped, never fatal to reads.
  const savedUsable=Boolean(useSaved&&saved&&validateEchoScoreDirection(saved.direction).ok);
- const direction=requested||(savedUsable?saved.direction:{});
+ const direction=withAlbumColour(requested||(savedUsable?saved.direction:{}),songs,result.song_id);
  const lyricLines=parseValue(input.lyricLines,'lyricLines',{array:true});
  if(lyricLines&&lyricLines.length>MAX_LYRIC_LINES)throw fail(`at most ${MAX_LYRIC_LINES} lyric lines`);
  const supplied=parseValue(input.score,'score');
@@ -80,9 +88,10 @@ export function atlasVisualScore(result,input={},{saved=null}={}){
 }
 
 /** Validate a direction against the run it was authored on, then append it. */
-export function saveVisualScoreDirection(result,store,input={}){
- const direction=parseValue(input.direction,'direction');
- if(!direction)throw fail('direction required');
+export function saveVisualScoreDirection(result,store,input={},{songs=[]}={}){
+ const parsed=parseValue(input.direction,'direction');
+ if(!parsed)throw fail('direction required');
+ const direction=withAlbumColour(parsed,songs,result.song_id);
  if(!Number.isSafeInteger(input.baseRevision)||input.baseRevision<0)throw fail('baseRevision must be the latest revision you edited (0 for the first)');
  const projection=atlasVisualScore(result,{...input,direction,useSaved:false});
  if(!projection.validation.ok)throw fail(`composed score is invalid: ${projection.validation.errors.map(e=>e.code).join(', ')}`);

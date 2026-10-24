@@ -11,7 +11,7 @@
 // score so one score can be replayed with controlled variation.
 
 import { DUST_FORMATION_FAMILIES, seedFromString, hashUnit } from "./echo-dust-swarm.js";
-import { DUST_COLOUR_MODES, DUST_COLOUR_PRESETS, DUST_FLASH_LIMIT_PER_SECOND, normalizeDustColour, presetPaletteFor } from "./echo-score-dust-colour.js";
+import { DUST_COLOUR_MODES, DUST_COLOUR_PRESETS, DUST_FLASH_LIMIT_PER_SECOND, normalizeDustColour, presetPaletteFor, albumPaletteFor, validateAlbumColourSpec, normalizeDustBackground, validateDustBackground } from "./echo-score-dust-colour.js";
 import { DUST_STEM_GROUPS, normalizeStemResponses } from "./echo-score-dust-stems.js";
 
 export const ECHO_MUSICAL_TIMELINE_SCHEMA = "hapa.echo.musical-timeline.v1";
@@ -236,7 +236,7 @@ export function composeEchoVisualScore(timeline, direction = {}, { lyricLines = 
     previousFamily = family;
     const paletteId = `palette-${group}`;
     // Pinned palette > colour preset > generated from the base hue.
-    palettes[paletteId] = direction.palettes?.[group] || presetPaletteFor(direction.colour?.preset, index) || paletteFor(baseHue, index, energy);
+    palettes[paletteId] = direction.palettes?.[group] || (direction.colour?.preset === "album" ? albumPaletteFor(direction.colour.album, index) : presetPaletteFor(direction.colour?.preset, index)) || paletteFor(baseHue, index, energy);
     motifs.push({ id: `motif-${group}`, repeatGroup: group, family, allowedFamilies: [family, ...pool.filter((f) => f !== family).slice(0, 2)], paletteId,
       ...(direction.images?.[group] ? { imageRef: structuredClone(direction.images[group]) } : {}),
       reason: pinned ? "pinned by direction" : `relative energy ${round(energy, 2)} → ${tier} family pool` });
@@ -269,6 +269,7 @@ export function composeEchoVisualScore(timeline, direction = {}, { lyricLines = 
     phraseSource: direction.phrases ? "direction" : lyricSelection ? { kind: "lyrics", status: lyricSelection.status, reason: lyricSelection.reason } : "none",
     cameraMoves: structuredClone(direction.cameraMoves || []),
     colour: normalizeDustColour(direction.colour),
+    background: normalizeDustBackground(direction.background),
     stemResponses: normalizeStemResponses(direction.stemResponses),
     limits: { maxDensity, minCueSeconds: ECHO_VISUAL_SCORE_MIN_CUE_SECONDS },
   };
@@ -326,7 +327,8 @@ export function validateEchoVisualScore(score, { timeline = null, assets = null 
     if (!ECHO_VISUAL_SCORE_CAMERA_MODES.includes(cue.camera?.mode)) error("camera-mode", `Unknown camera mode ${cue.camera?.mode}.`, ref);
   }
   if (cues.length && cursor < duration - epsilon) warn("cue-tail", `Score ends at ${round(cursor, 3)}s; the tail holds the last motif.`);
-  if (score.colour !== undefined && (!DUST_COLOUR_MODES.includes(score.colour?.mode) || (score.colour.preset && !DUST_COLOUR_PRESETS[score.colour.preset]))) error("colour", "Unknown colour mode or preset.");
+  if (score.colour !== undefined && (!DUST_COLOUR_MODES.includes(score.colour?.mode) || (score.colour.preset && !DUST_COLOUR_PRESETS[score.colour.preset] && !(score.colour.preset === "album" && validateAlbumColourSpec(score.colour.album))))) error("colour", "Unknown colour mode or preset.");
+  if (score.background !== undefined && !validateDustBackground(score.background)) error("background", "Unknown background kind, shape or colour.");
   for (const event of score.events || []) {
     if (!finite(event?.at) || event.at < 0 || event.at > duration + epsilon) error("event-time", "Event lies outside the song.", event?.id);
     if (!ECHO_VISUAL_SCORE_EVENT_RESPONSES.includes(event?.response)) error("event-response", `Unknown event response ${event?.response}.`, event?.id);
@@ -480,7 +482,7 @@ export function selectEchoScorePhrases(lines, timeline, { lyricAudioHash = null,
   return { status: phrases.length ? "selected" : "none-readable", reason: `${phrases.length} of ${rows.length} measured lines chosen`, phrases };
 }
 
-const DIRECTION_KEYS = new Set(["colour", "stemResponses", "families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
+const DIRECTION_KEYS = new Set(["colour", "background", "stemResponses", "families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
 
 /** Strict check for a saved or submitted direction (the human intent, not the composed score). */
 export function validateEchoScoreDirection(direction) {
@@ -505,8 +507,10 @@ export function validateEchoScoreDirection(direction) {
   const stems = direction.stemResponses;
   if (stems !== undefined && (!stems || typeof stems !== "object" || Array.isArray(stems) || Object.entries(stems).some(([k, v]) => !DUST_STEM_GROUPS[k] || !finite(v) || v < 0 || v > 1))) error("stemResponses", `stemResponses maps ${Object.keys(DUST_STEM_GROUPS).join("/")} to weights 0–1.`);
   const colour = direction.colour;
-  if (colour !== undefined && (!colour || typeof colour !== "object" || Array.isArray(colour) || (colour.mode !== undefined && !DUST_COLOUR_MODES.includes(colour.mode)) || (colour.preset !== undefined && colour.preset !== null && !DUST_COLOUR_PRESETS[colour.preset])
-    || Object.keys(colour).some((k) => !["mode", "preset", "crossfadeSeconds", "liftFlash", "breakDesaturate", "brighterReturns"].includes(k)))) error("colour", `colour allows mode (${DUST_COLOUR_MODES.join("/")}), a preset and the dynamics switches.`);
+  if (colour !== undefined && (!colour || typeof colour !== "object" || Array.isArray(colour) || (colour.mode !== undefined && !DUST_COLOUR_MODES.includes(colour.mode)) || (colour.preset !== undefined && colour.preset !== null && !DUST_COLOUR_PRESETS[colour.preset] && colour.preset !== "album")
+    || (colour.album !== undefined && !validateAlbumColourSpec(colour.album))
+    || Object.keys(colour).some((k) => !["mode", "preset", "album", "crossfadeSeconds", "liftFlash", "breakDesaturate", "brighterReturns"].includes(k)))) error("colour", `colour allows mode (${DUST_COLOUR_MODES.join("/")}), a preset (or "album" with an album spec) and the dynamics switches.`);
+  if (!validateDustBackground(direction.background)) error("background", "background allows kind black|solid|gradient|palette, #rrggbb colour/colour2 and shape linear|radial.");
   return { ok: errors.length === 0, errors };
 }
 
