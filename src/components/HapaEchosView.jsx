@@ -2309,7 +2309,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const visualSignalIsolation = useMemo(() => echoVisualSignalIsolation(activePreparedPerformance, activeVisualSignalSolo), [activePreparedPerformance, activeVisualSignalSolo]);
   // Score Dust: whole-song structure from the Audio Atlas (prepared performance
   // second), an editable direction, and per-frame reflexes in the canvas loop.
-  const usesScoreDust = useMemo(() => (activeProject?.visualizer_timeline || []).some((item) => item?.visualizer_id === "builtin:score-dust"), [activeProject]);
+  // Ingress: a cue can name Score Dust, or the preview toggle shows it over any
+  // Song without editing the Director cut (it is not final-render ready).
+  const [scoreDustPreview, setScoreDustPreview] = useState(false);
+  const scoreDustPreviewRef = useRef(false);
+  useEffect(() => { scoreDustPreviewRef.current = scoreDustPreview; }, [scoreDustPreview]);
+  const usesScoreDust = useMemo(() => scoreDustPreview || (activeProject?.visualizer_timeline || []).some((item) => item?.visualizer_id === "builtin:score-dust"), [activeProject, scoreDustPreview]);
   const scoreDust = useEchoScoreDust({
     enabled: usesScoreDust, songId: selectedProjectSongId, apiBase: API_BASE, preparedPerformance: activePreparedPerformance,
     lyricLines: Array.isArray(activeProject?.timed_lyrics) ? activeProject.timed_lyrics : null, lyricAudioHash: activeProject?.lyrics?.audioHash || null,
@@ -3795,7 +3800,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         || null;
 
       const budgetHoldsAllShaders = directorPreviewFrame?.visualBudget?.status === "within-budget" && directorPreviewFrame.visualizers.length === 0 && directorPreviewFrame.visualBudget.suppressedIds.length > 0;
-      if (hasDirectorShowGraph && budgetHoldsAllShaders) {
+      if (scoreDustPreviewRef.current) {
+        // Preview toggle: Score Dust replaces the cut's visualizers on screen only.
+        pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
+        publishExactStatus({ status: "idle", sourceId: "", error: "" });
+        if (scoreDustKey !== scoreDustRef.current.key) {
+          scoreDustKey = scoreDustRef.current.key;
+          scoreDustRenderer.setPlayback(scoreDustRef.current.playback, scoreDustRef.current.settings, scoreDustRef.current.source);
+        }
+        scoreDustRenderer.draw(ctx, { width, height, t, fft: f.fft, beatFlash: f.beatFlash, playing: isPlayingRef.current });
+      } else if (hasDirectorShowGraph && budgetHoldsAllShaders) {
         pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
         publishExactStatus({ status: "idle", sourceId: "", error: "" });
       } else if (hasDirectorShowGraph) {
@@ -7832,6 +7846,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
 
                                 <div role="status" style={{ fontSize: 13, padding: 8 }}>
                                   <label>Audio visuals <select aria-label="Audio visuals" value={audioVisualMode} disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current} onChange={event => setAudioVisualMode(event.target.value)}><option value="prepared">Prepared song timing</option><option value="live">Live monitoring</option>{recordedSignalReplay && <option value="replay">Recorded signals</option>}</select></label>{" "}
+                                  <label title="Preview only: shows Score Dust over this Song without changing the Director cut."><input type="checkbox" data-testid="echo-score-dust-toggle" checked={scoreDustPreview} disabled={previewRecordingActiveRef.current} onChange={event => setScoreDustPreview(event.target.checked)} /> Score Dust preview</label>{" "}
                                   {audioVisualMode === "prepared" ? activePreparedPerformance ? "Prepared signals ready. Seeking reuses cached timing." : preparedAudio.message || "Loading prepared timing…" : audioVisualMode === "replay" ? activeRecordedSignalReplay ? `Recorded signals: ${activeRecordedSignalReplay.startSeconds.toFixed(2)}–${activeRecordedSignalReplay.endSeconds.toFixed(2)}s. Outside this interval signals are silent.` : "Select the original song and cut to replay these signals." : "Live monitoring depends on playback history."}
                                   {audioVisualMode === "live" && <label><input type="checkbox" checked={captureLiveSignals} disabled={previewRecordingActiveRef.current} onChange={event => setCaptureLiveSignals(event.target.checked)} /> Save replayable signals with recording (64 MB limit)</label>}
                                   {activePreparedPerformance?.missingData?.unverifiedOrigins?.length > 0 && <span> Stem alignment pending review.</span>}

@@ -179,6 +179,20 @@ same targets. Trail fade is computed from elapsed song time, so trail length
 does not depend on frame rate. Packaging and encoding stay with the existing
 HyperFrames/Living Light owners; this renderer only supplies frames.
 
+### How to open it
+
+**Echos Album → Director Workbench → pick a song blueprint → Preview tab →
+tick _Score Dust preview_** (next to *Audio visuals*, under the player). The
+Score Dust panel appears below that row. The toggle is preview-only: it
+replaces the cut's visualizers on screen and does not edit the Director cut.
+
+A cue whose visualizer is `builtin:score-dust` also opens it. The cue picker
+lists Score Dust but greys it out, because the picker only accepts *Final
+render ready* shaders, so today the toggle is the working way in.
+For full structure the Song needs a completed Audio Atlas run with *Detect
+beats* (Echos Album → *Open audio workspace*). Without one it falls back to
+prepared timing or live reflex only, and the panel says which.
+
 ### Echo preview host
 
 `builtin:score-dust` (**Score Dust**) is a new built-in visualizer in the
