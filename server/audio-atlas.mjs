@@ -11,6 +11,7 @@ import {createAtlasTextSearch} from './audio-atlas-text-search.mjs';
 import {validateTimingReference, timingEvaluation} from '../src/domain/audio-atlas-references.js';
 import { buildAtlasContract, summarizeAtlasContract, CONTRACT_VERSION } from './audio-atlas-contract.mjs';
 import { inspectAudioInventory } from './audio-atlas-inventory.mjs';
+import { atlasVisualScore } from './audio-atlas-visual-score.mjs';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -318,7 +319,10 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
       atomic(path.join(directory(id),'reviews.json'),next);return noiseReport(r,next,event.asset_id);
     }finally{releaseOwnedFileLock(lease);}
   }
-  function query(id,{op='brief',asset='master',start,end,q='',kind='',limit=100,offset=0,view='original',detail='summary',channel=0}={}){
+  function visualScore(id,input={}){return atlasVisualScore(result(id),input);}
+  function query(id,options={}){
+    const {op='brief',asset='master',start,end,q='',kind='',limit=100,offset=0,view='original',detail='summary',channel=0}=options;
+    if(op==='visual-score')return visualScore(id,options);
     if(!['original','effective'].includes(view))throw fail('Query view must be original or effective');
     const r=result(id);if(op==='contract'){if(!['summary','full'].includes(detail))throw fail('Contract detail must be summary or full');const c=buildAtlasContract(r);return detail==='full'?c:summarizeAtlasContract(c);}const a=r.assets.find(x=>x.id===asset);if(!a||a.status!=='ready')throw fail('Asset unavailable',404);
     if(op==='structure'){if(asset!=='master')throw fail('Structure evidence is currently measured on Master only',422);return r.musical_structure||{status:'not_requested',regions:[],boundaries:[],repeats:[],transitions:[],frames:[],quality_qualified:false,notice:'This saved run predates structure analysis. Explicitly analyze again to measure it.'};}
@@ -393,5 +397,5 @@ export function createAudioAtlas({root,storage=path.join(root,'data/audio-atlas'
   }
   const textSearch=createAtlasTextSearch({root,storage,result,lock,atomic,runner,runtimeIdentity,checkAnalysis:()=>{descriptions.ensureNoOrphans();if(jobs().some(j=>j.state==='orphaned'))throw fail('An orphaned analysis worker remains alive',409);}});
   const descriptions=createAtlasDescriptions({root,storage,result,lock,atomic,runner,runtimeIdentity,checkAnalysis:()=>{textSearch.ensureNoOrphans();if(jobs().some(j=>j.state==='orphaned'))throw fail('An orphaned analysis worker remains alive',409);}});
-  return {derived:id=>{const r=result(id);return {notes:deriveNotes(r),activity:r.assets.map(a=>deriveActivity(r,a)),descriptions:descriptions.export(id)};},describe:descriptions.start,descriptions:descriptions.get,waitDescription:descriptions.wait,cancelDescription:descriptions.cancel,reviewDescription:descriptions.review,searchText:textSearch.start,textSearches:textSearch.get,cancelTextSearch:textSearch.cancel,contract:id=>buildAtlasContract(result(id)),inventory:()=>inspectAudioInventory(songs(),{root}),audio,list,jobs,status,start,wait,cancel,result,query,review,reviews,reference,noiseReference,close:async()=>{for(const h of active.values())h.controller.abort();await Promise.allSettled([descriptions.close(),textSearch.close(),...[...active.values()].map(h=>h.promise)]);}};
+  return {visualScore,derived:id=>{const r=result(id);return {notes:deriveNotes(r),activity:r.assets.map(a=>deriveActivity(r,a)),descriptions:descriptions.export(id)};},describe:descriptions.start,descriptions:descriptions.get,waitDescription:descriptions.wait,cancelDescription:descriptions.cancel,reviewDescription:descriptions.review,searchText:textSearch.start,textSearches:textSearch.get,cancelTextSearch:textSearch.cancel,contract:id=>buildAtlasContract(result(id)),inventory:()=>inspectAudioInventory(songs(),{root}),audio,list,jobs,status,start,wait,cancel,result,query,review,reviews,reference,noiseReference,close:async()=>{for(const h of active.values())h.controller.abort();await Promise.allSettled([descriptions.close(),textSearch.close(),...[...active.values()].map(h=>h.promise)]);}};
 }

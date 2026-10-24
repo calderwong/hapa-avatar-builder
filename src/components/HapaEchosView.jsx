@@ -2,9 +2,11 @@ import {createLivingLightRecordVisit,loadLivingLightRecordDestination} from '../
 import { compareEchoSongs } from '../domain/echo-album-navigation.js';
 import {livingLightCutMedia} from "../domain/living-light-media.js";
 import SongAudioUpload from './SongAudioUpload.jsx';
-import { matchesFileFilter } from '../domain/audio-atlas-ui.js';
+import { matchesFileFilter, createAtlasClient } from '../domain/audio-atlas-ui.js';
 import SongAudioAvailability, { useSongAudioInventory } from "./SongAudioAvailability.jsx";
 import AudioAtlasPanel from "./AudioAtlasPanel.jsx";
+import { buildEchoMusicalTimelineFromPerformance, composeEchoVisualScore, normalizeDustPlaySettings, prepareEchoScorePlayback } from "../domain/echo-visual-score.js";
+import { createEchoScoreDustRenderer } from "./echo-score-dust-renderer.js";
 import { echoTimelineMediaInstances, hyperFramesMediaOpacityState } from "../domain/echo-media-presentation.js";
 import { prepareEchoAudioPlayback } from '../domain/echo-audio-playback.js';
 import { transitionLivingLightAudition } from '../domain/living-light-audition.js';
@@ -2304,6 +2306,39 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const activeVisualSignalSolo = activePreparedPerformance && visualSignalSolo.key === preparedAudioKey
     && (visualSignalSolo.role === "__silence__" || visualSignalRoles.includes(visualSignalSolo.role)) ? visualSignalSolo.role : "";
   const visualSignalIsolation = useMemo(() => echoVisualSignalIsolation(activePreparedPerformance, activeVisualSignalSolo), [activePreparedPerformance, activeVisualSignalSolo]);
+  // Score Dust reads whole-song structure once (Audio Atlas first, prepared
+  // performance second) and leaves per-frame reflexes to the canvas loop.
+  const usesScoreDust = useMemo(() => (activeProject?.visualizer_timeline || []).some((item) => item?.visualizer_id === "builtin:score-dust"), [activeProject]);
+  const scoreDustRef = useRef({ key: "", playback: null, settings: null, source: "reflex-only" });
+  useEffect(() => {
+    if (!usesScoreDust || !selectedProjectSongId) return undefined;
+    // Never let the previous Song's score play over this one while it loads.
+    scoreDustRef.current = { key: `${selectedProjectSongId}:loading`, playback: null, settings: null, source: "loading" };
+    let cancelled = false;
+    const install = (playback, settings, source) => {
+      if (!cancelled) scoreDustRef.current = { key: `${selectedProjectSongId}:${source}:${playback?.score?.fingerprint || "none"}`, playback, settings, source };
+    };
+    const fallback = () => {
+      try {
+        if (!activePreparedPerformance) return install(null, null, "reflex-only");
+        const timeline = buildEchoMusicalTimelineFromPerformance(activePreparedPerformance);
+        install(prepareEchoScorePlayback(composeEchoVisualScore(timeline), timeline), normalizeDustPlaySettings({}, timeline), "prepared-performance");
+      } catch {
+        install(null, null, "reflex-only");
+      }
+    };
+    const { request } = createAtlasClient(API_BASE);
+    request(`/jobs?songId=${encodeURIComponent(selectedProjectSongId)}`)
+      .then(async ({ jobs = [] }) => {
+        const run = jobs.find((job) => job.state === "complete");
+        if (!run || cancelled) return fallback();
+        const value = await request(`/jobs/${encodeURIComponent(run.id)}/query?op=visual-score`);
+        if (!value.validation?.ok) return fallback();
+        install(prepareEchoScorePlayback(value.score, value.timeline, { pulse: value.playSettings?.pulse }), value.playSettings, `atlas ${run.id}`);
+      })
+      .catch(fallback);
+    return () => { cancelled = true; };
+  }, [usesScoreDust, selectedProjectSongId, activePreparedPerformance]);
   const preparedBindingsKey = JSON.stringify(activeShowGraph?.directorV2?.modulationBindings || []);
   const preparedModulationResult = useMemo(() => {
     if (!activePreparedPerformance || preparedBindingsKey === "[]") return { timeline: null, error: null };
@@ -3314,6 +3349,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     { id: "builtin:waveform-horizon", title: "Waveform Horizon", shaderType: "generator" },
     { id: "builtin:beat-grid-pulse", title: "Beat Grid Pulse", shaderType: "generator" },
     { id: "builtin:particle-storm", title: "Particle Storm", shaderType: "generator" },
+    { id: "builtin:score-dust", title: "Score Dust", shaderType: "generator" },
     { id: "builtin:cymatic-rings", title: "Cymatic Rings", shaderType: "generator" },
     { id: "builtin:liquid-aurora", title: "Liquid Aurora", shaderType: "generator" },
     { id: "builtin:starfield-warp", title: "Starfield Warp", shaderType: "generator" },
@@ -3544,6 +3580,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     const horizonHistory = [];
     const particles = [];
     const stars = [];
+    const scoreDust = createEchoScoreDustRenderer();
+    let scoreDustKey = "";
 
     const publishExactStatus = (next = {}) => {
       if (disposed) return;
@@ -4471,6 +4509,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
           ctx.arc(p.x, p.y, p.size * (1 + f.beatFlash), 0, Math.PI * 2);
           ctx.fill();
         }
+      } else if (renderMode === "score-dust") {
+        // Score Dust: persistent particles directed by the visual score.
+        if (scoreDustKey !== scoreDustRef.current.key) {
+          scoreDustKey = scoreDustRef.current.key;
+          scoreDust.setPlayback(scoreDustRef.current.playback, scoreDustRef.current.settings, scoreDustRef.current.source);
+        }
+        scoreDust.draw(ctx, { width, height, t, fft: f.fft, beatFlash: f.beatFlash, playing: isPlayingRef.current });
       } else if (renderMode === "cymatic-rings") {
         // Cymatic Rings
         const cxC = width / 2, cyC = height / 2;
@@ -4651,6 +4696,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     render();
     return () => {
       disposed = true;
+      scoreDust.dispose();
       cancelAnimationFrame(animFrame);
       window.clearTimeout(cadenceTimer);
       pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
