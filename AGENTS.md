@@ -1,12 +1,15 @@
 # Hapa Avatar Builder Agent Guide
 
-## ACTIVE GITHUB SUBMISSION FREEZE
+## GitHub submission freeze lifted — 2026-10-23
 
-The GitHub repository `calderwong/hapa-avatar-builder` is locked for OpenAI Build Week judging. Do not push, create/update/delete branches or tags, open/update/merge pull requests, publish releases, dispatch workflows, change Pages/settings/metadata, or make any other GitHub-side mutation. Local edits, tests, branches, and commits remain allowed; GitLab is not authorization to mirror anything into GitHub.
+Calder explicitly lifted the OpenAI Build Week submission freeze for
+`calderwong/hapa-avatar-builder` on 2026-10-23 so agents can update the repository.
+The former branch/tag freeze and local freeze-only pre-push guard are retired.
+Do not restore them based on older notes. Ordinary task authorization and
+repository protections still apply; lifting this freeze does not authorize
+unrelated publication or changes to other repositories.
 
-This freeze does not auto-expire. Leave it active through August 12, 2026 Pacific Time and afterward until Calder explicitly lifts it. Before August 13, any one-time exception must be an active request from Calder naming this repository and the exact mutation. Never rely on inferred, inherited, old, or general permission. Do not bypass the repository rulesets or local pre-push hook without that task-specific authorization, and restore every guard immediately after an authorized exception.
-
-Canonical lock record: `/Users/calderwong/.hapa-second-brain/profiles/hapa-avatar-builder-github-freeze.md`.
+Historical lock and lift record: `~/.hapa-second-brain/profiles/hapa-avatar-builder-github-freeze.md`.
 
 <!-- HAPA_ECOSYSTEM_AGENT_CONTEXT_START -->
 ## Ecosystem stage and claim discipline
@@ -155,7 +158,7 @@ For Echo Album continuation, read `$HAPA_FRONT_DOOR_ROOT/docs/REQUIREMENT_COMPLE
 
 ## Living Light album integration — active implementation
 
-Calder authorized execution on 2026-10-06 after the detailed planning pass. Read `docs/LIVING_LIGHT_INTEGRATION.md` for the current native host boundary, source truth, board and acceptance limits. Board project: `hapa-living-light-avatar-builder`. Catalog definitions are not durable Cards or qualified audio signals. Existing Audio Atlas owns alignment and missing-media remediation. Preserve the GitHub freeze.
+Calder authorized execution on 2026-10-06 after the detailed planning pass. Read `docs/LIVING_LIGHT_INTEGRATION.md` for the current native host boundary, source truth, board and acceptance limits. Board project: `hapa-living-light-avatar-builder`. Catalog definitions are not durable Cards or qualified audio signals. Existing Audio Atlas owns alignment and missing-media remediation. The former GitHub submission freeze was lifted by Calder on 2026-10-23.
 
 <!-- HAPA_AUDIO_ATLAS_OWNER_V1 -->
 ## Audio Atlas is the song-understanding and lyric-timing owner (2026-10-09)
