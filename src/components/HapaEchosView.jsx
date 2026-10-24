@@ -5,6 +5,9 @@ import SongAudioUpload from './SongAudioUpload.jsx';
 import { matchesFileFilter } from '../domain/audio-atlas-ui.js';
 import SongAudioAvailability, { useSongAudioInventory } from "./SongAudioAvailability.jsx";
 import AudioAtlasPanel from "./AudioAtlasPanel.jsx";
+import { createEchoScoreDustRenderer } from "./echo-score-dust-renderer.js";
+import { useEchoScoreDust } from "./useEchoScoreDust.js";
+import EchoScoreDustPanel from "./EchoScoreDustPanel.jsx";
 import { echoTimelineMediaInstances, hyperFramesMediaOpacityState } from "../domain/echo-media-presentation.js";
 import { prepareEchoAudioPlayback } from '../domain/echo-audio-playback.js';
 import { transitionLivingLightAudition } from '../domain/living-light-audition.js';
@@ -2304,6 +2307,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const activeVisualSignalSolo = activePreparedPerformance && visualSignalSolo.key === preparedAudioKey
     && (visualSignalSolo.role === "__silence__" || visualSignalRoles.includes(visualSignalSolo.role)) ? visualSignalSolo.role : "";
   const visualSignalIsolation = useMemo(() => echoVisualSignalIsolation(activePreparedPerformance, activeVisualSignalSolo), [activePreparedPerformance, activeVisualSignalSolo]);
+  // Score Dust: whole-song structure from the Audio Atlas (prepared performance
+  // second), an editable direction, and per-frame reflexes in the canvas loop.
+  const usesScoreDust = useMemo(() => (activeProject?.visualizer_timeline || []).some((item) => item?.visualizer_id === "builtin:score-dust"), [activeProject]);
+  const scoreDust = useEchoScoreDust({
+    enabled: usesScoreDust, songId: selectedProjectSongId, apiBase: API_BASE, preparedPerformance: activePreparedPerformance,
+    lyricLines: Array.isArray(activeProject?.timed_lyrics) ? activeProject.timed_lyrics : null, lyricAudioHash: activeProject?.lyrics?.audioHash || null,
+    durationSeconds: Number(activeProject?.duration) || 600,
+  });
+  const scoreDustRef = useRef({ key: "", playback: null, settings: null, source: "reflex-only" });
+  useEffect(() => {
+    scoreDustRef.current = { key: scoreDust.playbackKey, playback: scoreDust.playback, settings: scoreDust.settings, source: scoreDust.source };
+  }, [scoreDust.playbackKey, scoreDust.playback, scoreDust.settings, scoreDust.source]);
   const preparedBindingsKey = JSON.stringify(activeShowGraph?.directorV2?.modulationBindings || []);
   const preparedModulationResult = useMemo(() => {
     if (!activePreparedPerformance || preparedBindingsKey === "[]") return { timeline: null, error: null };
@@ -3314,6 +3329,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     { id: "builtin:waveform-horizon", title: "Waveform Horizon", shaderType: "generator" },
     { id: "builtin:beat-grid-pulse", title: "Beat Grid Pulse", shaderType: "generator" },
     { id: "builtin:particle-storm", title: "Particle Storm", shaderType: "generator" },
+    { id: "builtin:score-dust", title: "Score Dust", shaderType: "generator" },
     { id: "builtin:cymatic-rings", title: "Cymatic Rings", shaderType: "generator" },
     { id: "builtin:liquid-aurora", title: "Liquid Aurora", shaderType: "generator" },
     { id: "builtin:starfield-warp", title: "Starfield Warp", shaderType: "generator" },
@@ -3544,6 +3560,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     const horizonHistory = [];
     const particles = [];
     const stars = [];
+    const scoreDustRenderer = createEchoScoreDustRenderer();
+    let scoreDustKey = "";
 
     const publishExactStatus = (next = {}) => {
       if (disposed) return;
@@ -4471,6 +4489,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
           ctx.arc(p.x, p.y, p.size * (1 + f.beatFlash), 0, Math.PI * 2);
           ctx.fill();
         }
+      } else if (renderMode === "score-dust") {
+        // Score Dust: persistent particles directed by the visual score.
+        if (scoreDustKey !== scoreDustRef.current.key) {
+          scoreDustKey = scoreDustRef.current.key;
+          scoreDustRenderer.setPlayback(scoreDustRef.current.playback, scoreDustRef.current.settings, scoreDustRef.current.source);
+        }
+        scoreDustRenderer.draw(ctx, { width, height, t, fft: f.fft, beatFlash: f.beatFlash, playing: isPlayingRef.current });
       } else if (renderMode === "cymatic-rings") {
         // Cymatic Rings
         const cxC = width / 2, cyC = height / 2;
@@ -4651,6 +4676,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     render();
     return () => {
       disposed = true;
+      scoreDustRenderer.dispose();
       cancelAnimationFrame(animFrame);
       window.clearTimeout(cadenceTimer);
       pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
@@ -7827,6 +7853,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                     <span data-testid="echo-visual-signal-summary">{activeVisualSignalSolo === "__silence__" ? "All audio influence muted." : activeVisualSignalSolo ? `Only ${activeVisualSignalSolo.replaceAll("-", " ")} drives audio-reactive channels.` : "All prepared buses drive their assigned channels."}</span>
                                   </details>
                                 </div>
+                                {usesScoreDust && (
+                                  <EchoScoreDustPanel dust={scoreDust} currentTime={currentTime} onSeek={(seconds) => {
+                                    currentTimeRef.current = seconds;
+                                    echoPlaybackEngineRef.current?.seek(seconds);
+                                    setCurrentTime(seconds);
+                                    if (audioRef.current) audioRef.current.currentTime = seconds;
+                                  }} />
+                                )}
                                 <fieldset data-testid="echo-preview-quality" disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current}
                                   style={{ margin: '8px 0', padding: '8px 12px', border: '1px solid rgba(255,255,255,.18)', borderRadius: 6, minWidth: 0, fontSize: 13 }}>
                                   <legend>Preview quality</legend>

@@ -60,6 +60,16 @@ export const HAPA_SONG_VISUALIZER_CATALOG = [
     sourcePath: "/Users/calderwong/Desktop/hapa-music-viz"
   },
   {
+    id: "builtin:score-dust",
+    label: "Score Dust",
+    family: "built-in",
+    role: "audio-reactive-scene",
+    category: "particles",
+    description: "Persistent particle formations directed by the song's Audio Atlas visual score; beats kick, lifts send shockwaves, repeats return to one motif.",
+    sourceNode: "hapa-avatar-builder",
+    sourcePath: "src/components/echo-score-dust-renderer.js"
+  },
+  {
     id: "builtin:cymatic-rings",
     label: "Cymatic Rings",
     family: "built-in",

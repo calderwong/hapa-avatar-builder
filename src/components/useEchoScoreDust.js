@@ -1,0 +1,94 @@
+// Loads the Song's musical timeline and saved direction from the Audio Atlas,
+// keeps an editable draft, composes locally with the same pure composer the
+// API/CLI use, and saves directions to the append-only ledger.
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createAtlasClient } from "../domain/audio-atlas-ui.js";
+import {
+  buildEchoMusicalTimelineFromPerformance, composeEchoVisualScore, validateEchoVisualScore, validateEchoScoreDirection,
+  normalizeDustPlaySettings, prepareEchoScorePlayback, reflexOnlyEchoTimeline,
+} from "../domain/echo-visual-score.js";
+
+const NO_DIRECTION = Object.freeze({});
+
+export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerformance = null, lyricLines = null, lyricAudioHash = null, durationSeconds = 600 }) {
+  const client = useMemo(() => createAtlasClient(apiBase), [apiBase]);
+  const [remote, setRemote] = useState({ status: "idle", songId: "" });
+  const [draft, setDraft] = useState(null);
+  const [save, setSave] = useState({ state: "idle", message: "" });
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    setDraft(null); setSave({ state: "idle", message: "" });
+    if (!enabled || !songId) { setRemote({ status: "idle", songId: songId || "" }); return undefined; }
+    let cancelled = false;
+    setRemote({ status: "loading", songId });
+    (async () => {
+      try {
+        const { jobs = [] } = await client.request(`/jobs?songId=${encodeURIComponent(songId)}`);
+        const run = jobs.find((job) => job.state === "complete");
+        if (!run) { if (!cancelled) setRemote({ status: "no-run", songId, message: "No completed Audio Atlas analysis for this Song yet." }); return; }
+        const [value, ledger] = await Promise.all([
+          client.request(`/jobs/${encodeURIComponent(run.id)}/query?op=visual-score`),
+          client.request(`/jobs/${encodeURIComponent(run.id)}/visual-score-directions`),
+        ]);
+        if (!cancelled) setRemote({ status: "atlas", songId, runId: run.id, timeline: value.timeline, ledger: ledger.revisions || [], saved: ledger.latest || null });
+      } catch (error) {
+        if (!cancelled) setRemote({ status: "error", songId, message: String(error?.message || error) });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [enabled, songId, client, reload]);
+
+  const timelineInfo = useMemo(() => {
+    if (remote.status === "atlas") return { timeline: remote.timeline, source: `atlas ${remote.runId}`, kind: "atlas" };
+    if (preparedPerformance) {
+      try { return { timeline: buildEchoMusicalTimelineFromPerformance(preparedPerformance), source: "prepared-performance", kind: "prepared" }; } catch { /* fall through */ }
+    }
+    return { timeline: reflexOnlyEchoTimeline(durationSeconds), source: "reflex-only", kind: "reflex" };
+  }, [remote, preparedPerformance, durationSeconds]);
+
+  // Stable identity: the host view re-renders on every playhead tick.
+  // Same rule as the API: a saved revision that no longer validates is skipped.
+  const savedInvalid = Boolean(remote.saved && !validateEchoScoreDirection(remote.saved.direction).ok);
+  const direction = useMemo(() => draft ?? (remote.saved && !savedInvalid ? remote.saved.direction : NO_DIRECTION), [draft, remote.saved, savedInvalid]);
+  const composed = useMemo(() => {
+    if (!enabled) return null;
+    const { timeline } = timelineInfo;
+    const directionCheck = validateEchoScoreDirection(direction);
+    try {
+      const score = composeEchoVisualScore(timeline, directionCheck.ok ? direction : {}, { lyricLines, lyricAudioHash });
+      const validation = validateEchoVisualScore(score, { timeline });
+      if (!directionCheck.ok) validation.errors.unshift(...directionCheck.errors);
+      const settings = normalizeDustPlaySettings(direction.playSettings || {}, timeline);
+      const playback = validation.ok ? prepareEchoScorePlayback(score, timeline, { pulse: settings.pulse }) : null;
+      return { score, validation: { ...validation, ok: validation.ok && directionCheck.ok }, settings, playback };
+    } catch (error) {
+      return { score: null, validation: { ok: false, errors: [{ code: "compose", message: String(error?.message || error) }], warnings: [] }, settings: null, playback: null };
+    }
+  }, [enabled, timelineInfo, direction, lyricLines, lyricAudioHash]);
+
+  const saveDraft = useCallback(async (note = "") => {
+    if (remote.status !== "atlas" || !draft) return;
+    setSave({ state: "saving", message: "" });
+    try {
+      const row = await client.request(`/jobs/${encodeURIComponent(remote.runId)}/visual-score-directions`, {
+        method: "POST", body: JSON.stringify({ baseRevision: remote.saved?.revision || 0, direction: draft, note, lyricLines, lyricAudioHash }),
+      });
+      setRemote((current) => ({ ...current, saved: row, ledger: [...(current.ledger || []), row] }));
+      setDraft(null);
+      setSave({ state: "saved", message: `Saved direction r${row.revision}.` });
+    } catch (error) {
+      setSave({ state: "error", message: String(error?.message || error) });
+    }
+  }, [client, remote, draft, lyricLines, lyricAudioHash]);
+
+  const playbackKey = composed?.playback ? `${songId}:${timelineInfo.source}:${composed.score.fingerprint}:${composed.settings.seed}:${composed.settings.pulse}` : `${songId}:${timelineInfo.source}:none`;
+  return {
+    enabled, status: remote.status, message: remote.message || "", runId: remote.runId || null, kind: timelineInfo.kind, source: timelineInfo.source,
+    timeline: timelineInfo.timeline, saved: remote.saved || null, savedInvalid, ledger: remote.ledger || [], direction, dirty: draft !== null,
+    score: composed?.score || null, validation: composed?.validation || null, settings: composed?.settings || null, playback: composed?.playback || null, playbackKey,
+    setDraft: (update) => setDraft((current) => (typeof update === "function" ? update(current ?? (savedInvalid ? {} : remote.saved?.direction ?? {})) : update)),
+    discard: () => { setDraft(null); setSave({ state: "idle", message: "" }); },
+    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1),
+  };
+}

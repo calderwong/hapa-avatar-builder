@@ -21762,7 +21762,7 @@ function drawEchoDirectorShaderOverlay(ctx, source = {}, project = null, bands =
       ctx.lineTo(width, y - height * 0.03);
       ctx.stroke();
     }
-  } else if (mode === "particle-storm" || mode === "starfield-warp") {
+  } else if (mode === "particle-storm" || mode === "starfield-warp" || mode === "score-dust") {
     const count = mode === "starfield-warp" ? 72 : 54;
     for (let i = 0; i < count; i += 1) {
       const seed = i * 19.73;

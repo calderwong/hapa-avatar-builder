@@ -365,6 +365,7 @@ const LEGACY_CANVAS_BY_ID = Object.freeze({
   "builtin:waveform-horizon": "waveform-horizon",
   "builtin:beat-grid-pulse": "beat-grid-pulse",
   "builtin:particle-storm": "particle-storm",
+  "builtin:score-dust": "score-dust",
   "builtin:cymatic-rings": "cymatic-rings",
   "builtin:liquid-aurora": "liquid-aurora",
   "builtin:starfield-warp": "starfield-warp",

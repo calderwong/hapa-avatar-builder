@@ -31,7 +31,7 @@ export async function handleAudioAtlas({req,res,url,atlas,uploads,requireAdmin,r
     else if(suffix==='/jobs'&&req.method==='GET')value={jobs:atlas.jobs(params.songId)};
     else if(suffix==='/jobs'&&req.method==='POST'){const body=await readBody(req);value=await atlas.start(body.songId,{alignmentBaseRunId:body.alignmentBaseRunId||null,transcriptionBaseRunId:body.transcriptionBaseRunId||null,transcriptionSourceId:body.transcriptionSourceId||null,transcriptionLanguage:body.transcriptionLanguage||'en',transcribe:body.transcribe===true,beats:body.beats===true,acoustic:body.acoustic===true,alignment:body.alignment,pitch:body.pitch});}
     else {
-      const match=suffix.match(/^\/jobs\/([a-zA-Z0-9_-]+)(?:\/(query|review|export|reference|text-search|noise-reference|descriptions))?$/);
+      const match=suffix.match(/^\/jobs\/([a-zA-Z0-9_-]+)(?:\/(query|review|export|reference|text-search|noise-reference|descriptions|visual-score|visual-score-directions))?$/);
       if(!match)throw Object.assign(new Error('Atlas route not found'),{statusCode:404});
       const [,id,action]=match;
       if(action==='descriptions'){
@@ -44,11 +44,18 @@ export async function handleAudioAtlas({req,res,url,atlas,uploads,requireAdmin,r
         else if(req.method==='GET')value=atlas.textSearches(id,params.id,params.limit);
         else if(req.method==='DELETE')value=await atlas.cancelTextSearch(id);
         else throw Object.assign(new Error('Method not allowed'),{statusCode:405});
+      }else if(action==='visual-score-directions'){
+        // GET lists the Song's append-only direction ledger; POST appends one validated revision.
+        if(req.method==='GET'){sendJson(res,200,{ok:true,...atlas.visualScoreDirections(id)});return true;}
+        if(req.method==='POST'){sendJson(res,201,{ok:true,...atlas.saveVisualScoreDirection(id,await readBody(req))});return true;}
+        throw Object.assign(new Error('Method not allowed'),{statusCode:405});
       }else if(req.method==='GET')value=action==='query'?atlas.query(id,params):action==='review'?atlas.reviews(id):action==='export'?{result:atlas.result(id),reviews:atlas.reviews(id),contract:atlas.contract(id),derived:atlas.derived?.(id)||{}}:atlas.status(id);
       else if(req.method==='DELETE'&&!action)value=await atlas.cancel(id);
       else if(req.method==='POST'&&action==='noise-reference')value=atlas.noiseReference(id,await readBody(req));
       else if(req.method==='POST'&&action==='reference')value=atlas.reference(id,await readBody(req));
       else if(req.method==='POST'&&action==='review')value=atlas.review(id,await readBody(req));
+      // Read-only: composes/validates a score from saved evidence; nothing is stored.
+      else if(req.method==='POST'&&action==='visual-score'){value=atlas.visualScore(id,await readBody(req));sendJson(res,200,{ok:true,...value});return true;}
       else throw Object.assign(new Error('Method not allowed'),{statusCode:405});
     }
     sendJson(res,req.method==='POST'?202:200,{ok:true,...value});
