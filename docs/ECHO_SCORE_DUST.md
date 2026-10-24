@@ -496,6 +496,41 @@ reads. Models are Avatar assets and must resolve like pictures. Limits: no
 animation (bind pose only), no textures (material colour only), and FBX/OBJ
 are not loaded.
 
+**Direct with words** (P2 item 15; panel **Direct with words**).
+`src/domain/echo-score-dust-director.js` is a local, rule-based director: no
+model provider is called and nothing leaves the machine.
+- **Suggest a direction** reads the Song Card's mood, tags and title, the
+  Atlas structure (energy, lifts, ambiguous tempo) and the lyric lines, and
+  writes a starting direction:
+  - a colour preset, colour mode and background from the mood words;
+  - a lift response;
+  - shapes and an orbiting camera for the likely chorus, and a ring for the
+    likely verse;
+  - half-time pulse for fast, ambiguous tempos;
+  - a hook count and font.
+
+  Every choice comes with a reason.
+- **Cues** turn plain language into direction edits on top of the current
+  direction. Examples: "orbit during the chorus, neon colours", "make the
+  second chorus jellyfish", "hold the camera from 1:10 to 1:30", "gather on
+  lifts, less drums", "word by word in serif font", "background follows
+  section colours", "split at 2:00", "no flashes". The panel lists what each
+  clause did. Clauses it cannot map, such as a shape with no section, are
+  reported as not understood, never guessed.
+- Section roles (chorus, verse, bridge, intro, outro) are inferred:
+  - the chorus is the most energetic repeated group;
+  - the verse is the other repeated group;
+  - the bridge is a one-off section in the second half.
+
+  They are always labelled "likely". Results land as unsaved edits; Discard
+  edits undoes them.
+
+API: `POST /api/echos/audio-atlas/jobs/RUN/visual-score-suggest` `{mood?,
+tags?, lyricLines?}` and `…/visual-score-cue` `{text, direction?,
+lyricLines?}`. Both are read-only; a cue applies to the request direction,
+else the latest saved one. CLI: `visual-score-suggest RUN [--mood=…]
+[--tags=a,b]`, `visual-score-cue RUN --text="…" [--direction=FILE]`.
+
 ### Saved directions
 
 Directions, not composed scores, are saved. A direction is the compact human
@@ -744,7 +779,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) an
 | 12 ▲ | Lyric control: line choice, font, word-by-word mode | M |
 | 13 ▲ | Avatar 3D models sampled into shapes (bind pose, material colour) | M |
 | 14 ▲ | SVG and text logos as shapes | S |
-| 15 | Agent-written direction from lyrics, mood and Atlas sound tags; natural-language cues | M |
+| 15 ▲ | Direction from lyrics, mood and Atlas structure; natural-language cues (local rules, no model provider) | M |
 | 16 | GPU simulation for 20k–80k particles | L |
 | 17 | Listen together across devices via the phone bridge, with sign-in, host hand-off, reactions | M |
 | 18 | More 3D stages (Tarot Draw visualizer modes, floor reflections) | M |

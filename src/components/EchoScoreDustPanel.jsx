@@ -3,6 +3,7 @@ import { DUST_FORMATION_FAMILIES } from "../domain/echo-dust-swarm.js";
 import { ECHO_VISUAL_SCORE_CAMERA_MODES, ECHO_VISUAL_SCORE_EVENT_RESPONSES, ECHO_VISUAL_SCORE_PULSES, placeCameraMove } from "../domain/echo-visual-score.js";
 import { applyDustLook, extractDustLook, BUILTIN_DUST_LOOKS, dustLookSlug } from "../domain/echo-score-dust-looks.js";
 import { DUST_LYRIC_FONTS, normalizeLyricControl } from "../domain/echo-score-dust-lyrics.js";
+import { interpretDustCue, suggestDustDirection, SCORE_DUST_CUE_EXAMPLES } from "../domain/echo-score-dust-director.js";
 import { splitSectionAt, mergeSectionBoundary, moveSectionBoundary, editSectionCue, resetSectionCue } from "../domain/echo-score-dust-sections.js";
 import { createAtlasClient } from "../domain/audio-atlas-ui.js";
 import { DUST_COLOUR_MODES, DUST_COLOUR_PRESET_LABELS, DUST_FLASH_LIMIT_PER_SECOND, DUST_BACKGROUND_KINDS, normalizeDustBackground, hexToHsl, hslToHex } from "../domain/echo-score-dust-colour.js";
@@ -164,6 +165,40 @@ function BackgroundControls({ background, update }) {
         <label>Shape <select aria-label="Background shape" value={bg.shape} onChange={(e) => set({ shape: e.target.value })}><option value="radial">Radial</option><option value="linear">Top to bottom</option></select></label>
       )}
     </>
+  );
+}
+
+/** Direct with words, or start from a suggestion (local rules; nothing is sent anywhere). */
+function ScoreDustDirector({ dust }) {
+  const [text, setText] = useState(""), [result, setResult] = useState(null);
+  const apply = (cue) => {
+    const value = interpretDustCue(cue, { timeline: dust.timeline, score: dust.score, direction: dust.direction });
+    if (value.understood) dust.setDraft(() => value.direction);
+    setResult({ kind: "cue", steps: value.steps, unknown: value.unknown });
+  };
+  const suggest = () => {
+    const value = suggestDustDirection({ timeline: dust.timeline, mood: dust.song?.mood || "", tags: dust.song?.tags || [], lyricLines: dust.lyricLines, title: dust.song?.title || "" });
+    dust.setDraft(() => value.direction);
+    setResult({ kind: "suggest", reasons: value.reasons });
+  };
+  return (
+    <fieldset className="score-dust-director" data-testid="score-dust-director">
+      <legend>Direct with words <span>plain-language cues; section names are inferred, so they are “likely”</span></legend>
+      <textarea rows={2} aria-label="Direction cue" placeholder={`e.g. ${SCORE_DUST_CUE_EXAMPLES[0]}`} value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} />
+      <span className="score-dust-moves">
+        <button type="button" className="hapa-btn" disabled={!text.trim()} onClick={() => apply(text)} data-testid="score-dust-cue-apply">Apply cue</button>
+        <button type="button" className="hapa-btn" onClick={suggest} data-testid="score-dust-suggest">Suggest a direction{dust.song?.mood ? ` (${dust.song.mood})` : ""}</button>
+      </span>
+      <span className="score-dust-moves">{SCORE_DUST_CUE_EXAMPLES.map((example) => <button key={example} type="button" className="score-dust-chip" onClick={() => setText(example)}>{example}</button>)}</span>
+      {result?.kind === "cue" && (
+        <ul className="score-dust-phrases" data-testid="score-dust-cue-result">
+          {result.steps.map((s, i) => <li key={`s${i}`}>“{s.said}” → {s.did.join("; ")}</li>)}
+          {result.unknown.map((u, i) => <li key={`u${i}`} className="score-dust-unknown">Not understood: “{u}”</li>)}
+        </ul>
+      )}
+      {result?.kind === "suggest" && <ul className="score-dust-phrases" data-testid="score-dust-suggest-result">{result.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>}
+      {result && <span className="score-dust-hint">Applied as unsaved edits; use Discard edits to undo.</span>}
+    </fieldset>
   );
 }
 
@@ -453,6 +488,7 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
       )}
       {score && (
         <div className="score-dust-controls">
+          <ScoreDustDirector dust={dust} />
           <fieldset>
             <legend>Motifs <span>one shape and palette per repeating section</span></legend>
             {groups.map(({ motif, returns, palette }) => (

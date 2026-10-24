@@ -37,7 +37,7 @@ export async function handleAudioAtlas({req,res,url,atlas,uploads,requireAdmin,r
     else if(suffix==='/jobs'&&req.method==='GET')value={jobs:atlas.jobs(params.songId)};
     else if(suffix==='/jobs'&&req.method==='POST'){const body=await readBody(req);value=await atlas.start(body.songId,{alignmentBaseRunId:body.alignmentBaseRunId||null,transcriptionBaseRunId:body.transcriptionBaseRunId||null,transcriptionSourceId:body.transcriptionSourceId||null,transcriptionLanguage:body.transcriptionLanguage||'en',transcribe:body.transcribe===true,beats:body.beats===true,acoustic:body.acoustic===true,alignment:body.alignment,pitch:body.pitch});}
     else {
-      const match=suffix.match(/^\/jobs\/([a-zA-Z0-9_-]+)(?:\/(query|review|export|reference|text-search|noise-reference|descriptions|visual-score|visual-score-directions))?$/);
+      const match=suffix.match(/^\/jobs\/([a-zA-Z0-9_-]+)(?:\/(query|review|export|reference|text-search|noise-reference|descriptions|visual-score|visual-score-directions|visual-score-suggest|visual-score-cue))?$/);
       if(!match)throw Object.assign(new Error('Atlas route not found'),{statusCode:404});
       const [,id,action]=match;
       if(action==='descriptions'){
@@ -62,6 +62,9 @@ export async function handleAudioAtlas({req,res,url,atlas,uploads,requireAdmin,r
       else if(req.method==='POST'&&action==='review')value=atlas.review(id,await readBody(req));
       // Read-only: composes/validates a score from saved evidence; nothing is stored.
       else if(req.method==='POST'&&action==='visual-score'){value=atlas.visualScore(id,await readBody(req));sendJson(res,200,{ok:true,...value});return true;}
+      // Local director: suggestions and plain-language cues; read-only, nothing is stored.
+      else if(req.method==='POST'&&action==='visual-score-suggest'){sendJson(res,200,{ok:true,...atlas.visualScoreSuggest(id,await readBody(req))});return true;}
+      else if(req.method==='POST'&&action==='visual-score-cue'){sendJson(res,200,{ok:true,...atlas.visualScoreCue(id,await readBody(req))});return true;}
       else throw Object.assign(new Error('Method not allowed'),{statusCode:405});
     }
     sendJson(res,req.method==='POST'?202:200,{ok:true,...value});

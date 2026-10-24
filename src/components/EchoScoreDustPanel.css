@@ -63,3 +63,7 @@
 .score-dust-attach { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex-basis: 100%; }
 .score-dust-strip-edited { stroke: #f8fafc; stroke-width: 1.5; stroke-dasharray: 4 3; }
 .score-dust-lyric-lines { max-height: 180px; overflow: auto; }
+.score-dust-director { grid-column: 1 / -1; }
+.score-dust-director textarea { width: 100%; box-sizing: border-box; background: #0f172a; color: #e2e8f0; border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 4px; padding: 4px 6px; font: inherit; }
+.score-dust-chip { background: rgba(56, 189, 248, 0.12); color: #bae6fd; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 999px; padding: 1px 8px; font-size: 11px; cursor: pointer; }
+.score-dust-unknown { color: #fca5a5; }

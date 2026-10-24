@@ -10,6 +10,32 @@ import {
 } from '../src/domain/echo-visual-score.js';
 import { DUST_LOOK_SCHEMA, dustLookSlug, validateDustLook, mergeDustLooks } from '../src/domain/echo-score-dust-looks.js';
 import { albumDustColour } from '../src/domain/echo-score-dust-album.js';
+import { suggestDustDirection, interpretDustCue } from '../src/domain/echo-score-dust-director.js';
+
+function songCardFor(songs,songId){const list=typeof songs==='function'?songs():songs||[];return list.find(s=>[s?.id,s?.songId,s?.cardId].includes(songId))||null;}
+
+/** A starting direction from the Song's mood/tags, Atlas structure and lyrics (local rules, no provider). */
+export function suggestVisualScoreDirection(result,input={},{songs=[]}={}){
+ const timeline=buildEchoMusicalTimelineFromAtlas(result),card=songCardFor(songs,result.song_id);
+ const lyricLines=parseValue(input.lyricLines,'lyricLines',{array:true});
+ const tags=Array.isArray(input.tags)?input.tags.map(String):typeof input.tags==='string'&&input.tags?input.tags.split(','):card?.tags||[];
+ const suggestion=suggestDustDirection({timeline,mood:typeof input.mood==='string'?input.mood:card?.mood||'',tags,lyricLines,title:card?.title||''});
+ const score=composeEchoVisualScore(timeline,suggestion.direction,{lyricLines});
+ return {...suggestion,run_id:result.run_id,song_id:result.song_id,validation:validateEchoVisualScore(score,{timeline}),notice:'Suggested locally from mood words, Atlas candidates and lyrics; nothing is saved.'};
+}
+
+/** Apply a plain-language cue to a direction (the request's, else the latest saved one). */
+export function interpretVisualScoreCue(result,input={},{saved=null}={}){
+ const timeline=buildEchoMusicalTimelineFromAtlas(result);
+ if(typeof input.text!=='string'||!input.text.trim()||input.text.length>2000)throw fail('text must be a cue of 1–2000 characters');
+ const base=parseValue(input.direction,'direction')||(saved&&validateEchoScoreDirection(saved.direction).ok?saved.direction:{});
+ const lyricLines=parseValue(input.lyricLines,'lyricLines',{array:true});
+ const before=composeEchoVisualScore(timeline,validateEchoScoreDirection(base).ok?base:{},{lyricLines});
+ const value=interpretDustCue(input.text,{timeline,score:before,direction:base});
+ const check=validateEchoScoreDirection(value.direction);
+ const score=check.ok?composeEchoVisualScore(timeline,value.direction,{lyricLines}):null;
+ return {...value,run_id:result.run_id,song_id:result.song_id,directionValidation:check,validation:score?validateEchoVisualScore(score,{timeline}):null,notice:'Interpreted locally; nothing is saved. Save the returned direction to keep it.'};
+}
 
 /** "album" without a stored spec resolves from the Song store, then composes like any preset. */
 function withAlbumColour(direction,songs,songId){

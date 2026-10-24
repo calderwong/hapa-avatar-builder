@@ -21,13 +21,19 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
   const [reload, setReload] = useState(0);
   const [pictures, setPictures] = useState({ status: "idle", options: [] });
   const [album, setAlbum] = useState(null);
+  const [songCard, setSongCard] = useState(null);
 
   // The Song's place in the album colour language, from Song Cards.
   useEffect(() => {
     if (!enabled || !songId) { setAlbum(null); return undefined; }
     let cancelled = false;
     fetch(`${apiBase}/api/hapa-songs`, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null))
-      .then((store) => { if (!cancelled) setAlbum(store ? albumDustColour(store.songs || [], songId) : null); }).catch(() => { if (!cancelled) setAlbum(null); });
+      .then((store) => {
+        if (cancelled) return;
+        setAlbum(store ? albumDustColour(store.songs || [], songId) : null);
+        const card = (store?.songs || []).find((s) => [s?.id, s?.songId, s?.cardId].includes(songId));
+        setSongCard(card ? { title: card.title || "", mood: card.mood || "", tags: card.tags || [] } : null);
+      }).catch(() => { if (!cancelled) setAlbum(null); });
     return () => { cancelled = true; };
   }, [enabled, songId, apiBase]);
 
@@ -128,6 +134,6 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     score: composed?.score || null, validation: composed?.validation || null, settings: composed?.settings || null, playback: composed?.playback || null, playbackKey,
     setDraft: (update) => setDraft((current) => (typeof update === "function" ? update(current ?? (savedInvalid ? {} : remote.saved?.direction ?? {})) : update)),
     discard: () => { setDraft(null); setSave({ state: "idle", message: "" }); },
-    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures, stems, album, lyricLines: Array.isArray(lyricLines) ? lyricLines : null,
+    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures, stems, album, song: songCard, lyricLines: Array.isArray(lyricLines) ? lyricLines : null,
   };
 }
