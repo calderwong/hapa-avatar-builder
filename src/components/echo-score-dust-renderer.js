@@ -43,8 +43,9 @@ export function rasterizePhraseTargets(phrase, count, seed, surfaceFactory = def
   return sampleDustTargetsFromPixels(ctx.getImageData(0, 0, 512, 160), { count, seed, threshold: 0.4, scale: 3.4 });
 }
 
-/** Load an atlas cell (or whole image) and sample it into targets. */
+/** Load an atlas cell (or whole image, or SVG), or rasterise a text logo, into targets. */
 export function loadImageTargets(ref, count, seed, surfaceFactory = defaultSurface) {
+  if (ref?.kind === "text") return Promise.resolve(rasterizePhraseTargets({ text: ref.text, font: ref.font }, count, seed, surfaceFactory));
   return new Promise((resolve) => {
     if (!ref?.url || typeof Image !== "function") return resolve(null);
     const image = new Image();
@@ -53,12 +54,14 @@ export function loadImageTargets(ref, count, seed, surfaceFactory = defaultSurfa
     image.onload = () => {
       try {
         const grid = ref.grid || [1, 1], cell = ref.cell || [0, 0];
-        const w = Math.floor(image.naturalWidth / grid[0]), h = Math.floor(image.naturalHeight / grid[1]);
+        // An SVG without width/height reports no natural size; draw it square.
+        const naturalWidth = image.naturalWidth || 256, naturalHeight = image.naturalHeight || 256;
+        const w = Math.floor(naturalWidth / grid[0]), h = Math.floor(naturalHeight / grid[1]);
         const scale = Math.min(1, 256 / Math.max(w, h)), surface = surfaceFactory(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)));
         const ctx = surface?.getContext("2d", { willReadFrequently: true });
         if (!ctx) return resolve(null);
         ctx.drawImage(image, cell[0] * w, cell[1] * h, w, h, 0, 0, surface.width, surface.height);
-        resolve(sampleDustTargetsFromPixels(ctx.getImageData(0, 0, surface.width, surface.height), { count, seed, threshold: ref.threshold ?? 0.3, scale: 2.4 }));
+        resolve(sampleDustTargetsFromPixels(ctx.getImageData(0, 0, surface.width, surface.height), { count, seed, threshold: ref.threshold ?? 0.3, scale: 2.4, mode: ref.kind === "svg" ? "logo" : "auto" }));
       } catch { resolve(null); }
     };
     image.src = ref.url;
@@ -165,22 +168,32 @@ export function paintScoreBackground(ctx, performanceHost, t, state, width, heig
   return paintDustBackground(ctx, background, width, height, performanceHost.style(t, state));
 }
 
-/** Live Echo preview host with an adaptive draw budget. */
-export function createEchoScoreDustRenderer() {
-  const painter = createScoreDustPainter(), bands = new Float32Array(DUST_BAND_COUNT), images = new Map();
-  let performanceHost = null, source = "reflex-only", previousBeatFlash = 0, lastWall = null, stemsAt = null;
-  let level = 0, ema = 8, over = 0, under = 0;
-
+/**
+ * Live hosts load pictures asynchronously: the motif keeps its shape until
+ * its targets are ready, then forms the picture (text logos are immediate).
+ */
+export function createImageTargetCache(surfaceFactory = defaultSurface) {
+  const images = new Map();
   function targetsFor(motif, count, seed) {
     const ref = motif?.imageRef;
-    if (!ref?.url) return null;
-    const key = `${ref.url}:${count}:${seed}:${(ref.cell || []).join(",")}`;
+    if (!ref?.url && ref?.kind !== "text") return null;
+    const key = `${ref.kind || "image"}:${ref.url || `${ref.text}|${ref.font || ""}`}:${count}:${seed}:${(ref.cell || []).join(",")}`;
     if (!images.has(key)) {
       images.set(key, null);
-      loadImageTargets(ref, count, seed).then((points) => { images.set(key, points); });
+      loadImageTargets(ref, count, seed, surfaceFactory).then((points) => { images.set(key, points); });
     }
     return images.get(key);
   }
+  return { targetsFor, clear: () => images.clear() };
+}
+
+/** Live Echo preview host with an adaptive draw budget. */
+export function createEchoScoreDustRenderer() {
+  const painter = createScoreDustPainter(), bands = new Float32Array(DUST_BAND_COUNT), images = createImageTargetCache();
+  let performanceHost = null, source = "reflex-only", previousBeatFlash = 0, lastWall = null, stemsAt = null;
+  let level = 0, ema = 8, over = 0, under = 0;
+
+  const targetsFor = images.targetsFor;
 
   /** Accept a prepared score playback (or null for reflex-only). */
   function setPlayback(playback, settings = null, nextSource = "reflex-only", { stems = null } = {}) {
@@ -241,7 +254,7 @@ export function createEchoScoreDustOfflineRenderer({ width, height, fps = 30, du
   async function preloadImages() {
     // Pictures must be resident before frame 0 so every frame sees the same targets.
     for (const motif of playback.score.motifs) {
-      if (!motif.imageRef?.url || images.has(motif.imageRef.assetId)) continue;
+      if (!(motif.imageRef?.url || motif.imageRef?.kind === "text") || images.has(motif.imageRef.assetId)) continue;
       images.set(motif.imageRef.assetId, await loadImageTargets(motif.imageRef, count, performanceHost.swarm.seed, canvasFactory));
     }
   }

@@ -167,6 +167,45 @@ function BackgroundControls({ background, update }) {
   );
 }
 
+/** A repeat group's picture: shape only, a cast Avatar, a text logo or an SVG logo. */
+function MotifPicture({ group, current, options, update }) {
+  const file = useRef(null), [error, setError] = useState("");
+  const set = (ref) => update((d) => { const images = { ...(d.images || {}) }; if (ref) images[group] = ref; else delete images[group]; return { images }; });
+  const value = current?.kind === "text" ? "text" : current?.kind === "svg" ? "svg" : current?.assetId || "";
+  const choose = (v) => {
+    setError("");
+    if (v === "text") set({ assetId: `text:${group}`, kind: "text", text: "HAPA", label: "Text logo" });
+    else if (v === "svg") file.current?.click();
+    else { const option = options.find((o) => o.assetId === v); set(option ? { assetId: option.assetId, url: option.url, label: option.label, avatarId: option.avatarId } : null); }
+  };
+  const readSvg = (event) => {
+    const picked = event.target.files?.[0]; event.target.value = "";
+    if (!picked) return;
+    if (!/svg/.test(picked.type) && !/\.svg$/i.test(picked.name)) { setError("Choose an .svg file."); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result || "").replace(/^data:[^;,]*/, "data:image/svg+xml");
+      if (url.length > 32 * 1024) { setError("SVG logos must be under 32 KB; simplify the file or use an Avatar picture."); return; }
+      set({ assetId: `svg:${group}:${picked.name.slice(0, 40)}`, kind: "svg", url, label: picked.name.slice(0, 60) });
+    };
+    reader.readAsDataURL(picked);
+  };
+  return (
+    <>
+      <select aria-label={`Picture for ${group}`} value={value} onChange={(e) => choose(e.target.value)}>
+        <option value="">Shape only</option>
+        <option value="text">Text logo…</option>
+        <option value="svg">{current?.kind === "svg" ? `SVG: ${current.label}` : "SVG logo file…"}</option>
+        {options.map((o) => <option key={o.assetId} value={o.assetId}>Picture: {o.label}</option>)}
+      </select>
+      <input ref={file} type="file" accept=".svg,image/svg+xml" hidden onChange={readSvg} aria-label={`SVG logo for ${group}`} />
+      {current?.kind === "text" && <input type="text" maxLength={24} aria-label={`Logo text for ${group}`} value={current.text}
+        onChange={(e) => set({ ...current, text: e.target.value.slice(0, 24) || " " })} />}
+      {error && <span role="alert" className="score-dust-hint">{error}</span>}
+    </>
+  );
+}
+
 /** Which lyric lines become dust words, in what font, and whether word by word. */
 function ScoreDustLyrics({ dust, update, onSeek, lyricStatus }) {
   const { score, direction } = dust, control = normalizeLyricControl(direction.lyrics, direction.lyricPhrases);
@@ -436,17 +475,7 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
                   <option value="">Auto ({motif.family})</option>
                   {DUST_FORMATION_FAMILIES.map((family) => <option key={family} value={family}>{family}</option>)}
                 </select>
-                {dust.pictures?.options?.length > 0 && (
-                  <select aria-label={`Picture for ${motif.repeatGroup}`} value={direction.images?.[motif.repeatGroup]?.assetId || ""}
-                    onChange={(event) => update((current) => {
-                      const images = { ...(current.images || {}) }, option = dust.pictures.options.find((o) => o.assetId === event.target.value);
-                      if (option) images[motif.repeatGroup] = { assetId: option.assetId, url: option.url, label: option.label, avatarId: option.avatarId }; else delete images[motif.repeatGroup];
-                      return { images };
-                    })}>
-                    <option value="">Shape only</option>
-                    {dust.pictures.options.map((o) => <option key={o.assetId} value={o.assetId}>Picture: {o.label}</option>)}
-                  </select>
-                )}
+                <MotifPicture group={motif.repeatGroup} current={direction.images?.[motif.repeatGroup]} options={dust.pictures?.options || []} update={update} />
               </label>
             ))}
           </fieldset>

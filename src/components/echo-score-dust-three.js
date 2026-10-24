@@ -12,6 +12,7 @@ import * as THREE from "three";
 import { createScoreDustPerformance } from "../domain/echo-score-dust-performance.js";
 import { dustBandsFromSpectrum, dustTwinkle, DUST_BAND_COUNT } from "../domain/echo-dust-swarm.js";
 import { computeDustColours } from "../domain/echo-score-dust-colour.js";
+import { createImageTargetCache, rasterizePhraseTargets } from "./echo-score-dust-renderer.js";
 
 export const ECHO_SCORE_DUST_STAGE_CONTRACT = Object.freeze({
   schemaVersion: "hapa.echo.score-dust.stage-contract.v1",
@@ -59,12 +60,15 @@ export function createEchoScoreDustThreeLayer({ world, particleCount = 3000, det
 
   let performanceHost = null, playbackKey = "", target = null, drawCount = n, disposed = false;
   const bands = new Float32Array(DUST_BAND_COUNT), rgb = new Float32Array(n * 3), targetPosition = new THREE.Vector3(), centroid = new THREE.Vector3();
+  const pictures = createImageTargetCache();
   const report = { active: false, centroid: new THREE.Vector3(), meanColor: 0x56f0cf, energy: 0, visible: 0, formation: null, cueId: null };
 
   function setPlayback(playback, settings = {}, key = "") {
     if (key && key === playbackKey) return;
     playbackKey = key;
-    performanceHost = playback ? createScoreDustPerformance({ playback, settings: { ...settings, particleCount: n }, count: n }) : null;
+    // Same words and pictures as the 2D hosts.
+    performanceHost = playback ? createScoreDustPerformance({ playback, settings: { ...settings, particleCount: n }, count: n, targetsFor: pictures.targetsFor,
+      phraseTargets: (phrase, count, seed) => rasterizePhraseTargets(phrase, count, seed) }) : null;
   }
   function setTarget(next) { target = next?.isObject3D ? next : null; return target; }
   function setDetailTier(tier = "full") {
@@ -120,7 +124,7 @@ export function createEchoScoreDustThreeLayer({ world, particleCount = 3000, det
     setPlayback, setTarget, setDetailTier, update,
     dispose() {
       if (disposed) return;
-      disposed = true; root.removeFromParent(); geometry.dispose(); material.dispose(); map?.dispose(); performanceHost = null;
+      disposed = true; root.removeFromParent(); geometry.dispose(); material.dispose(); map?.dispose(); pictures.clear(); performanceHost = null;
     },
   };
 }

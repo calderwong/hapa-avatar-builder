@@ -314,6 +314,7 @@ export function validateEchoVisualScore(score, { timeline = null, assets = null 
     if (!palettes[motif.paletteId]) error("missing-palette", `Palette ${motif.paletteId} is not defined.`, motif.id);
     if (motif.imageRef) {
       if (!motif.imageRef.assetId) error("image-ref", "Image references need an assetId.", motif.id);
+      else if (selfContainedImage(motif.imageRef)) { /* carries its own pixels */ }
       else if (assetSet && !assetSet.has(motif.imageRef.assetId)) error("absent-asset", `Image asset ${motif.imageRef.assetId} is not available.`, motif.id);
       else if (!assetSet) warn("asset-unchecked", "Image asset availability was not checked.", motif.id);
     }
@@ -491,6 +492,21 @@ export function selectEchoScorePhrases(lines, timeline, { lyricAudioHash = null,
   return { status: phrases.length ? "selected" : "none-readable", reason: `${phrases.length} of ${rows.length} measured lines chosen`, phrases };
 }
 
+/**
+ * Picture motifs: an Avatar image ({assetId, url}), a text logo
+ * ({kind: "text", text ≤ 24, font?}) or an inline SVG logo
+ * ({kind: "svg", url: data:image/svg+xml…, ≤ 32 KiB}). Returns a problem or null.
+ */
+export function imageRefProblem(ref) {
+  if (!ref || typeof ref !== "object" || Array.isArray(ref) || typeof ref.assetId !== "string" || !ref.assetId) return "needs an assetId.";
+  if (ref.url !== undefined && typeof ref.url !== "string") return "url must be a string.";
+  if (ref.kind === "text") return typeof ref.text === "string" && ref.text.trim() && ref.text.length <= 24 ? null : "text logos need 1–24 characters.";
+  if (ref.kind === "svg") return /^data:image\/svg\+xml[;,]/.test(ref.url || "") && ref.url.length <= 32 * 1024 ? null : "SVG logos must be an inline data:image/svg+xml URL of at most 32 KiB.";
+  return ref.kind === undefined ? null : `unknown kind ${ref.kind}.`;
+}
+/** Text and inline SVG logos carry their own pixels; no asset lookup is needed. */
+const selfContainedImage = (ref) => ref?.kind === "text" || ref?.kind === "svg";
+
 const DIRECTION_KEYS = new Set(["colour", "background", "sections", "lyrics", "stemResponses", "families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
 
 /** Strict check for a saved or submitted direction (the human intent, not the composed score). */
@@ -503,7 +519,7 @@ export function validateEchoScoreDirection(direction) {
   const map = (value, label) => { if (value === undefined) return {}; if (!value || typeof value !== "object" || Array.isArray(value)) { error(label, `${label} must map repeat groups to values.`); return {}; } return value; };
   for (const [group, family] of Object.entries(map(direction.families, "families"))) if (!DUST_FORMATION_FAMILIES.includes(family)) error("families", `Unknown family ${family} for ${group}.`);
   for (const [group, colors] of Object.entries(map(direction.palettes, "palettes"))) if (!Array.isArray(colors) || !colors.length || colors.length > 5 || colors.some((c) => !finite(c?.h) || c.h < 0 || c.h >= 360 || !finite(c?.s) || c.s < 0 || c.s > 1 || !finite(c?.l) || c.l < 0 || c.l > 1)) error("palettes", `Palette for ${group} needs 1–5 valid colors.`);
-  for (const [group, ref] of Object.entries(map(direction.images, "images"))) if (!ref?.assetId || typeof ref.assetId !== "string" || (ref.url !== undefined && typeof ref.url !== "string")) error("images", `Image for ${group} needs an assetId.`);
+  for (const [group, ref] of Object.entries(map(direction.images, "images"))) { const problem = imageRefProblem(ref); if (problem) error("images", `Image for ${group}: ${problem}`); }
   for (const [kind, response] of Object.entries(map(direction.eventResponses, "eventResponses"))) if (!Object.values(TRANSITION_KINDS).includes(kind) || !ECHO_VISUAL_SCORE_EVENT_RESPONSES.includes(response)) error("eventResponses", `Invalid response ${response} for ${kind}.`);
   if (direction.baseHue !== undefined && (!finite(direction.baseHue) || direction.baseHue < 0 || direction.baseHue >= 360)) error("baseHue", "baseHue must be within [0, 360).");
   if (direction.maxDensity !== undefined && (!finite(direction.maxDensity) || direction.maxDensity <= 0 || direction.maxDensity > 1)) error("maxDensity", "maxDensity must be within (0, 1].");

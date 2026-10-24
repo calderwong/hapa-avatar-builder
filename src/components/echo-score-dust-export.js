@@ -124,7 +124,7 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
   const count = Math.min(20000, particleCount || settings.particleCount || 6000);
   // Pictures must be resident before the first frame so every frame sees the same targets.
   const images = new Map();
-  for (const motif of playback.score.motifs) if (motif.imageRef?.url && !images.has(motif.imageRef.assetId)) images.set(motif.imageRef.assetId, await loadImageTargets(motif.imageRef, count, settings.seed ?? 1, surface));
+  for (const motif of playback.score.motifs) if ((motif.imageRef?.url || motif.imageRef?.kind === "text") && !images.has(motif.imageRef.assetId)) images.set(motif.imageRef.assetId, await loadImageTargets(motif.imageRef, count, settings.seed ?? 1, surface));
   const performance = createScoreDustPerformance({ playback, settings: { ...settings, particleCount: count }, count,
     targetsFor: (motif) => images.get(motif?.imageRef?.assetId) || null, phraseTargets: (phrase, n, seed) => rasterizePhraseTargets(phrase, n, seed, surface) });
   const bandsAt = audio ? createPcmBandSampler(audio.channels, audio.sampleRate) : null;

@@ -470,6 +470,18 @@ forms, not which words appear.
   50 ms join; lines without word timing stay whole. Single words are not
   reported as unreadable.
 
+**Text and SVG logos** (P2 item 14; Motifs → picture → *Text logo…* or *SVG
+logo file…*). A repeat group's `images` entry can be a text logo
+`{kind: "text", text (1–24 characters), font?}`, rasterised like lyric
+words, or an inline SVG `{kind: "svg", url: data:image/svg+xml…}` of at most
+32 KiB. Both carry their own pixels, so no asset lookup is needed and they
+travel with the direction to Listen together peers. SVGs sample in a logo
+mode: any opaque colour forms dust, while near-black (luminance < 0.06) reads
+as a cut-out hole. An SVG without width/height is drawn square. Larger or
+remote SVGs are refused; use an Avatar picture instead. The Record Garden
+3D layer now forms the same words and pictures as the 2D hosts (it
+previously showed shapes only).
+
 ### Saved directions
 
 Directions, not composed scores, are saved. A direction is the compact human
@@ -717,7 +729,7 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. **Batch 1** (★) an
 | 11 ★ | Camera moves authored on the score strip | S |
 | 12 ▲ | Lyric control: line choice, font, word-by-word mode | M |
 | 13 | Avatar 3D models sampled into shapes | M |
-| 14 | SVG and text logos as shapes | S |
+| 14 ▲ | SVG and text logos as shapes | S |
 | 15 | Agent-written direction from lyrics, mood and Atlas sound tags; natural-language cues | M |
 | 16 | GPU simulation for 20k–80k particles | L |
 | 17 | Listen together across devices via the phone bridge, with sign-in, host hand-off, reactions | M |

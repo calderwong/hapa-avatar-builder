@@ -158,8 +158,11 @@ export function sampleDustTargetsFromPixels(image, { count = 2000, seed = 1, thr
   const lit = (x, y) => {
     if (x < 0 || y < 0 || x >= width || y >= height) return 0;
     const o = (y * width + x) * 4, alpha = data[o + 3] / 255;
+    const luma = (0.2126 * data[o] + 0.7152 * data[o + 1] + 0.0722 * data[o + 2]) / 255;
+    // Logos: any opaque colour forms, near-black reads as a cut-out hole.
+    if (mode === "logo") return alpha >= 0.5 && luma >= 0.06 ? Math.max(threshold, alpha) : 0;
     if (useAlpha) return alpha >= 0.5 ? Math.max(threshold, alpha) : 0;
-    return ((0.2126 * data[o] + 0.7152 * data[o + 1] + 0.0722 * data[o + 2]) / 255) * alpha;
+    return luma * alpha;
   };
   const candidates = [];
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (lit(x, y) >= threshold) candidates.push(y * width + x);
