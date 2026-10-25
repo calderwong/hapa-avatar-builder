@@ -511,7 +511,7 @@ export function selectEchoScorePhrases(lines, timeline, { lyricAudioHash = null,
   if (refused) return { ...refused, phrases: [] };
   const duration = timeline.durationSeconds;
   const rows = (lines || []).map((line, index) => ({ line, index, start: lineTime(line, "start"), end: lineTime(line, "end"), text: String(line?.text || "").trim() }))
-    .filter((row) => row.text && row.end > row.start && row.start >= 0 && row.end <= duration + 1e-3);
+    .filter((row) => !row.line?.alignmentReview?.needsReview && row.text && row.end > row.start && row.start >= 0 && row.end <= duration + 1e-3);
   if (!rows.length) return { status: "unavailable", reason: "No measured lyric lines inside this recording.", phrases: [] };
   const counts = new Map();
   for (const row of rows) counts.set(normalizeLyric(row.text), (counts.get(normalizeLyric(row.text)) || 0) + 1);

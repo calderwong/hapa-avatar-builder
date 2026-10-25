@@ -3532,5 +3532,19 @@
     "sourcePreservation": "202 original rows and historical files preserved; variant index extended",
     "report": "docs/postmortems/2026-10-23-echo-incremental-intake.md",
     "imageProvider": "Codex built-in GPT Image; no API fallback"
+  },
+  "scoreDustPreparation20261025": {
+    "status": "implemented-local-browser-verified",
+    "songId": "dear-papa-song-thirsty-in-the-dark",
+    "atlasRun": "24c0a132-d5ea-4288-acee-6c13456ae7ae",
+    "beats": 317,
+    "sections": 17,
+    "transitions": 17,
+    "directionRevision": 1,
+    "testsPassed": 97,
+    "build": "passed",
+    "humanCreativeAcceptance": false,
+    "remaining": "Eight lyric passages and stem alignment remain subject to review; historical cuts retain their original timing outside Score Dust preview.",
+    "postmortem": "docs/postmortems/2026-10-25-score-dust-preparation.md"
   }
 }

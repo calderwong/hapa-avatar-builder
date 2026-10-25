@@ -8,6 +8,7 @@ import AudioAtlasPanel from "./AudioAtlasPanel.jsx";
 import { createEchoScoreDustRenderer } from "./echo-score-dust-renderer.js";
 import { createEchoScoreDustAutoRenderer } from "./echo-score-dust-gpu.js";
 import { useEchoScoreDust } from "./useEchoScoreDust.js";
+import { scoreDustPreviewLyrics } from "../domain/echo-score-dust-ready.js";
 import { scoreDustShotPlacements } from "../domain/echo-score-dust-cut.js";
 import EchoScoreDustPanel from "./EchoScoreDustPanel.jsx";
 import { echoTimelineMediaInstances, hyperFramesMediaOpacityState } from "../domain/echo-media-presentation.js";
@@ -7840,7 +7841,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                     mediaTracks={activeShowGraph?.tracks}
                                     accentEvents={activeShowGraph?.directorV2?.accentTrack?.events}
                                     contract={directorPreviewFrame?.lyrics?.contract || activeLyricContract}
-                                    lines={activeShowGraph?.song?.lyricOverlay?.lines?.length ? activeShowGraph.song.lyricOverlay.lines : activeProject.timed_lyrics}
+                                    lines={scoreDustPreviewLyrics({ enabled: scoreDustPreview, currentLines: scoreDust.currentLyricLines, project: activeProject, graphLines: activeShowGraph?.song?.lyricOverlay?.lines })}
                                     position={activeProject.lyric_position || "bottom-center"} themeId={activeProject.lyric_style || "neon-cyan"}
                                     outputProfile={activeOutputProfile} clockRef={currentTimeRef} audioRef={audioRef}
                                     initialTime={currentTime} playing={isPlaying} powerMode={powerMode} hidden={cleanPreviewMode}
@@ -7849,11 +7850,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
 
                                 <div role="status" style={{ fontSize: 13, padding: 8 }}>
                                   <label>Audio visuals <select aria-label="Audio visuals" value={audioVisualMode} disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current} onChange={event => setAudioVisualMode(event.target.value)}><option value="prepared">Prepared song timing</option><option value="live">Live monitoring</option>{recordedSignalReplay && <option value="replay">Recorded signals</option>}</select></label>{" "}
-                                  <label title="Preview only: shows Score Dust over this Song without changing the Director cut."><input type="checkbox" data-testid="echo-score-dust-toggle" checked={scoreDustPreview} disabled={previewRecordingActiveRef.current} onChange={event => setScoreDustPreview(event.target.checked)} /> Score Dust preview</label>{" "}
+                                  <label title="Prepares missing Atlas beats and sections locally, loads stems and chooses a song direction. Saved cuts stay unchanged."><input type="checkbox" data-testid="echo-score-dust-toggle" checked={scoreDustPreview} disabled={previewRecordingActiveRef.current} onChange={event => { setScoreDustPreview(event.target.checked); if (event.target.checked) setAudioVisualMode("prepared"); }} /> Score Dust preview</label>{" "}
                                   {audioVisualMode === "prepared" ? activePreparedPerformance ? "Prepared signals ready. Seeking reuses cached timing." : preparedAudio.message || "Loading prepared timing…" : audioVisualMode === "replay" ? activeRecordedSignalReplay ? `Recorded signals: ${activeRecordedSignalReplay.startSeconds.toFixed(2)}–${activeRecordedSignalReplay.endSeconds.toFixed(2)}s. Outside this interval signals are silent.` : "Select the original song and cut to replay these signals." : "Live monitoring depends on playback history."}
                                   {audioVisualMode === "live" && <label><input type="checkbox" checked={captureLiveSignals} disabled={previewRecordingActiveRef.current} onChange={event => setCaptureLiveSignals(event.target.checked)} /> Save replayable signals with recording (64 MB limit)</label>}
                                   {activePreparedPerformance?.missingData?.unverifiedOrigins?.length > 0 && <span> Stem alignment pending review.</span>}
-                                  {activePreparedPerformance?.missingData?.measuredBeats && <span> Beat grid not verified.</span>}
+                                  {scoreDustPreview && scoreDust.kind === "atlas" ? <span> Score Dust follows {scoreDust.timeline.beats.length} Atlas-detected beats across {scoreDust.timeline.sections.length} sections; listening review remains open.</span> : activePreparedPerformance?.missingData?.measuredBeats && <span> Beat grid not verified.</span>}
                                   {audioVisualMode === "prepared" && !activePreparedPerformance && <button type="button" className="hapa-btn" onClick={() => setPreparedAudioRetry(value => value + 1)}>Retry prepared audio</button>}
                                   {audioVisualMode === "prepared" && <EchoPerformancePreparationControl key={preparedAudioKey} apiBase={API_BASE} songId={selectedProjectSongId} variantId={activeDirectionVariantSelection} ready={Boolean(activePreparedPerformance)} onReady={() => setPreparedAudioRetry(value => value + 1)} />}
                                   {preparedModulationResult.error && <span role="alert">{preparedModulationResult.error}</span>}

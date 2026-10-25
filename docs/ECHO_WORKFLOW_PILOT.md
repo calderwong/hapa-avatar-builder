@@ -1257,3 +1257,8 @@ verified. Fifteen existing navigation/inventory checks pass; the independent
 American Kings protected-cut inventory assertion remains a catalog gap. See
 [sorting behavior and verification](ECHO_ALBUM_SORTING.md). No source song or cut
 is changed, and no motion-loop or human-review gate is closed.
+
+
+## Score Dust activation — 2026-10-25
+
+Local preparation and browser connection verified for Thirsty in the Dark: 317 beats, 17 sections, 17 transitions and saved direction r1. Activation prepares missing Atlas structure and chooses a song-aware direction; the preview uses current verified lyric-source lines instead of stale cut timing while preserving manual locks. All written lyrics remain; unresolved particle hooks are excluded. 97 focused tests and build passed. Eight lyric passages, stem alignment and human creative acceptance remain open. Historical cuts remain unchanged outside Score Dust preview. See [diagnosis and evidence](postmortems/2026-10-25-score-dust-preparation.md).

@@ -18,6 +18,16 @@ function lyricLines() {
 }
 // The fixture master: lyric words need timing verified against it.
 const MASTER = "a".repeat(64);
+test("unresolved passages never become precise particle hooks and canonical indexes survive", () => {
+  const lines = lyricLines();
+  lines[0].alignmentReview = { needsReview: true };
+  const chosen = chosenLyricPhrases(lines, timeline, [0, 1], { lyricAudioHash: MASTER });
+  assert.deepEqual(chosen.skipped, [{ index: 0, reason: "lyric timing needs review" }]);
+  assert.equal(chosen.phrases[0].source.lineIndex, 1);
+  const score = composeEchoVisualScore(timeline, {}, { lyricLines: lines, lyricAudioHash: MASTER });
+  assert.ok(score.phrases.every(p => p.source.lineIndex !== 0));
+  assert.equal(lines.length, 24, "written source lines are retained");
+});
 const compose = (lyrics) => {
   assert.equal(validateEchoScoreDirection({ lyrics }).ok, true);
   const score = composeEchoVisualScore(timeline, { lyrics }, { lyricLines: lyricLines(), lyricAudioHash: MASTER });

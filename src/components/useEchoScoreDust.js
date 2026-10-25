@@ -12,8 +12,8 @@ import {
 import { scoreDustCastFor, scoreDustPictureOption, scoreDustModelOption } from "../domain/echo-score-dust-pictures.js";
 import { createStemReflex } from "../domain/echo-score-dust-stems.js";
 import { albumDustColour } from "../domain/echo-score-dust-album.js";
-
-const NO_DIRECTION = Object.freeze({});
+import { ensureScoreDustTimeline } from "../domain/echo-score-dust-ready.js";
+import { suggestDustDirection } from "../domain/echo-score-dust-director.js";
 
 export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerformance = null, durationSeconds = 600, resolveUri = (uri) => uri }) {
   const client = useMemo(() => createAtlasClient(apiBase), [apiBase]);
@@ -61,10 +61,14 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     if (!enabled || !songId) { setRemote({ status: "idle", songId: songId || "" }); return undefined; }
     let cancelled = false;
     setRemote({ status: "loading", songId });
+    const controller = new AbortController();
     (async () => {
       try {
         // The server picks the newest run with beats and sections; newer lyric-timing runs measure neither.
-        const { run, reason = "" } = await client.request(`/visual-score-run?songId=${encodeURIComponent(songId)}`);
+        const { run, reason = "" } = await ensureScoreDustTimeline(client, songId, {
+          key: `${apiBase}:${songId}`, signal: controller.signal,
+          onProgress: (message) => { if (!cancelled) setRemote({ status: "preparing", songId, message }); },
+        });
         if (!run) { if (!cancelled) setRemote({ status: "no-run", songId, message: reason || "No completed Audio Atlas analysis for this Song yet." }); return; }
         const [value, ledger, lyrics] = await Promise.all([
           client.request(`/jobs/${encodeURIComponent(run.id)}/query?op=visual-score`),
@@ -76,11 +80,14 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
         if (!cancelled) setRemote({ status: "error", songId, message: String(error?.message || error) });
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
   }, [enabled, songId, client, reload]);
 
   // Only verified lines carry a master hash; prepared/reflex fallbacks have no verified timing.
-  const lyricLines = remote.status === "atlas" && Array.isArray(remote.lyrics?.lyricLines) ? remote.lyrics.lyricLines : null;
+  const currentLyricLines = remote.status === "atlas" && Array.isArray(remote.lyrics?.lyricLines) ? remote.lyrics.lyricLines : null;
+  // Keep canonical indexes stable for saved "lines I choose" directions.
+  // The shared phrase selector excludes unresolved timing, not the source list.
+  const lyricLines = currentLyricLines;
   const lyricAudioHash = lyricLines ? remote.lyrics.lyricAudioHash || null : null;
   const lyricTiming = remote.status === "atlas" && remote.lyrics ? { status: remote.lyrics.status, reason: remote.lyrics.reason || "", basis: remote.lyrics.basis || null, timingSource: remote.lyrics.timingSource || null }
     : { status: "unverified", reason: "Lyric words need an Audio Atlas run to verify their timing against." };
@@ -96,11 +103,12 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
   // Stable identity: the host view re-renders on every playhead tick.
   // Same rule as the API: a saved revision that no longer validates is skipped.
   const savedInvalid = Boolean(remote.saved && !validateEchoScoreDirection(remote.saved.direction).ok);
+  const automatic = useMemo(() => suggestDustDirection({ timeline: timelineInfo.timeline, mood: songCard?.mood || "", tags: songCard?.tags || [], title: songCard?.title || "", lyricLines }), [timelineInfo.timeline, songCard, lyricLines]);
   const direction = useMemo(() => {
-    const chosen = draft ?? (remote.saved && !savedInvalid ? remote.saved.direction : NO_DIRECTION);
+    const chosen = draft ?? (remote.saved && !savedInvalid ? remote.saved.direction : automatic.direction);
     // "album" without a stored spec resolves here exactly as the API does.
     return chosen.colour?.preset === "album" && !chosen.colour.album && album ? { ...chosen, colour: { ...chosen.colour, album } } : chosen;
-  }, [draft, remote.saved, savedInvalid, album]);
+  }, [draft, remote.saved, savedInvalid, album, automatic]);
   const composed = useMemo(() => {
     if (!enabled) return null;
     const { timeline } = timelineInfo;
@@ -120,11 +128,11 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
   }, [enabled, timelineInfo, direction, lyricLines, lyricAudioHash, pictures]);
 
   const saveDraft = useCallback(async (note = "") => {
-    if (remote.status !== "atlas" || !draft) return;
+    if (remote.status !== "atlas") return;
     setSave({ state: "saving", message: "" });
     try {
       const row = await client.request(`/jobs/${encodeURIComponent(remote.runId)}/visual-score-directions`, {
-        method: "POST", body: JSON.stringify({ baseRevision: remote.saved?.revision || 0, direction: draft, note, lyricLines: "project" }),
+        method: "POST", body: JSON.stringify({ baseRevision: remote.saved?.revision || 0, direction, note, lyricLines: "project" }),
       });
       setRemote((current) => ({ ...current, saved: row, ledger: [...(current.ledger || []), row] }));
       setDraft(null);
@@ -132,7 +140,7 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
     } catch (error) {
       setSave({ state: "error", message: String(error?.message || error) });
     }
-  }, [client, remote, draft]);
+  }, [client, remote, direction]);
 
   // Separated stems from the prepared performance (null for master-only songs).
   const stems = useMemo(() => { try { return enabled ? createStemReflex(preparedPerformance) : null; } catch { return null; } }, [enabled, preparedPerformance]);
@@ -140,10 +148,10 @@ export function useEchoScoreDust({ enabled, songId, apiBase = "", preparedPerfor
   const playbackKey = composed?.playback ? `${songId}:${timelineInfo.source}:${composed.score.fingerprint}:${JSON.stringify(composed.settings)}:${stems?.available.join("+") || "no-stems"}` : `${songId}:${timelineInfo.source}:none`;
   return {
     enabled, status: remote.status, message: remote.message || "", runId: remote.runId || null, runReason: remote.runReason || "", kind: timelineInfo.kind, source: timelineInfo.source,
-    timeline: timelineInfo.timeline, saved: remote.saved || null, savedInvalid, ledger: remote.ledger || [], direction, dirty: draft !== null,
+    timeline: timelineInfo.timeline, saved: remote.saved || null, savedInvalid, ledger: remote.ledger || [], direction, dirty: draft !== null || !remote.saved, automaticReasons: automatic.reasons,
     score: composed?.score || null, validation: composed?.validation || null, settings: composed?.settings || null, playback: composed?.playback || null, playbackKey,
-    setDraft: (update) => setDraft((current) => (typeof update === "function" ? update(current ?? (savedInvalid ? {} : remote.saved?.direction ?? {})) : update)),
+    setDraft: (update) => setDraft((current) => (typeof update === "function" ? update(current ?? direction) : update)),
     discard: () => { setDraft(null); setSave({ state: "idle", message: "" }); },
-    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures, stems, album, song: songCard, lyricLines, lyricTiming,
+    save: saveDraft, saveState: save, refresh: () => setReload((v) => v + 1), pictures, stems, album, song: songCard, lyricLines, currentLyricLines, lyricTiming,
   };
 }

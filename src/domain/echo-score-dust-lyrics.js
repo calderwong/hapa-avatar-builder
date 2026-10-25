@@ -69,6 +69,7 @@ export function chosenLyricPhrases(lines, timeline, indices, { lyricAudioHash = 
   const shocks = (events || []).filter((e) => e.response === "shock").map((e) => e.at), phrases = [], skipped = [];
   for (const index of indices) {
     const line = lines?.[index], start = lineTime(line, "start"), end = lineTime(line, "end");
+    if (line?.alignmentReview?.needsReview) { skipped.push({ index, reason: "lyric timing needs review" }); continue; }
     let text = String(line?.text || "").trim();
     if (!text || !(end > start) || start < 0 || end > timeline.durationSeconds + 1e-3) { skipped.push({ index, reason: "no measured timing inside this recording" }); continue; }
     // Long lines keep as many whole words as fit the 64-character phrase limit.

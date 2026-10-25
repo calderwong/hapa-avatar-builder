@@ -1033,3 +1033,25 @@ Sizes: S ≈ a day, M ≈ a few days, L ≈ a week or more. All P2 items are don
    Score Dust could be a chunk-rendered final renderer; a GPU path inside
    Three.js (`GPUComputationRenderer`) for dense 3D stages; trusting the
    phone bridge certificate is still a per-device step.
+# One-action song preparation — October 25, 2026
+
+Enabling **Score Dust preview** selects Prepared song timing. The hook reuses a
+completed Atlas run containing beats and sections, or requests one local
+`POST /api/echos/audio-atlas/jobs` with `beats:true` and follows its durable job.
+Preparation, failures and retry are visible. Concurrent mounts share dispatch;
+leaving the preview stops polling without deleting the Atlas job. No automatic
+transcription, lyric promotion, provider call or saved-cut rewrite occurs.
+
+Without a valid saved direction, the existing song-aware Director suggestion is
+applied automatically. Saved directions and edits take precedence. Save direction
+pins the automatic proposal as an append-only revision. The shared composer still
+chooses section formations, energy-dependent camera motion and transition effects.
+
+Score Dust preview's ordinary lyric overlay uses the current source-verified
+Atlas project lines instead of stale graph/cut lines, unless the working project
+has manual timing or locks. Switching Score Dust off restores the cut's own
+timing. All written lines remain; lines flagged `alignmentReview.needsReview`
+are excluded from particle hooks in both automatic and explicitly chosen modes.
+This is a source/timing connection repair, not a listening acceptance certificate.
+
+Evidence and remaining limits: [October 25 diagnosis](postmortems/2026-10-25-score-dust-preparation.md).

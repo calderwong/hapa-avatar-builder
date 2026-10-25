@@ -26,7 +26,9 @@ const hsl = (c, alpha = 1) => `hsl(${c.h} ${Math.round(c.s * 100)}% ${Math.round
 
 function sourceSummary(dust) {
   if (dust.status === "loading") return "Loading the Song's Audio Atlas timeline…";
-  if (dust.kind === "atlas") return `Audio Atlas run ${dust.runId}${dust.runReason && !/^Newest run has/.test(dust.runReason) ? ` (${dust.runReason})` : ""} · ${dust.saved ? `saved direction r${dust.saved.revision}${dust.savedInvalid ? " is invalid and was skipped; using the default" : dust.saved.timelineFingerprint !== dust.timeline?.fingerprint ? " (saved for a different analysis; check motif groups)" : ""}` : "default direction"}${dust.dirty ? " · unsaved edits" : ""}`;
+  if (dust.status === "preparing") return dust.message;
+  if (dust.status === "error") return `Song timing could not be prepared: ${dust.message}`;
+  if (dust.kind === "atlas") return `Audio Atlas run ${dust.runId}${dust.runReason && !/^Newest run has/.test(dust.runReason) ? ` (${dust.runReason})` : ""} · ${dust.saved ? `saved direction r${dust.saved.revision}${dust.savedInvalid ? " is invalid and was skipped; using the default" : dust.saved.timelineFingerprint !== dust.timeline?.fingerprint ? " (saved for a different analysis; check motif groups)" : ""}` : "automatic song direction"}${dust.dirty ? " · unsaved edits" : ""}`;
   if (dust.kind === "prepared") return "Prepared performance timing (no repeat or lift evidence). Analyze this Song in Audio Atlas with Detect beats for full structure.";
   return `Live reflex only. ${dust.message || "No song structure available."} Analyze this Song in Audio Atlas with Detect beats to direct it.`;
 }
@@ -569,6 +571,9 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
         <span className={`score-dust-source is-${dust.kind}`}>{sourceSummary(dust)}</span>
       </header>
       <ScoreStrip dust={dust} currentTime={currentTime} onSeek={onSeek} />
+      {dust.status === "error" && <button type="button" className="hapa-btn" onClick={dust.refresh}>Retry song timing</button>}
+      {dust.kind === "atlas" && !dust.saved && <p className="score-dust-hint">Automatic song direction: {dust.automaticReasons?.join("; ")}. Save direction to keep this version.</p>}
+      {dust.currentLyricLines?.some((line) => line.alignmentReview?.needsReview) && <p className="score-dust-hint">Some lyric lines still need timing review. They remain in the lyric overlay but are excluded from particle hooks.</p>}
       {validation && !validation.ok && (
         <ul className="score-dust-errors" role="alert">{validation.errors.map((e, i) => <li key={i}><code>{e.code}</code> {e.message}</li>)}</ul>
       )}
