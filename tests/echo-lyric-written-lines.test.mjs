@@ -59,3 +59,33 @@ test('promotion, sync and every other gate caller pass the written lyrics, for a
     for (const call of calls) assert.match(call, /writtenLyrics/, `${file} passes written lyrics`);
   }
 });
+
+test('unresolved passages hold every Atlas pipeline unless an exact operator decision covers them', async () => {
+  const { ECHO_LYRIC_OPERATOR_DECISION_SCHEMA } = await import('../src/domain/echo-lyric-promotion.js');
+  const lines = timed(exact).map((line, i) => ({ ...line, alignmentReview: i === 1 ? { modelAgreementRatio: 0, needsReview: true } : { modelAgreementRatio: .9, needsReview: false } }));
+  const v3 = { ...timing(lines, 'audio-atlas-mlx'), provenance: { ...timing(lines).provenance, pipeline: 'audio-atlas-lyric-timing.v3-voices' } };
+  const check = (t) => evaluateEchoLyricTimingPromotion(t, { ...sidecars, writtenLyrics: written });
+  assert.ok(check(v3).reasons.includes('unresolved-lyric-passages'), 'v3 is held like v2');
+  const decision = { schemaVersion: ECHO_LYRIC_OPERATOR_DECISION_SCHEMA, decision: 'promote-with-unresolved-lines-flagged', decidedBy: 'Calder (chat)', decidedAt: '2026-10-24', unresolvedLines: [1] };
+  const covered = check({ ...v3, operatorDecision: decision });
+  assert.equal(covered.accepted, true);
+  assert.equal(covered.operatorDecision, 'promote-with-unresolved-lines-flagged');
+  assert.equal(check({ ...v3, operatorDecision: { ...decision, unresolvedLines: [] } }).accepted, false, 'a stale receipt does not cover new holds');
+  const unflagged = { ...v3, lines: v3.lines.map((l, i) => (i === 1 ? { ...l, alignmentReview: { modelAgreementRatio: 0, needsReview: false } } : l)), operatorDecision: decision };
+  assert.equal(check(unflagged).accepted, false, 'every promoted unresolved line must stay flagged for review');
+  assert.equal(check({ ...v3, lines: timed(['not the written text', ...exact.slice(1)]), operatorDecision: decision }).accepted, false, 'a decision never overrides the written lyrics');
+});
+
+test('a decision covers squeezed unresolved lines, never a compressed measured line', async () => {
+  const { ECHO_LYRIC_OPERATOR_DECISION_SCHEMA } = await import('../src/domain/echo-lyric-promotion.js');
+  const words = (n, matched, at) => Array.from({ length: n }, (_, k) => ({ word: `w${k}`, start: at + k * .035, end: at + (k + 1) * .035, matched }));
+  const base = (squeezedLine) => {
+    const lines = timed(exact).map((line, i) => ({ ...line, words: i === squeezedLine ? words(7, i !== 1, line.start) : line.words,
+      end: i === squeezedLine ? line.start + .25 : line.end, alignmentReview: i === 1 ? { modelAgreementRatio: 0, needsReview: true } : { modelAgreementRatio: .9, needsReview: false } }));
+    return { ...timing(lines, 'audio-atlas-mlx'), provenance: { ...timing(lines).provenance, pipeline: 'audio-atlas-lyric-timing.v3-voices' },
+      operatorDecision: { schemaVersion: ECHO_LYRIC_OPERATOR_DECISION_SCHEMA, decision: 'promote-with-unresolved-lines-flagged', decidedBy: 'Calder (chat)', decidedAt: '2026-10-24', unresolvedLines: [1] } };
+  };
+  const check = (t) => evaluateEchoLyricTimingPromotion(t, { ...sidecars, writtenLyrics: written });
+  assert.equal(check(base(1)).accepted, true, 'the squeezed line is the flagged unresolved one');
+  assert.ok(check(base(0)).reasons.includes('compressed-lyric-line'), 'a crammed measured line still holds the timing');
+});

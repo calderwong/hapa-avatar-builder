@@ -187,18 +187,18 @@ export function echoLyricPerformanceWindows(lines, mapping, duration, {maxSecond
 export function inspectEchoLyricPassages(timing) {
   const reasons=[],lines=timing.lines||[];
   // Enforce locally, even when aggregate confidence is high. Never reinterpret a gap as omission.
-  const unresolved=[];
+  const unresolved=[],compressed=[];
   for(const [index,line] of lines.entries()){
     const review=line.alignmentReview;
     // Each line is judged on the evidence that timed it: recognizer timestamps or forced alignment.
     const recognizerTimed=timing.provenance?.measurementKind==='transcript-timestamps'||review?.evidence==='transcript-timestamps';
     const supported=recognizerTimed ? review?.performanceSupported===true && review.performanceCoverage>=.45 : Number.isFinite(review?.modelAgreementRatio) && review.modelAgreementRatio>=.4;
     if(!supported || !line.words?.some(w=>w.matched))unresolved.push(index);
-    if((line.words?.length||0)/(Number(line.end)-Number(line.start))>12)reasons.push('compressed-lyric-line');
+    if((line.words?.length||0)/(Number(line.end)-Number(line.start))>12){reasons.push('compressed-lyric-line');compressed.push(index);}
   }
   if(unresolved.length)reasons.push('unresolved-lyric-passages');
   if((timing.provenance?.timingOmissions||[]).length)reasons.push('written-lyrics-omitted');
-  return {accepted:reasons.length===0,reasons:[...new Set(reasons)],unresolvedLines:unresolved};
+  return {accepted:reasons.length===0,reasons:[...new Set(reasons)],unresolvedLines:unresolved,compressedLines:compressed};
 }
 
 // Compare corresponding written tokens, not only the first word: ASR can absorb preceding silence.

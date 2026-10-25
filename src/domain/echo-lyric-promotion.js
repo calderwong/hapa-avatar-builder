@@ -96,7 +96,19 @@ export function inspectEchoLyricTimingAdjudication(timing = {}) {
   if (overlappingWords) structuralReasons.push("overlapping-word-windows");
   if (actualLineOverlaps && !structuralReasons.includes("overlapping-line-windows")) structuralReasons.push("overlapping-line-windows");
   if (actualDuplicateStarts && !structuralReasons.includes("duplicate-line-starts")) structuralReasons.push("duplicate-line-starts");
-  if (provenance.pipeline === 'audio-atlas-lyric-timing.v2') structuralReasons.push(...inspectEchoLyricPassages(timing).reasons);
+  // Every Audio Atlas pipeline (v2, v3-voices and later) is held by unresolved passages unless an
+  // explicit operator decision receipt names exactly those lines and each is flagged for review.
+  if (/^audio-atlas-lyric-timing\.v[2-9]/.test(String(provenance.pipeline || ''))) {
+    const passages = inspectEchoLyricPassages(timing);
+    if (!passages.accepted && !echoLyricOperatorDecisionCovers(timing, passages)) structuralReasons.push(...passages.reasons);
+    // The decision covers held lines kept as flagged written text, including those squeezed into a short
+    // slot; a compressed line that was measured as resolved is not covered and still holds the timing.
+    else if (!passages.accepted) {
+      const covered = new Set(timing.operatorDecision.unresolvedLines);
+      const compressedCovered = (passages.compressedLines || []).every(i => covered.has(i));
+      structuralReasons.push(...passages.reasons.filter(reason => reason !== 'unresolved-lyric-passages' && !(reason === 'compressed-lyric-line' && compressedCovered)));
+    }
+  }
   const cleanReasons = [...structuralReasons];
   if (!Number.isFinite(confidence) || confidence < ECHO_LYRIC_ADJUDICATION_MIN_CONFIDENCE) cleanReasons.push("confidence-below-adjudication-floor");
   if (confidence >= DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE) cleanReasons.push("automatic-gate-already-available");
@@ -272,6 +284,21 @@ function validEchoLyricTimingAdjudication(timing = {}) {
  * timed lines must be exactly the written lyric lines. Omitted → "written-lyrics-not-checked";
  * null (no Song found) → "written-lyrics-unavailable"; any difference → "timed-lines-not-written-lyrics".
  */
+export const ECHO_LYRIC_OPERATOR_DECISION_SCHEMA = "hapa.echo.lyric-operator-decision.v1";
+/**
+ * An operator may promote timing whose unresolved lines stay as written text flagged for review.
+ * The receipt must name exactly the current unresolved lines (it cannot outlive a re-assembly),
+ * carry who decided and when, and every named line must be flagged needsReview.
+ */
+export function echoLyricOperatorDecisionCovers(timing = {}, passages = inspectEchoLyricPassages(timing)) {
+  const decision = timing.operatorDecision;
+  if (!decision || decision.schemaVersion !== ECHO_LYRIC_OPERATOR_DECISION_SCHEMA || decision.decision !== "promote-with-unresolved-lines-flagged") return false;
+  if (!text(decision.decidedBy) || !text(decision.decidedAt) || !Array.isArray(decision.unresolvedLines)) return false;
+  const named = [...decision.unresolvedLines].sort((a, b) => a - b), current = [...passages.unresolvedLines].sort((a, b) => a - b);
+  if (named.length !== current.length || named.some((line, i) => line !== current[i])) return false;
+  return current.every(i => timing.lines?.[i]?.alignmentReview?.needsReview === true);
+}
+
 export function evaluateEchoLyricTimingPromotion(timing = {}, {
   minimumConfidence = DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE,
   sourcePathExists = false,
@@ -319,6 +346,7 @@ export function evaluateEchoLyricTimingPromotion(timing = {}, {
     confidence,
     engine,
     adjudicationAccepted,
+    operatorDecision: timing.operatorDecision && echoLyricOperatorDecisionCovers(timing) ? timing.operatorDecision.decision : null,
     writtenLines,
     reasons: [...new Set(reasons)],
   };

@@ -35,6 +35,24 @@ their previous timing until the song is re-timed. Some Song Card lyric fields co
 are never sung (`TITLE: …`, `(Style: … ~75 BPM …)`, stage directions); under the exact rule they
 are written lines too, so they need an explicit decision (keep, or mark them as tags).
 
+### Unresolved passages and operator decisions
+
+Unresolved passages hold every Audio Atlas pipeline (v2, v3-voices and later), not only v2. An
+operator may promote timing whose unresolved lines stay as written text, placed between measured
+lines and flagged for review, by attaching `operatorDecision`
+(`hapa.echo.lyric-operator-decision.v1`, `promote-with-unresolved-lines-flagged`, decidedBy,
+decidedAt, unresolvedLines). The gate accepts it only when the receipt names exactly the timing's
+current unresolved lines and each is flagged `needsReview`; a compressed line is covered only when
+it is one of those lines. A decision never overrides the written-lyrics rule.
+
+On 2026-10-24 Calder chose this for the re-timed songs that passed every other gate. 32 were
+promoted and synced (backups `data/backups/*before-lyric-timing-sync-2026-10-25T01-17-04-222Z*`):
+every line is the written lyric line, 344 unresolved lines stay flagged, 87.7 % of written words
+are measured, 330 backing performances are kept. Held: Navy Wife, Read Receipts for Elaine and Pipa
+Card Garden (a measured line squeezed under 0.35 s), 17 songs below confidence or with alignment
+warnings, and A Name Ridin’ Next to Me (duplicate catalog records). Per-song report:
+`data/echo-lyric-retime-2026-10-24-pass3/REPORT.md`.
+
 ## Lead and backing vocals, matched to the original lyrics (2026-10-24)
 
 The written lyrics are the text of record. Recognizers mishear and misspell; their words only
