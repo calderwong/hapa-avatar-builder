@@ -76,3 +76,13 @@ test('a small existing gap is used without demoting any measured word', () => {
   assert.equal(result.repairs.length, 0);
   assert.ok(result.rows[1].start >= 2 - 1e-6 && result.rows[1].end <= 2.5 + 1e-6);
 });
+
+test('a line that gives up its only measured word still keeps room for its own words', () => {
+  // Black Hole Spins: "Chiao Baby Chiao…" had one measured word, then nine unsung written lines, then a measured line.
+  const unsung = Array.from({ length: 9 }, (_, i) => [word(`unsung${i}`, null, null, false)]);
+  const result = assemble(['Chiao Baby Chiao', ...unsung.map((_, i) => `unsung${i}`), 'next line'],
+    [[word('Chiao', 112.78, 114.18), word('Baby', null, null, false), word('Chiao', null, null, false)], ...unsung, [word('next', 114.2, 114.6), word('line', 114.6, 115)]], { duration: 200 });
+  valid(result);
+  assert.ok(result.rows[0].end - result.rows[0].start >= 0.15 - 1e-6, 'its three words still fit');
+  assert.ok(result.rows.slice(1, 10).every((r) => r.end > r.start));
+});

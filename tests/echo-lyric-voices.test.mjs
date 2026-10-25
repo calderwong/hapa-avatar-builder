@@ -113,3 +113,12 @@ test('sync keeps each line\'s voice and every other voice performance with its o
   assert.deepEqual([line.voices[0].voice, line.voices[0].relation, line.voices[0].words[0].word, line.voices[0].words[0].start], ['backing', 'doubles', 'Join', 41.46]);
   assert.equal(normalizeEchoLyricTimingLines([{ text: 'plain line', start: 1, end: 2 }])[0].voices, undefined, 'older timing is unchanged');
 });
+
+test('a window is trimmed to its own stem and symbol-only text is skipped, never sent', async () => {
+  const { fitAlignmentWindow } = await import('../scripts/atlas-lyric-timing.mjs');
+  // Ghosts Watching T: the backing stem ends before the master's 262.88 s.
+  assert.deepEqual(fitAlignmentWindow({ text: 'last line', startSeconds: 250.29, endSeconds: 262.88 }, 262.875).endSeconds, 262.87);
+  assert.equal(fitAlignmentWindow({ text: 'late line', startSeconds: 263, endSeconds: 270 }, 262.875).state, 'skipped');
+  assert.equal(fitAlignmentWindow({ text: '… 🎵', startSeconds: 72.52, endSeconds: 77.36 }, 150).error, 'no alignable words in the window text');
+  assert.equal(fitAlignmentWindow({ text: 'words here', startSeconds: 1, endSeconds: 5 }, 150).endSeconds, 5);
+});

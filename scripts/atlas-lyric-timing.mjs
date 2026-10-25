@@ -96,6 +96,13 @@ export function performanceTiming(text, performance, alignedWords, duration) {
     words: words.map((w, k) => ({ text: w.text, start: round(resolved[k].start, 6), end: round(resolved[k].end, 6), matched: resolved[k].anchored })) };
 }
 
+/** Trim a window to its own stem's length, or skip it (with a reason) when nothing can be aligned. */
+export function fitAlignmentWindow(window, stemSeconds) {
+  if (!/[\p{L}\p{N}]/u.test(window.text || '')) return { ...window, state: 'skipped', error: 'no alignable words in the window text' };
+  const end = Math.min(window.endSeconds, Math.floor(stemSeconds * 100) / 100);
+  return end > window.startSeconds ? { ...window, endSeconds: end } : { ...window, state: 'skipped', error: 'window starts after this stem ends' };
+}
+
 const complete = (atlas, songId) => atlas.jobs(songId).filter(j => j.state === 'complete').sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)));
 
 /** The newest transcript of every vocal source (lead/vocals, backing, master) of one master recording. */
@@ -163,6 +170,11 @@ export async function plan(atlas, opts) {
   const anchored = performanceMap.supportedLines;
   let windows=[], voiceWindows=[], planningError=null;
   try { windows=echoLyricAlignmentWindows(lines,performanceMap,duration); voiceWindows=echoLyricPerformanceWindows(lines,performanceMap,duration); } catch(error) { planningError=error.message; }
+  // Stems can be shorter than the master, and a line of symbols has nothing to align: such windows are
+  // trimmed to their own stem or skipped with a recorded reason instead of failing in the worker.
+  const stemSeconds = id => { const a = result.assets.find(x => x.id === id); return a ? a.sample_count / a.sample_rate_hz : duration; };
+  const fit = w => fitAlignmentWindow(w, stemSeconds(w.sourceId || sourceId));
+  windows = windows.map(fit); voiceWindows = voiceWindows.map(fit);
   const sourceIdentities = Object.fromEntries(sources.map(s => [s.sourceId, { voice: s.voice, role: s.role, transcriptRun: s.runId, words: s.words.length, ...sourceIdentity(s.runId, s.sourceId) }]));
   fs.mkdirSync(opts.out, { recursive: true });
   // Exact stored lyric bytes, so lyricsSha256 matches the Song Card's lyrics.sha256.
@@ -187,7 +199,7 @@ export async function align(atlas, opts) {
   // and holds them for review. Re-running retries only windows that are not complete.
   const all = [...p.windows.map((w, index) => ['primary', index, w]), ...(p.voiceWindows || []).map((w, index) => ['voice', index, w])];
   for (const [kind, index, w] of all) {
-    if (w.state === 'complete') continue;
+    if (w.state === 'complete' || w.state === 'skipped') continue;
     try {
       const started = await atlas.start(p.songId, { alignmentBaseRunId: p.transcriptRun, alignment: { sourceId: w.sourceId || p.vocalSource.id, startSeconds: w.startSeconds, endSeconds: w.endSeconds, text: w.text, language: 'English' } });
       const done = await atlas.wait(started.id);
@@ -197,7 +209,7 @@ export async function align(atlas, opts) {
     console.log(JSON.stringify({ kind, window: index, sourceId: w.sourceId || p.vocalSource.id, runId: w.runId, state: w.state, ...(w.error ? { error: w.error } : {}) }));
   }
   const finished = all.filter(([, , w]) => w.state === 'complete').length;
-  return { plan: planPath, windows: p.windows.length, voiceWindows: (p.voiceWindows || []).length, complete: finished, failed: all.filter(([, , w]) => w.state !== 'complete').map(([kind, index, w]) => ({ kind, index, error: w.error })) };
+  return { plan: planPath, windows: p.windows.length, voiceWindows: (p.voiceWindows || []).length, complete: finished, skipped: all.filter(([, , w]) => w.state === 'skipped').map(([kind, index, w]) => ({ kind, index, reason: w.error })), failed: all.filter(([, , w]) => !['complete', 'skipped'].includes(w.state)).map(([kind, index, w]) => ({ kind, index, error: w.error })) };
 }
 
 export function assemble(atlas, opts) {

@@ -76,6 +76,10 @@ export function assembleEchoLyricIntervals({ lines, alignedWords, windows = [], 
     row.end = Math.min(next ? hits(next)[0].start : duration, measured.at(-1).end + .3 * trailing);
     if (measured[0].start < 0 || measured.at(-1).end > duration + epsilon) throw new Error(`Anchor outside audio on line ${i + 1}`);
   }
+  const unmeasuredAfter = row => { const k = row.lineWords.findLastIndex(w => w.matched); return row.lineWords.length - 1 - k; };
+  const unmeasuredBefore = row => { const k = row.lineWords.findIndex(w => w.matched); return k < 0 ? row.lineWords.length : k; };
+  const tailFloor = row => (hits(row).length ? hits(row).at(-1).end : row.start) + MIN_PLACEABLE_LINE_SECONDS * (hits(row).length ? unmeasuredAfter(row) : Math.max(1, row.lineWords.length));
+  const headCeiling = row => (hits(row).length ? hits(row)[0].start : row.end) - MIN_PLACEABLE_LINE_SECONDS * (hits(row).length ? unmeasuredBefore(row) : Math.max(1, row.lineWords.length));
   // Allocate a run of missing lines together, rather than giving each the whole same gap. Written
   // lines with no performance evidence (often headers, production notes or unsung lines) can fall
   // between two measured lines that touch. They still need a place: reclaim the neighbours'
@@ -89,8 +93,9 @@ export function assembleEchoLyricIntervals({ lines, alignedWords, windows = [], 
     let end = rows[last + 1]?.start ?? duration;
     const need = MIN_UNEVIDENCED_LINE_SECONDS * (last - i + 1), prev = rows[i - 1], next = rows[last + 1];
     for (let guard = 0; end - cursor < need && guard < 64; guard++) {
-      const floorPrev = prev ? Math.max(prev.start + epsilon, hits(prev).at(-1)?.end ?? prev.start + epsilon) : 0;
-      const ceilNext = next ? Math.min(next.end - epsilon, hits(next)[0]?.start ?? next.end - epsilon) : duration;
+      // A neighbour always keeps room for its own words: its measured span plus a minimum for each unmeasured word.
+      const floorPrev = prev ? tailFloor(prev) : 0;
+      const ceilNext = next ? headCeiling(next) : duration;
       cursor = Math.max(floorPrev, Math.min(cursor, ceilNext - need));
       end = Math.min(ceilNext, Math.max(end, cursor + need));
       // Reclaiming lead-ins/tails is preferred; a measured word is demoted only when there is truly no room.
