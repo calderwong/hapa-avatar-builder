@@ -220,3 +220,56 @@ test('the export page imports the layer module and stays import-free for packagi
   assert.ok(compiler.indexOf('livingLightReceipt=livingLightRenderer.paintFrame') < compiler.indexOf('paintEchoScoreDustLayer(X,scoreDustVideo'));
   assert.ok(compiler.indexOf('paintEchoScoreDustLayer(X,scoreDustVideo') < compiler.indexOf('const lyricState=drawLyric('));
 });
+
+test('editing keeps a bound render while it still covers the window and releases it otherwise', async () => {
+  const { adjustEchoScoreDustLayer } = await import('../src/domain/echo-score-dust-layer.js');
+  const ctx = { songId: 'song-fixture', durationSeconds: 24 };
+  const looks = adjustEchoScoreDustLayer(bound(), { opacity: 0.4, blend: 'screen' }, ctx);
+  assert.equal(looks.renderDropped, false);
+  assert.deepEqual([looks.layer.opacity, looks.layer.blend, looks.layer.render.recordingId], [0.4, 'screen', 'rec_score_dust_1']);
+  const inside = adjustEchoScoreDustLayer(bound(), { startSeconds: 6, endSeconds: 18.5 }, ctx);
+  assert.deepEqual([inside.renderDropped, inside.layer.window], [false, { startUs: 6e6, endUs: 18.5e6 }]);
+  const wider = adjustEchoScoreDustLayer(bound(), { startSeconds: 2 }, ctx);
+  assert.deepEqual([wider.renderDropped, wider.layer.render, wider.layer.window.startUs], [true, null, 2e6]);
+  assert.equal(adjustEchoScoreDustLayer(layer(), { endSeconds: 99 }, ctx).layer.window.endUs, 24e6, 'the end clamps to the song');
+  rejects(() => adjustEchoScoreDustLayer(layer(), { startSeconds: 21, endSeconds: 20 }, ctx), 'score_dust_layer_window');
+  rejects(() => adjustEchoScoreDustLayer(layer(), { blend: 'multiply' }, ctx), 'score_dust_layer_blend');
+  assert.equal(bound().render.recordingId, 'rec_score_dust_1', 'edits never mutate the input');
+});
+
+test('rebinding points the layer at the current score and releases the old render', async () => {
+  const { echoScoreDustLayerMatchesScore, rebindEchoScoreDustLayer } = await import('../src/domain/echo-score-dust-layer.js');
+  const current = { source: { atlasRunId: 'run-2', direction: { maxDensity: 0.5 }, playSettings: null, lyricLines: 'project' }, scoreFingerprint: 'score-fp-new', seed: 9 };
+  assert.equal(echoScoreDustLayerMatchesScore(bound(), { source: { atlasRunId: 'run-1' }, scoreFingerprint: FP, seed: 7 }), true);
+  assert.equal(echoScoreDustLayerMatchesScore(bound(), current), false);
+  const rebound = rebindEchoScoreDustLayer({ ...bound(), opacity: 0.5, blend: 'screen' }, current);
+  assert.deepEqual([rebound.render, rebound.binding, rebound.source, rebound.window, rebound.opacity, rebound.blend],
+    [null, { scoreFingerprint: 'score-fp-new', seed: 9 }, current.source, { startUs: 4e6, endUs: 20e6 }, 0.5, 'screen']);
+  assert.equal(echoScoreDustLayerMatchesScore(rebound, current), true);
+});
+
+test('the editor binds with the exact score request the render step makes', async () => {
+  const { buildEchoMusicalTimelineFromAtlas, composeEchoVisualScore, normalizeDustPlaySettings } = await import('../src/domain/echo-visual-score.js');
+  const { atlasFixture } = await import('./echo-score-dust-fixture.mjs');
+  const { currentEchoScoreDustSongScore, loadEchoScoreDustLayerScore, echoScoreDustLayerScoreRoute } = await import('../src/components/echo-score-dust-layer-client.js');
+  const timeline = buildEchoMusicalTimelineFromAtlas(atlasFixture()), direction = { maxDensity: 0.6, colour: { preset: 'album', album: { hue: 200 } } };
+  const score = composeEchoVisualScore(timeline, direction), routes = [];
+  const client = { request: async (route) => {
+    routes.push(route);
+    if (route.startsWith('/visual-score-run')) return { run: { id: 'run:1' }, basis: 'beats-and-sections' };
+    return { score, timeline, direction, direction_source: 'saved:r3', validation: { ok: true }, playSettings: {}, lyric_timing: { status: 'verified' } };
+  } };
+  const current = await currentEchoScoreDustSongScore({ songId: 'song-fixture', client });
+  assert.deepEqual(current.source, { atlasRunId: 'run:1', direction, playSettings: null, lyricLines: 'project' });
+  assert.equal(current.scoreFingerprint, score.fingerprint);
+  assert.equal(current.seed, normalizeDustPlaySettings({}, timeline).seed);
+  assert.deepEqual([current.directionSource, current.lyricTiming], ['saved:r3', 'verified']);
+  assert.deepEqual(routes, ['/visual-score-run?songId=song-fixture', '/jobs/run%3A1/query?op=visual-score&lyricLines=project', echoScoreDustLayerScoreRoute(current.source)]);
+  assert.match(routes[2], /direction=.*&lyricLines=project$/);
+  const planned = planEchoScoreDustLayer({ songId: 'song-fixture', ...current.source, scoreFingerprint: current.scoreFingerprint, seed: current.seed, startSeconds: 0, endSeconds: 10 });
+  const again = await loadEchoScoreDustLayerScore({ source: planned.source, client });
+  assert.deepEqual([again.scoreFingerprint, again.seed], [planned.binding.scoreFingerprint, planned.binding.seed]);
+  await assert.rejects(currentEchoScoreDustSongScore({ songId: 's', client: { request: async () => ({ run: null, reason: 'No Atlas run yet.' }) } }), /No Atlas run yet/);
+  const overlay = fs.readFileSync(new URL('../src/components/EchoScoreDustLayerOverlay.jsx', import.meta.url), 'utf8');
+  assert.match(overlay, /loadEchoScoreDustLayerScore\(\{ apiBase, source: layer\.source, signal \}\)/, 'the render step uses the same request');
+});

@@ -240,6 +240,50 @@ export function planEchoScoreDustLayer({ songId, atlasRunId, direction, playSett
   return validateEchoScoreDustLayer(layer);
 }
 
+/** Does the layer name this score (run, fingerprint and seed)? */
+export function echoScoreDustLayerMatchesScore(layer, score) {
+  return Boolean(layer && score) && layer.source.atlasRunId === score.source?.atlasRunId
+    && layer.binding.scoreFingerprint === score.scoreFingerprint && layer.binding.seed === score.seed;
+}
+
+/**
+ * Change a layer's window, opacity or blend. Opacity and blend are applied at
+ * composite time, so a bound render stays bound; a window the render no longer
+ * covers drops the render (the layer then needs a new one).
+ * → { layer, renderDropped }
+ */
+export function adjustEchoScoreDustLayer(layer, { startSeconds, endSeconds, opacity, blend } = {}, { songId, durationSeconds } = {}) {
+  const durationUs = durationSeconds === undefined ? undefined : Math.floor(Number(durationSeconds) * 1e3) * 1e3;
+  const next = JSON.parse(JSON.stringify(layer));
+  if (startSeconds !== undefined) next.window.startUs = Math.max(0, Math.ceil(Number(startSeconds) * 1e3) * 1e3);
+  if (endSeconds !== undefined) next.window.endUs = Math.floor(Number(endSeconds) * 1e3) * 1e3;
+  if (durationUs !== undefined) next.window.endUs = Math.min(next.window.endUs, durationUs);
+  if (opacity !== undefined) next.opacity = Number(opacity);
+  if (blend !== undefined) next.blend = blend;
+  const options = { ...(songId !== undefined ? { songId } : {}), ...(durationUs !== undefined ? { durationUs } : {}) };
+  try {
+    return { layer: validateEchoScoreDustLayer(next, options), renderDropped: false };
+  } catch (error) {
+    if (error.code !== "score_dust_render_coverage") throw error;
+    return { layer: validateEchoScoreDustLayer({ ...next, render: null }, options), renderDropped: true };
+  }
+}
+
+/**
+ * Point the layer at the song's current score, keeping its window, opacity and
+ * blend. A render belongs to the old score, so it is dropped.
+ * `score`: { source: {atlasRunId, direction, playSettings, lyricLines}, scoreFingerprint, seed }.
+ */
+export function rebindEchoScoreDustLayer(layer, score) {
+  return validateEchoScoreDustLayer({
+    ...JSON.parse(JSON.stringify(layer)),
+    layerId: `score-dust-layer:${String(score.scoreFingerprint).slice(0, 16)}:${layer.window.startUs}-${layer.window.endUs}`,
+    source: JSON.parse(JSON.stringify(score.source)),
+    binding: { scoreFingerprint: score.scoreFingerprint, seed: score.seed },
+    render: null,
+  });
+}
+
 /**
  * Bind a published transparent render to the layer. `receipt` is the
  * export receipt; `published` is the publish-render response.

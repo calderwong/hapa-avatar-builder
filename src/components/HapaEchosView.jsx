@@ -29,6 +29,7 @@ import { createEchoPreviewProxySchedule, applyEchoPreviewProjection, echoPreview
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 const EchoLivingLightPreview = lazy(() => import("./EchoLivingLightPreview.jsx"));
 const EchoScoreDustLayerOverlay = lazy(() => import("./EchoScoreDustLayerOverlay.jsx"));
+const EchoScoreDustLayerEditor = lazy(() => import("./EchoScoreDustLayerEditor.jsx"));
 const LivingLightWorkspace = lazy(() => import("./LivingLightWorkspace.jsx"));
 import { createPortal } from "react-dom";
 import { createEchoPanelLoader } from "../domain/echo-panel-loader.js";
@@ -7879,6 +7880,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                     <span data-testid="echo-visual-signal-summary">{activeVisualSignalSolo === "__silence__" ? "All audio influence muted." : activeVisualSignalSolo ? `Only ${activeVisualSignalSolo.replaceAll("-", " ")} drives audio-reactive channels.` : "All prepared buses drive their assigned channels."}</span>
                                   </details>
                                 </div>
+                                {/* Add, adjust or remove the cut's Score Dust layer (working copy). */}
+                                {activeProject && <Suspense fallback={null}><EchoScoreDustLayerEditor project={activeProject} apiBase={API_BASE} currentTime={currentTime}
+                                  editingDisabled={directorEditingLocked} onChange={layer=>handleUpdateProjectSettings({score_dust_layer:layer})}/></Suspense>}
                                 {usesScoreDust && (
                                   <EchoScoreDustPanel dust={scoreDust} currentTime={currentTime} sessionControls={{
                                     playing: isPlaying, playPause: handlePlayPause,

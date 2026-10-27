@@ -196,7 +196,7 @@ Command: `node scripts/compile-echo-integrated-performances.mjs --output=data/ec
 
 1. Done 2026-10-26: IP-6, Score Dust as a composited Director layer. Its
    follow-ups:
-   - Let the Builder add or adjust a layer on an existing cut.
+   - ~~Let the Builder add or adjust a layer on an existing cut~~ (done).
    - Prove Living Light and Score Dust together in one prepared take.
    - Refresh the stale media contract found below.
 2. IP-9 and IP-7: compile bindings when cuts are saved, and give persistent
@@ -327,8 +327,14 @@ The proof used *11:23 Meant to Meet?*: the generator's Dust Chorus cut and a
 - Living Light and Score Dust together in one prepared take. Both use the
   same route, and the receipt checks combine, but there is no pixel proof yet.
 - A full-length Song Card render with a layer.
-- The Builder cannot yet add or edit a layer on an existing cut. Only the
-  generator and the CLI write layers.
+- Done the same day: the Director's **Score Dust layer** panel adds, adjusts
+  (window, opacity, blend) and removes a cut's layer, bound to the song's
+  current score.
+  - Verified in the running Builder on *11:23 Meant to Meet?*: current score
+    `fnv1a:1d115606` with saved direction r1 and verified lyrics; add; window
+    edit; playhead start; opacity; blend; refusal of an end before the start;
+    removal. The preview overlay followed each change.
+  - Nothing was saved.
 - The dust in this direction is subtle over busy footage: the brightest alpha
   is 107/255. That is a creative tuning question, not a compositing one.
 

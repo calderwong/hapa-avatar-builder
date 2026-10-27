@@ -8,8 +8,8 @@
 // here with the existing deterministic transparent export, then bind the
 // published render into the working copy of the cut.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createAtlasClient } from "../domain/audio-atlas-ui.js";
-import { normalizeDustPlaySettings, prepareEchoScorePlayback } from "../domain/echo-visual-score.js";
+import { prepareEchoScorePlayback } from "../domain/echo-visual-score.js";
+import { loadEchoScoreDustLayerScore } from "./echo-score-dust-layer-client.js";
 import { ensureEchoPreviewRecordingLocalSession } from "../domain/echo-preview-recording.js";
 import { bindEchoScoreDustLayerRender, compileEchoScoreDustTrack, echoScoreDustLayerFrame, echoScoreDustLayerVideoAt, paintEchoScoreDustLayer } from "../domain/echo-score-dust-layer.js";
 import { decodeSongAudio, exportScoreDustVideo } from "./echo-score-dust-export.js";
@@ -17,16 +17,11 @@ import { decodeSongAudio, exportScoreDustVideo } from "./echo-score-dust-export.
 const LAYER_FPS = 30;
 const chip = { position: "absolute", left: 8, bottom: 8, maxWidth: "70%", fontSize: 11, color: "#e2e8f0", background: "#020617c8", padding: "4px 6px", borderRadius: 3, pointerEvents: "auto", textShadow: "0 1px 2px #000" };
 
-/** Load the layer's own score (its Atlas run + direction) and check it is still the bound one. */
+/** Load the layer's own score (the editor's binding request) and check it is still the bound one. */
 async function loadBoundPlayback({ apiBase, layer, signal }) {
-  const params = new URLSearchParams({ op: "visual-score", direction: JSON.stringify(layer.source.direction) });
-  if (layer.source.playSettings) params.set("playSettings", JSON.stringify(layer.source.playSettings));
-  if (layer.source.lyricLines) params.set("lyricLines", layer.source.lyricLines);
-  const value = await createAtlasClient(apiBase).request(`/jobs/${encodeURIComponent(layer.source.atlasRunId)}/query?${params}`, { signal });
-  if (!value?.score || !value.validation?.ok) throw new Error(value?.message || "The layer's Score Dust direction no longer composes a valid score.");
-  const settings = normalizeDustPlaySettings(value.playSettings || {}, value.timeline);
-  if (value.score.fingerprint !== layer.binding.scoreFingerprint || settings.seed !== layer.binding.seed) {
-    throw new Error(`The song's analysis or lyric timing changed since this layer was planned (score ${value.score.fingerprint.slice(0, 10)} ≠ ${layer.binding.scoreFingerprint.slice(0, 10)}). Re-plan the layer.`);
+  const { value, scoreFingerprint, seed, settings } = await loadEchoScoreDustLayerScore({ apiBase, source: layer.source, signal });
+  if (scoreFingerprint !== layer.binding.scoreFingerprint || seed !== layer.binding.seed) {
+    throw new Error(`The song's analysis or lyric timing changed since this layer was planned (score ${scoreFingerprint.slice(0, 10)} ≠ ${layer.binding.scoreFingerprint.slice(0, 10)}). Rebind the layer to the current score.`);
   }
   return { playback: prepareEchoScorePlayback(value.score, value.timeline, { pulse: settings.pulse }), settings };
 }

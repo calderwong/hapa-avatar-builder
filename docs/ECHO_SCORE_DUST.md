@@ -654,8 +654,24 @@ media → shaders → Living Light → **Score Dust** → lyrics.
   - `node cli/score-dust.mjs layer-status PROJECT.json`
   - `node cli/score-dust.mjs bind-layer RECORDING_ID --project=PROJECT.json --receipt=RECEIPT.json`
     publishes the render, binds it, and backs up the project file first.
-- **Not available:** the Builder cannot yet add a layer to an existing cut;
-  `compile-echo-integrated-performances.mjs` writes layers into generated
+- **Editor:** the Director preview column has a **Score Dust layer** panel
+  (`EchoScoreDustLayerEditor`) for the selected cut. It does the following:
+  - **Show the current score.** The panel reads the song's current score: its
+    Atlas run, the latest saved direction (or the default) and verified
+    written lyric timing. It recomposes that score in the layer's own request
+    form, `echo-score-dust-layer-client.js`, which **Render layer** also uses.
+  - **Add a layer.** A new layer covers the whole song (opacity 85%, Over).
+  - **Change the window.** Set the start and end in seconds or from the
+    playhead. If the bound render no longer covers the window, it is released.
+  - **Change opacity and blend.** Both are applied when compositing, so the
+    render stays bound.
+  - **Rebind to current score.** Shown only when the layer's score is older
+    than the current one; it releases the old render.
+  - **Remove the layer.**
+
+  All edits go to the working copy (`score_dust_layer`; `null` removes it in
+  a saved child cut). Save the cut to keep them.
+  `compile-echo-integrated-performances.mjs` also writes layers into generated
   projects. The whole-shot render placement above remains for dust-led shots.
 
 ### P2 batch 4
