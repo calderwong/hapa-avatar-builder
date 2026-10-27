@@ -1105,16 +1105,18 @@ export function acquireEchoReadinessCertificationLock({
   };
 }
 
-function registryMaster(project, graph, registryById, songbookBySongId, runtimeRouteContext = {}) {
+export function registryMaster(project, graph, registryById, songbookBySongId, runtimeRouteContext = {}) {
   const selectedAudioRoute = echoProjectAudioRoute(project, graph);
   const selectedId = text(selectedAudioRoute.id);
   const resolvedRegistryId = songbookBySongId.get(selectedId) || selectedId;
   const song = registryById.get(resolvedRegistryId) || null;
-  const filePath = text(song?.localPath);
+  // Resolve the same exact-identity master as Builder playback and Audio Atlas.
+  // Incremental Builder-owned songs need not yet exist in the external registry.
+  const runtimeUri = text(selectedAudioRoute.uri);
+  const runtimeRoute = resolveEchoRuntimeMediaUri(runtimeUri, {...runtimeRouteContext, exactIdentityOnly: true});
+  const filePath = runtimeRoute?.ok && runtimeRoute.route === "song-registry-api" ? text(runtimeRoute.resolvedPath) : "";
   const absolute = Boolean(filePath && path.isAbsolute(filePath));
   const readable = Boolean(absolute && readableFile(filePath));
-  const runtimeUri = text(selectedAudioRoute.uri);
-  const runtimeRoute = resolveEchoRuntimeMediaUri(runtimeUri, runtimeRouteContext);
   const routeMatches = Boolean(
     runtimeRoute?.ok
     && runtimeRoute?.route === "song-registry-api"
@@ -1123,7 +1125,7 @@ function registryMaster(project, graph, registryById, songbookBySongId, runtimeR
   );
   return {
     ok: readable && routeMatches,
-    registryId: text(song?.id) || null,
+    registryId: text(song?.id) || resolvedRegistryId || null,
     path: filePath || null,
     runtimeUri: runtimeUri || null,
     runtimeRoute: runtimeRoute?.route || null,
@@ -1419,6 +1421,9 @@ async function run(options = {}) {
   const proxyRegistryPath = path.resolve(text(options["proxy-registry"]) || process.env.HAPA_HYPERFRAMES_PROXY_REGISTRY || path.join(musicVizRoot, "web/isf/proxies/native-exact-proxies.json"));
   const registryPath = path.resolve(text(options.registry) || process.env.HAPA_SONG_REGISTRY_DATA || path.join(os.homedir(), "Desktop", "hapa-song-registry", "data", "registry.json"));
   const songbookPath = path.resolve(text(options.songbook) || path.join(avatarRoot, "data/dear-papa-songbook.json"));
+  const songStorePath = path.resolve(text(options["song-store"]) || process.env.HAPA_SONG_STORE || path.join(avatarRoot, "data/hapa-songs-store.json"));
+  const parsedSongStoreProof = readableFile(songStorePath) ? stableJsonSourceProof(songStorePath, "Builder Song store") : null;
+  const songStoreProof = parsedSongStoreProof ? compactSourceProof(parsedSongStoreProof) : null;
   const reportPath = path.resolve(text(options.report) || path.join(avatarRoot, "artifacts/echo-render-readiness/report.json"));
   const plansRoot = path.resolve(text(options.plans) || path.join(avatarRoot, "data/song-card-mints/plans"));
   const remintQueuePath = path.resolve(text(options["remint-queue"]) || path.join(path.dirname(plansRoot), "remint-queue.json"));
@@ -1492,6 +1497,8 @@ async function run(options = {}) {
     mediaDir: process.env.HAPA_MEDIA_DIR || path.join(avatarRoot, "data/media"),
     songRegistryPath: registryPath,
     songbookPath,
+    songStorePath,
+    songStorePayload: parsedSongStoreProof?.value || { songs: [] },
   };
   const requestedPlanId = text(options.plan);
   let requestedPlan = null;
@@ -1949,6 +1956,7 @@ async function run(options = {}) {
           if (!(
             assertFileSourceProofStatFresh(songRegistryProof, "Song registry")
             && assertFileSourceProofStatFresh(songbookProof, "Dear Papa songbook")
+            && (!songStoreProof || assertFileSourceProofStatFresh(songStoreProof, "Builder Song store"))
             && assertFileSourceProofStatFresh(proxyRegistryProof, "HyperFrames proxy registry")
           )) {
             throw new Error("A registry changed after this cut audit began; discard this result and run readiness again.");
@@ -1978,6 +1986,7 @@ async function run(options = {}) {
             if (!(
               assertFileSourceProofStatFresh(songRegistryProof, "Song registry")
               && assertFileSourceProofStatFresh(songbookProof, "Dear Papa songbook")
+              && (!songStoreProof || assertFileSourceProofStatFresh(songStoreProof, "Builder Song store"))
               && assertFileSourceProofStatFresh(proxyRegistryProof, "HyperFrames proxy registry")
             )) {
               throw new Error("A registry changed during execution graph publication.");
@@ -2566,6 +2575,7 @@ async function run(options = {}) {
     assertJsonSourceProofFresh(proxyRegistryProof, "HyperFrames proxy registry");
     assertJsonSourceProofFresh(songRegistryProof, "Song registry");
     assertJsonSourceProofFresh(songbookProof, "Dear Papa songbook");
+    if (songStoreProof) assertJsonSourceProofFresh(songStoreProof, "Builder Song store");
     assertFileSourceProofFresh(CERTIFIER_SOURCE_PROOF, "Echo readiness certifier");
     const [finalRendererBuild, finalDeliveryRuntimeBuild, finalShaderCatalog] = await Promise.all([
       inspectSongCardRendererBuildIdentity({ root: avatarRoot, refresh: true, strict: true }),

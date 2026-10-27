@@ -177,3 +177,7 @@ and truthful completeness that fills in as records are saved. Do not hide a
 known collection behind a category dropdown and single generic form. Reuse CMS
 identity, preserve per-item drafts, and verify empty/partial/complete/recovery
 states. This supplements existing owner and protocol rules.
+
+## Whole-song health completion gate — October 25, 2026
+
+For lyric, beat, stem, Living Light, shader or Director changes, use [Song Health Topview](docs/ECHO_SONG_HEALTH.md). Feature-local success cannot establish a Healthy song. Preserve exact written text, measured timing evidence, manual locks and append-only cuts; re-audit all affected requirement families and retain explicit unresolved reasons. Do not infer whole-album compliance from historical feature acceptance or a completed Atlas run.

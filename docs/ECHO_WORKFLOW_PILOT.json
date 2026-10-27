@@ -277,7 +277,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T13:30:07.575115+00:00",
+  "updatedAt": "2026-10-25T22:17:54.634386+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -3546,5 +3546,111 @@
     "humanCreativeAcceptance": false,
     "remaining": "Eight lyric passages and stem alignment remain subject to review; historical cuts retain their original timing outside Score Dust preview.",
     "postmortem": "docs/postmortems/2026-10-25-score-dust-preparation.md"
+  },
+  "songHealthTopview20261025": {
+    "status": "framework-running-album-noncompliant-acceptance-open",
+    "contract": "docs/ECHO_SONG_HEALTH.md",
+    "postmortem": "docs/postmortems/2026-10-25-song-health-topview.md",
+    "scope": "Whole-song compliance: actual written lyrics, recording-bound timing, saved/delivered cuts, beats, stem clocks, Living Light/shaders and playback proof",
+    "initialAudit": {
+      "songs": 209,
+      "currentMasterBeats": 209,
+      "preparedSignals": 209,
+      "writtenTextFailures": 35,
+      "timingSourceFailures": 88,
+      "passageReviewFailures": 183,
+      "staleRecommendedCuts": 57,
+      "healthy": 0
+    },
+    "verification": {
+      "relatedChecksBeforeFinalReview": 317,
+      "finalHealthMasterProofTestsPassed": 21,
+      "productionBuild": "passed",
+      "fullRegression": {
+        "passed": 3184,
+        "failed": 11,
+        "skipped": 1
+      },
+      "activePortSmoke": "failed-no-active-echo-preview",
+      "completionCommit": "held-unresolved-broad-acceptance"
+    },
+    "repairPolicy": "Append correction children; preserve audio, parent cuts, manual locks and unresolved passages; re-audit all requirements and hold any regression",
+    "boardTasks": [
+      "SH-001",
+      "SH-002",
+      "SH-003",
+      "SH-004",
+      "SH-005"
+    ],
+    "acceptanceLimit": "No whole-album Healthy claim. Specialist owner adapters and measured playback proof remain open.",
+    "finalAudit20261025": {
+      "songs": 209,
+      "healthy": 0,
+      "checks": {
+        "audio.current": {
+          "pass": 209
+        },
+        "beats.measured": {
+          "pass": 209
+        },
+        "lyrics.written": {
+          "pass": 170,
+          "fail": 39
+        },
+        "lyrics.source": {
+          "pass": 121,
+          "fail": 88
+        },
+        "lyrics.passages": {
+          "fail": 183,
+          "pass": 26
+        },
+        "lyrics.word-evidence": {
+          "pass": 79,
+          "fail": 130
+        },
+        "lyrics.project-current": {
+          "pass": 194,
+          "fail": 15
+        },
+        "cuts.current": {
+          "pass": 186,
+          "fail": 23
+        },
+        "telemetry.prepared": {
+          "pass": 209
+        },
+        "beats.stem-clock": {
+          "fail": 208,
+          "pass": 1
+        },
+        "living-light.bound": {
+          "fail": 163,
+          "pass": 46
+        },
+        "playback.lyrics": {
+          "unknown": 206,
+          "pass": 3
+        },
+        "shaders.bound": {
+          "unknown": 209
+        },
+        "response.observed": {
+          "unknown": 209
+        },
+        "direction.current": {
+          "pass": 209
+        },
+        "identity.unique": {
+          "not flagged": 205,
+          "fail": 4
+        }
+      },
+      "repairChildren": 38,
+      "repairChildrenWithCurrentSavedLyricsAndGraph": 37,
+      "newDirections": 202,
+      "currentDirections": 209,
+      "heldTimingFork": "dear-papa-song-hey-sister: word-outside-line"
+    }
   }
 }

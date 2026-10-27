@@ -1262,3 +1262,22 @@ is changed, and no motion-loop or human-review gate is closed.
 ## Score Dust activation — 2026-10-25
 
 Local preparation and browser connection verified for Thirsty in the Dark: 317 beats, 17 sections, 17 transitions and saved direction r1. Activation prepares missing Atlas structure and chooses a song-aware direction; the preview uses current verified lyric-source lines instead of stale cut timing while preserving manual locks. All written lyrics remain; unresolved particle hooks are excluded. 97 focused tests and build passed. Eight lyric passages, stem alignment and human creative acceptance remain open. Historical cuts remain unchanged outside Score Dust preview. See [diagnosis and evidence](postmortems/2026-10-25-score-dust-preparation.md).
+
+
+## Whole-song health Topview — October 25, 2026
+
+Calder replaced narrow feature-completion claims with a whole-song contract.
+The first complete audit covers 209 songs: all have measured master beats and
+prepared signals, while written text, source timing, saved cuts, stem windows
+and playback proof have separate failures. Topview provides dated evidence,
+owner repair plans, append-only current-lyric cuts, missing measured directions
+and explicit delivery refresh with regression checks. The shared master resolver
+now includes exact Builder-owned recordings outside the external registry.
+The final health/master/proof suite has 21 passing tests and the production
+build passes; the broader repository suite has 11 failures, so completion and
+commit remain held. All 209 now have current saved directions (202 added), and
+38 repair children were saved, with 37 carrying current saved lyric tracks and
+graphs. The final audit retains 39 written-text failures, 88 source-binding
+failures, 183 passage-review failures, 208 incomplete stem-clock qualifications
+and 23 stale recommended cuts. No whole-album health claim is made. See
+[contract](ECHO_SONG_HEALTH.md) and [postmortem](postmortems/2026-10-25-song-health-topview.md).

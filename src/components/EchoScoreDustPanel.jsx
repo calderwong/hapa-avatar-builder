@@ -278,7 +278,7 @@ function ScoreDustLyrics({ dust, update, onSeek, lyricStatus }) {
   const shownWords = score.phrases.filter((p) => p.wordOf).length;
   return (
     <fieldset data-testid="score-dust-lyrics">
-      <legend>Lyrics <span>words formed from dust{dust.lyricTiming?.status === "verified" ? ` · timing verified on the ${dust.lyricTiming.basis === "stem" ? "vocal stem" : "master"}` : ""}</span></legend>
+      <legend>Lyrics <span>words formed from dust{dust.lyricTiming?.status === "verified" ? ` · timing source matches the ${dust.lyricTiming.basis === "stem" ? "vocal stem" : "master"}` : ""}</span></legend>
       <label>Show <select aria-label="Lyric lines" value={control.pick} disabled={Boolean(direction.phrases)} onChange={(e) => set({ pick: e.target.value })}>
         <option value="hooks">Hooks, chosen automatically</option><option value="chosen" disabled={!lines.length}>Lines I choose</option><option value="off">No words</option>
       </select></label>

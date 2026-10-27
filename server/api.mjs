@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {createEchoSongHealth} from './echo-song-health.mjs';
 import {authorizeVoiceConsumer} from './avatar-voice-consumer.mjs';
 import {readEchoSavedCut} from './echo-saved-cut-reader.mjs';
 import { createSongAudioUpload } from './song-audio-upload.mjs';
@@ -1238,6 +1239,7 @@ async function stopOwnedOvercardHost() {
   await overcardHostHandle?.close();
   overcardHostHandle = null;
 }
+let echoSongHealthService;
 let audioAtlasService = null;
 // Ephemeral shared Score Dust listening sessions (process-scoped room clock).
 const scoreDustSessionStore = createScoreDustSessionStore();
@@ -2727,6 +2729,21 @@ async function route(req, res) {
     } catch (error) {
       sendJson(res, error.statusCode || 500, { ok: false, error: error.code || 'score_dust_loop_failed', message: error.message });
     }
+    return;
+  }
+
+  if (pathname === '/api/echos/audio-atlas/song-health' || pathname === '/api/echos/audio-atlas/song-health/audit' || pathname === '/api/echos/audio-atlas/song-health/repair' || pathname === '/api/echos/audio-atlas/song-health/proof') {
+    if (!requireAdmin(req, res)) return;
+    try {
+      audioAtlasService ||= createAudioAtlas({root:ROOT,songStore:HAPA_SONG_STORE_PATH});
+      echoSongHealthService ||= createEchoSongHealth({root:ROOT,atlasOwner:audioAtlasService,forkCut:createEchoDirectionVariantFork,warmCut:settleEchoDirectionCutWarmup,
+        resolveDelivered:async(songId,cutId)=>{const payload=await readJson(path.join(DATA_DIR,'music-video-projects',songId+'-video-project.json'));return readEchoDirectorShowGraph(payload.music_video_project||payload,songId,cutId);}});
+      if(req.method==='GET' && pathname.endsWith('/song-health')) {sendJson(res,200,await echoSongHealthService.report());return;}
+      if(req.method!=='POST'){sendJson(res,405,{error:'method_not_allowed'});return;}
+      const body=await readBody(req);
+      const result=pathname.endsWith('/proof')?await echoSongHealthService.recordProof(body.songId,body.proof):pathname.endsWith('/repair')?await echoSongHealthService.repair(body.songId,{expectedFingerprint:body.expectedFingerprint,action:body.action}):await echoSongHealthService.audit(body.songId);
+      sendJson(res,200,result);
+    }catch(error){sendJson(res,Number(error.statusCode||422),{error:'song_health_failed',message:error.message});}
     return;
   }
 

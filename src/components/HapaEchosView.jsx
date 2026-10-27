@@ -1,3 +1,4 @@
+import EchoSongHealthPanel from './EchoSongHealthPanel.jsx';
 import {createLivingLightRecordVisit,loadLivingLightRecordDestination} from '../domain/living-light-record-visit.js';
 import { compareEchoSongs } from '../domain/echo-album-navigation.js';
 import {livingLightCutMedia} from "../domain/living-light-media.js";
@@ -5886,8 +5887,26 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
       (song.songId && song.songId.toLowerCase().includes(searchQuery.toLowerCase()));
   }).sort((left, right) => compareEchoSongs(left, right, songSort));
 
+  const albumToolsRef = useRef(null);
+  useEffect(() => {
+    if (atlasSelection && albumToolsRef.current) albumToolsRef.current.open = true;
+  }, [atlasSelection]);
+  const songSortControl = (
+            <label className="echo-song-sort" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 0, fontSize: '12px', flexShrink: 0 }}>
+              Sort songs
+              <select aria-label="Sort songs" value={songSort} onChange={event => setSongSort(event.target.value)} title="Uses the saved album entry date. Songs without dates appear last." style={{ background: '#111827', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '6px' }}>
+                <option value="name">Name (A–Z)</option>
+                <option value="newest">Date created / added — newest first</option>
+                <option value="oldest">Date created / added — oldest first</option>
+              </select>
+            </label>
+  );
+
   return (
     <section className="hapa-echos-view" aria-label="Echos Album App View">
+      <details className="echo-album-tools" ref={albumToolsRef}>
+        <summary><strong>Echo Album tools</strong><span>Song Health · Audio Atlas · Import · Exports</span></summary>
+        <div className="echo-album-tools-content">
       <header className="hapa-songs-hero hapa-panel" data-variant="hot">
         <div>
           <p className="eyebrow">Echos of Other Eras</p>
@@ -5925,10 +5944,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         </div>
       </header>
 
+      <EchoSongHealthPanel apiBase={API_BASE} selectedSongId={selectedProjectSongId} />
       <AudioAtlasPanel songId={selectedProjectSongId} selection={atlasSelection} inventory={audioInventory} />
       <details className="echo-song-import-disclosure"><summary>Add or import a song</summary><EchoSongIngestPipeline /></details>
 
-      <div aria-label="Echo panel loading status" aria-live="polite" style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 14 }}>
+        </div>
+      </details>
+
+      <div className="echo-panel-loading-status" aria-label="Echo panel loading status" aria-live="polite" style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 14 }}>
         {Object.entries({ catalog: "Songs", board: "Board", gaps: "Analysis", shaders: "Shaders" }).map(([key, label]) => {
           const status = panelStatus[key] || { state: "loading", message: "Loading…" };
           return status.state === "ready" ? null : (
@@ -5943,11 +5966,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
       <div className="echos-workspace-grid" style={{
         display: 'grid',
         gridTemplateColumns: ["director", "references"].includes(activeDirectoryTab) ? '1fr' : 'minmax(0, 1fr) minmax(0, 1.6fr)',
-        gap: '20px',
-        padding: '10px 0',
-        height: 'calc(100vh - 220px)',
-        minHeight: '750px',
-        maxHeight: '950px' 
+        gap: '20px'
       }}>
         {!["director", "references"].includes(activeDirectoryTab) && (
           <div className="echos-left-col" style={{ display: 'flex', flexDirection: 'column', gap: '15px', height: '100%', minHeight: 0, minWidth: 0 }}>
@@ -6003,7 +6022,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
           </div>
         )}
 
-        <div className="echos-right-col hapa-panel" data-variant="notch" style={{ display: 'flex', flexDirection: 'column', gap: '15px', height: '100%', minHeight: 0, minWidth: 0, padding: '15px', overflow: 'hidden' }}>
+        <div className="echos-right-col hapa-panel" data-variant="notch" style={{ display: 'flex', flexDirection: 'column', gap: '8px', height: '100%', minHeight: 0, minWidth: 0, padding: '10px', overflow: 'hidden' }}>
           
           {/* Glowing NeonBlade Tabs */}
           <div className="directory-tabs" style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '10px', flexShrink: 0 }}>
@@ -6121,16 +6140,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
             </button>
           </div>
 
-          {(activeDirectoryTab === "songs" || activeDirectoryTab === "director") && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '12px', flexShrink: 0 }}>
-              Sort songs
-              <select aria-label="Sort songs" value={songSort} onChange={event => setSongSort(event.target.value)} title="Uses the saved album entry date. Songs without dates appear last." style={{ background: '#111827', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '6px' }}>
-                <option value="name">Name (A–Z)</option>
-                <option value="newest">Date created / added — newest first</option>
-                <option value="oldest">Date created / added — oldest first</option>
-              </select>
-            </label>
-          )}
+          {activeDirectoryTab === "songs" && songSortControl}
           {activeDirectoryTab === "songs" ? (
             <>
               <div className="song-audio-toolbar">
@@ -6651,6 +6661,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                 {/* Left Sub-column: List Pane (240px wide) */}
                 <div className="media-list-pane" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '240px', flexShrink: 0, minHeight: 0, borderRight: '1px solid rgba(255,255,255,0.06)', paddingRight: '12px' }}>
                   
+                  {songSortControl}
                   {/* Search Filter for Director Projects */}
                   <div className="media-filter-bar" style={{ display: 'flex', gap: '6px', flexDirection: 'column', background: 'rgba(0,0,0,0.2)', padding: '8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', padding: '4px 8px' }}>

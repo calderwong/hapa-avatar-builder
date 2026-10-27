@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {createEchoSongHealth} from '../server/echo-song-health.mjs';
+
+test('playback proof identity follows the served build and checker revision, but not its own receipt', async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'health-proof-identity-'));
+ t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ for(const dir of ['data/music-video-projects','data/echo-song-health/proofs','dist','src/domain'])await fs.mkdir(path.join(root,dir),{recursive:true});
+ await fs.copyFile(new URL('../src/domain/echo-song-health.js',import.meta.url),path.join(root,'src/domain/echo-song-health.js'));
+ await fs.writeFile(path.join(root,'data/hapa-songs-store.json'),JSON.stringify({songs:[{id:'fixture-song',title:'Fixture',lyrics:'Home',audio:{}}]}));
+ await fs.writeFile(path.join(root,'data/music-video-projects/fixture-song-video-project.json'),JSON.stringify({song_id:'fixture-song',timed_lyrics:[]}));
+ const atlasOwner={jobs:()=>[],visualScoreRun:()=>({run:null})};
+ await fs.writeFile(path.join(root,'dist/index.html'),'<script src="build-one.js"></script>');
+ const owner=createEchoSongHealth({root,atlasOwner});t.after(()=>owner.close());
+ const first=await owner.audit('fixture-song',{persist:false});
+ await fs.writeFile(path.join(root,'dist/index.html'),'<script src="build-two.js"></script>');
+ const nextBuild=await owner.audit('fixture-song',{persist:false});
+ assert.ok(first.fingerprint&&nextBuild.fingerprint,'collector must have completed');
+ assert.notEqual(nextBuild.fingerprint,first.fingerprint,'a new served build must invalidate old playback evidence');
+ await fs.writeFile(path.join(root,'data/echo-song-health/proofs/fixture-song.json'),JSON.stringify({schemaVersion:'invalid-test-receipt',responseTrials:[],lyricSamples:[]}));
+ const receipt=await owner.audit('fixture-song',{persist:false});
+ assert.equal(receipt.fingerprint,nextBuild.fingerprint,'saving a proof must not change the inputs that proof attests');
+ await fs.appendFile(path.join(root,'src/domain/echo-song-health.js'),'\n// changed acceptance rule fixture\n');
+ const changedOwner=createEchoSongHealth({root,atlasOwner});t.after(()=>changedOwner.close());
+ const changed=await changedOwner.audit('fixture-song',{persist:false});
+ assert.notEqual(changed.fingerprint,nextBuild.fingerprint,'a changed acceptance implementation must invalidate proof');
+});

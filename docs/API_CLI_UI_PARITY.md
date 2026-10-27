@@ -162,3 +162,7 @@ These records are human direction only. They do not establish canon, ownership, 
 ## Avatar Voice Cards and Scripts — local prototype
 
 UI: Builder → Voice & Scripts. Shared service: `server/avatar-voice.mjs`; authenticated routes: `/api/avatar-voices/:avatarId`; CLI: `node cli/avatar-voice.mjs`. Capture, list, scripts, generation, cancellation, archive/restore, and audio retrieval have the same owner. Player bundles use the authenticated API and UI download. See [contract and evidence limits](AVATAR_VOICE_CARDS.md). Real cloning acceptance requires installed OmniVoice weights and a permitted reference recording; fixture audio does not establish voice quality.
+
+## Whole-song compliance Topview — October 25, 2026
+
+Echo Album’s Song Health panel, authenticated `/api/echos/audio-atlas/song-health` routes and `cli/echo-song-health.mjs` share the same collector, compliance rules and repair coordinator. Read-only CLI audits cannot certify live graph delivery. Repairs use the running Builder owner; no alternate writer or transcription engine is introduced. The explicit first-pass specialist-adapter and playback-proof limits are in [Song Health](ECHO_SONG_HEALTH.md).

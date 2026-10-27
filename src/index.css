@@ -21768,6 +21768,30 @@ h1 {
   }
 }
 
+/* Keep the active album inside the viewport, including the tablet shell.
+   The optional telemetry banner remains a normal, measured flex sibling. */
+#root:has(.echos-view-host:not([hidden])) {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+#root:has(.echos-view-host:not([hidden])) > .app-shell {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace:has(> .echos-view-host:not([hidden])) {
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+@media (max-width: 900px) {
+  .workspace:has(> .echos-view-host:not([hidden])) > .sidebar { display: none; }
+}
+
 /* The Echos view stays mounted (hidden) for background playback; its host must fill the workspace
    cell so the view's own height:100% is definite and it scrolls instead of being clipped. */
 .echos-view-host {
@@ -21785,10 +21809,53 @@ h1 {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 14px;
-  overflow-y: auto;
+  gap: 8px;
+  padding: 10px;
+  box-sizing: border-box;
+  overflow: hidden;
   isolation: isolate;
+}
+
+/* Album utilities are optional; the editor owns the remaining viewport. */
+
+.echo-album-tools {
+  flex: 0 0 auto;
+  min-width: 0;
+  border: 1px solid var(--hapa-line);
+  border-radius: 6px;
+  background: rgba(2, 6, 23, .65);
+}
+
+.echo-album-tools > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  cursor: pointer;
+  color: var(--hapa-neon-cyan);
+}
+
+.echo-album-tools > summary::before { content: "▸"; }
+.echo-album-tools[open] > summary::before { content: "▾"; }
+.echo-album-tools > summary span { color: #b5c6d9; font-size: 12px; }
+.echo-album-tools > summary:focus-visible { outline: 2px solid var(--hapa-neon-cyan); outline-offset: -2px; }
+.echo-album-tools-content {
+  max-height: min(50dvh, 520px);
+  overflow-y: auto;
+  padding: 0 10px 10px;
+  scrollbar-gutter: stable;
+}
+.echo-album-tools-content > * { margin-block: 10px; }
+.hapa-echos-view .echos-right-col > .section-head { margin: 0; }
+.hapa-echos-view .media-list-pane > .echo-song-sort { flex-wrap: wrap; }
+.hapa-echos-view .echo-song-sort select { min-width: 0; max-width: 100%; }
+.echo-panel-loading-status { flex: 0 0 auto; }
+.echo-panel-loading-status:empty { display: none !important; }
+.hapa-echos-view > .echos-workspace-grid {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
 }
 
 .hapa-echos-view::before {
@@ -21804,12 +21871,15 @@ h1 {
 
 @media (max-width: 640px) {
   .hapa-echos-view {
-    height: auto;
-    min-height: 100%;
+    height: 100%;
+    min-height: 0;
     padding: 8px;
+    overflow-y: auto;
   }
 
   .hapa-echos-view .echos-workspace-grid {
+    flex: none;
+    grid-template-columns: minmax(0, 1fr) !important;
     height: auto !important;
     min-height: 0 !important;
     max-height: none !important;

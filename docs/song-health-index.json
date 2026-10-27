@@ -1,0 +1,11 @@
+{
+  "contract": "hapa.protocol-index/v1",
+  "owner": "hapa-avatar-builder",
+  "documents": [
+    {
+      "slug": "hapa-echo-song-health-topview-v1",
+      "title": "Echo Song Health Topview — whole-song compliance and repair",
+      "path": "docs/ECHO_SONG_HEALTH.md"
+    }
+  ]
+}
