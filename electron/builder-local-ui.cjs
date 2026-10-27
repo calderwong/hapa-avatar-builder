@@ -15,4 +15,15 @@ async function resolveBuilderLocalUiUrl(initialUrl,{get=getLocal}={}){
  if(!primary.ok||!secondary.ok||a.service!=='hapa-avatar-builder'||b.service!==a.service||!Number.isSafeInteger(a.runtime?.pid)||a.runtime.pid<1||a.runtime.pid!==b.runtime?.pid||!a.runtime.startedAt||a.runtime.startedAt!==b.runtime.startedAt||!a.runtime.buildSignature||a.runtime.buildSignature!==b.runtime.buildSignature||!html.ok||!String(html.headers?.['content-type']).includes('text/html')||!/Hapa Avatar Builder|id=["']root["']/.test(html.body||''))throw Error('Builder local UI does not match the selected server and HTML');
  return companion.origin+initial.pathname+initial.search+initial.hash;
 }
-module.exports={resolveBuilderLocalUiUrl};
+/** The API base the desktop window should use. The window must call its own
+ * origin: the Builder's same-origin guards (Audio Atlas) refuse a page on the
+ * local UI calling the API port. A configured base that names the Builder the
+ * window started from follows the window to its resolved origin; an explicitly
+ * different API stays as configured. */
+function desktopApiBase({configuredApiBase='',initialUrl='',resolvedUrl=''}={}){
+ let resolved,initial;try{resolved=new URL(resolvedUrl);}catch{return configuredApiBase||'';}
+ if(!configuredApiBase)return resolved.origin;
+ let configured;try{configured=new URL(configuredApiBase);initial=new URL(initialUrl);}catch{return configuredApiBase;}
+ return configured.origin===initial.origin?resolved.origin:configuredApiBase;
+}
+module.exports={resolveBuilderLocalUiUrl,desktopApiBase};

@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, safeStorage, session } = require("electron");
 const http = require("node:http");
-const { resolveBuilderLocalUiUrl } = require("./builder-local-ui.cjs");
+const { resolveBuilderLocalUiUrl, desktopApiBase } = require("./builder-local-ui.cjs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -404,14 +404,14 @@ async function resolveDesktopUrl() {
 
   if (process.env.HAPA_AVATAR_DESKTOP_URL) {
     desktopUrl = await resolveBuilderLocalUiUrl(process.env.HAPA_AVATAR_DESKTOP_URL);
-    process.env.HAPA_AVATAR_API_BASE ||= desktopUrl;
+    process.env.HAPA_AVATAR_API_BASE = desktopApiBase({ configuredApiBase: process.env.HAPA_AVATAR_API_BASE, initialUrl: process.env.HAPA_AVATAR_DESKTOP_URL, resolvedUrl: desktopUrl });
     console.log(`[desktop] Loading configured desktop URL ${desktopUrl}`);
     return desktopUrl;
   }
 
   if (process.env.HAPA_AVATAR_EXTERNAL_API) {
     desktopUrl = await resolveBuilderLocalUiUrl(`http://${HOST}:${DEFAULT_PORT}`);
-    process.env.HAPA_AVATAR_API_BASE ||= desktopUrl;
+    process.env.HAPA_AVATAR_API_BASE = desktopApiBase({ configuredApiBase: process.env.HAPA_AVATAR_API_BASE, initialUrl: `http://${HOST}:${DEFAULT_PORT}`, resolvedUrl: desktopUrl });
     console.log(`[desktop] Loading external API desktop URL ${desktopUrl}`);
     return desktopUrl;
   }
