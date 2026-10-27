@@ -330,13 +330,43 @@ The proof used *11:23 Meant to Meet?*: the generator's Dust Chorus cut and a
 - Done the same day: the Director's **Score Dust layer** panel adds, adjusts
   (window, opacity, blend) and removes a cut's layer, bound to the song's
   current score.
-  - Verified in the running Builder on *11:23 Meant to Meet?*: current score
-    `fnv1a:1d115606` with saved direction r1 and verified lyrics; add; window
+  - Verified in the running Builder on *11:23 Meant to Meet, Thu?*: current
+    score `fnv1a:1d115606` with saved direction r1 and verified lyrics; add; window
     edit; playhead start; opacity; blend; refusal of an end before the start;
     removal. The preview overlay followed each change.
   - Nothing was saved.
 - The dust in this direction is subtle over busy footage: the brightest alpha
   is 107/255. That is a creative tuning question, not a compositing one.
+
+### First saved cut with a layer (2026-10-27)
+
+- *11:23 Meant to Meet?* now has a saved cut with a Score Dust layer, made
+  entirely in the Builder UI: add, Render layer, Save as new cut.
+  - Cut `living-light-music-response-v1-edit-2b4bfd2ae308d9fe-edit-4ad62b1ed032fcc4`.
+  - Score `fnv1a:95390f13`, seed 2219433332, saved direction r1, verified
+    lyrics.
+  - Whole song (0–202.16 s) at 85%, Over.
+  - Render `f9b22bd3…`: 6,065 transparent frames at 1920×1080, 127 MB. The
+    file's sha256 matches the binding.
+- **Compiles:**
+  - The saved cut, read the way the server reads it, compiles to a `bound`
+    track in both graphs: the editor graph and the Director V2 show graph.
+  - The two tracks are identical.
+  - The export gate accepts it.
+  - The compiled-graph validator passes.
+  - A copy with a stale fingerprint is refused (`score_dust_track_mismatch`).
+  - The cut also carries Living Light, so its export is the combined prepared
+    take, which is still unproven.
+  - The HyperFrames package compile (stem telemetry, packaging) was not run.
+- **Found:** the first save dropped the layer without any error. The Builder
+  API process had been running since before the `score_dust_layer` field
+  existed. Its cut save keeps only the patch fields it knows, so it wrote the
+  cut without the layer, and the UI still reported "Cut saved".
+  - Restarting the launch agent fixed it.
+  - The layerless cut (`…-edit-2b4bfd2ae308d9fe`) stays, because cuts are
+    append-only.
+  - **Guardrail:** after adding a cut field, restart the Builder API before
+    saving through it. Check the saved file, not only the UI message.
 
 ### Turn-to-Lore reflection (IP-6)
 
