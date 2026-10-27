@@ -734,3 +734,49 @@ dust and per-section looks. None is rendered yet.
 **Guardrail:** a change to a song's length must recompile its album graph in
 the same step. A preflight must report one bad historical cut as that cut's
 failure, never abort the song.
+
+## Dust over the whole song (2026-10-27)
+
+The first plan-driven pass still sized the dust layer's window to the moments
+where dust leads (returns, the climax, sung phrases). In 49 songs that window
+covered less than a quarter of the song, some only 2%, so most of the new
+per-section density and looks never played. Plan-driven dust now spans the
+whole song: each section's density and look decide how present it is. The
+planner identity is bumped (`plan-driven-v3-whole-song`), so the corrected cuts
+are new append-only cuts and the earlier ones stay on disk.
+
+## Echo Album first load, newest-cut opening and desktop Atlas access (2026-10-27)
+
+**Song list.** The album catalog re-summarized every changed song by reading
+all of its cut files (about 11.5 GB across the album) and answered only when
+every song was done; the client gave up after 30 s. Now:
+
+- `createEchoProjectCatalog` takes a `responseBudgetMs` (the Builder uses
+  1.5 s). The first answer lists every song: finished rows, the previous row of
+  a song still refreshing, or a project-only light row on a cold cache (no cut
+  file is read). The refresh continues in the background and the response
+  reports `X-Hapa-Echo-Catalog-Pending`. The client shows the list and quietly
+  re-polls every 3 s while songs are pending.
+- `echo-variant-summary-file-cache.mjs` keeps each cut file's summary rows by
+  its stat stamp and the song's project, so a cut file is parsed once; a song
+  gaining a cut parses only the new file.
+- Measured on this machine: both caches cold, all 209 songs listed in 4.8 s,
+  with the one-time background parse done at 95 s; a warm restart answers in
+  0.23 s with nothing pending (before: 87 s, after the client's 30 s timeout).
+- A song's cuts load when it is selected (`director-project?songId=`), as before.
+
+**Newest cut on selection.** Opening a song auto-opens its newest saved cut. It
+required a certified exact graph, so a cut still preparing (every integrated
+cut until its Score Dust render is bound) fell back to Legacy. It now opens as
+an editable copy on its editor graph, as a manual pick already did, with Song
+Card rendering held for the exact certificate.
+
+**Desktop "atlas_origin_rejected".** The Audio Atlas routes accept only
+same-origin requests, because they start local model analysis, accept 1 GiB
+uploads and serve master audio, and any web page can reach a localhost API.
+The desktop shell loaded the window from the verified local UI companion
+(`:8807`) but kept the launcher's API base (`:8797`), so every desktop request
+was cross-origin and the Atlas refused song timing (and with it Score Dust).
+`desktopApiBase` now gives the window its own origin as API base when the
+configured base names the Builder it started from. The guard is unchanged. A
+running desktop window keeps the old base until the app is relaunched.

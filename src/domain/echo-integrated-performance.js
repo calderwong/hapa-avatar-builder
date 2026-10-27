@@ -497,8 +497,13 @@ function planScoreDust(timeline, sections, lyrics, lyricAudioHash, treatment, so
   const layer = validation.ok && visibleWindows.length && timeline.source?.runId ? planEchoScoreDustLayer({
     songId, atlasRunId: timeline.source.runId, direction, playSettings: null, lyricLines: withLyrics ? "project" : null,
     scoreFingerprint: score.fingerprint, seed: normalizeDustPlaySettings(direction.playSettings || {}, timeline).seed,
-    startSeconds: visibleWindows[0].start, endSeconds: Math.min(d, visibleWindows.at(-1).end), ...treatment.dust.layer,
-    ...(segments?.length ? { segments } : {}),
+    // Plan-driven dust is present all song long: each section's density and look
+    // decide how much it shows, so the layer spans the whole song, not only the
+    // moments where it leads.
+    ...(segments?.length
+      ? { startSeconds: sections[0].start, endSeconds: Math.min(d, sections.at(-1).end), segments }
+      : { startSeconds: visibleWindows[0].start, endSeconds: Math.min(d, visibleWindows.at(-1).end) }),
+    ...treatment.dust.layer,
   }) : null;
   return {
     status: validation.ok ? "composed" : "invalid", compositeExportSupported: Boolean(layer), runtime: layer ? "score-dust-layer" : "score-dust-preview",
@@ -586,7 +591,7 @@ export function planEchoIntegratedPerformance({ song, timeline, lyrics = null, l
   const layersUsed = [alwaysOn.some((s) => s.enabled), media.length > 0, shaders.length > 0, livingLightLayer.cues.length > 0, dust.status === "composed" && dust.visibleWindows.length > 0];
   const planInput = { song: song.songId, treatment: t.id, seed, timeline: timeline.fingerprint, lyricAudioHash: lyrics?.verified ? lyricAudioHash : null, media: mediaPool.map((m) => m.mediaId), shaders: shaderPool.map((s) => s.id),
     journey: livingLight?.journeyRef ? { ...livingLight.journeyRef, sourceBindingRef: livingLight.sourceBindingRef ?? null } : null,
-    palettes: Object.keys(mediaPalettes).sort().map((id) => [id, mediaPalettes[id]]), luma: Object.keys(mediaLuma).sort().map((id) => [id, mediaLuma[id]]), dustDirection: "plan-driven-v2" };
+    palettes: Object.keys(mediaPalettes).sort().map((id) => [id, mediaPalettes[id]]), luma: Object.keys(mediaLuma).sort().map((id) => [id, mediaLuma[id]]), dustDirection: "plan-driven-v3-whole-song" };
   return {
     schemaVersion: ECHO_INTEGRATED_PERFORMANCE_SCHEMA,
     planId: `integrated:${song.songId}:${t.id}:${hex(planInput)}`,

@@ -147,7 +147,7 @@ test("intents the runtime cannot execute are labelled, and Score Dust composites
   assert.equal(layer.binding.scoreFingerprint, p.layers.scoreDust.fingerprint);
   assert.equal(layer.source.atlasRunId, timeline.source.runId);
   assert.equal(layer.source.lyricLines, "project", "the score used verified written lyric timing");
-  assert.equal(layer.window.startUs, Math.ceil(p.layers.scoreDust.visibleWindows[0].start * 1e3) * 1e3);
+  assert.equal(layer.window.startUs, Math.ceil(p.sections[0].start * 1e3) * 1e3, "plan-driven dust spans the song; its sections set how much shows");
   assert.equal(plan("tunnel-journey").layers.scoreDust.layer.blend, "screen");
   assert.equal(plan("dust-chorus").layers.scoreDust.layer.opacity, 1);
   assert.equal(p.layers.scoreDust.renderPlacement.status, "not-used", "telemetry never lets dust lead");
@@ -299,6 +299,9 @@ test("the dust forms each shot's picture and its layer takes a look per section 
   }
   const segments = p.layers.scoreDust.layer.segments;
   assert.equal(segments.length, p.sections.length);
+  const window = p.layers.scoreDust.layer.window;
+  assert.equal(window.startUs, segments[0].startUs, "plan-driven dust spans the whole song");
+  assert.equal(window.endUs, segments.at(-1).endUs);
   p.sections.forEach((section, i) => {
     const segment = segments[i];
     if (["return", "climax"].includes(section.role)) assert.equal(segment.opacity, 1);
