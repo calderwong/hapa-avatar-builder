@@ -6,7 +6,7 @@ import { normalizeEchoPersistentShaderSlots } from "../src/domain/echo-persisten
 import { validateEchoScoreDustLayer, compileEchoScoreDustTrack } from "../src/domain/echo-score-dust-layer.js";
 import {
   ECHO_INTEGRATED_TREATMENTS, echoIntegratedMediaPool, echoIntegratedShaderPool, planEchoIntegratedPerformance,
-  projectEchoIntegratedPerformance, renderEchoIntegratedPerformanceScript, buildEchoIntegratedPerformanceCut, echoIntegratedPerformanceCutId,
+  projectEchoIntegratedPerformance, renderEchoIntegratedPerformanceScript, buildEchoIntegratedPerformanceCut, echoIntegratedPerformanceCutId, echoIntegratedPaletteFromHistogram, echoIntegratedLumaFromHistogram,
 } from "../src/domain/echo-integrated-performance.js";
 import { deriveEchoDirectionVariantProject, echoDirectionVariantFingerprint, validateEchoDirectionVariantProjection } from "../src/domain/echo-direction-variants.js";
 import { atlasFixture } from "./echo-score-dust-fixture.mjs";
@@ -216,7 +216,7 @@ test("an approved plan saves as one append-only cut that derives all five layers
   assert.equal(cut.lineage.planId, p.planId);
   assert.deepEqual(cut.lineage.approval, { ...approval, approvedAt: "2026-10-27T00:00:00.000Z" });
   assert.deepEqual(cut.parent, { songId: song.songId, projectSha256: "c".repeat(64), immutableLegacyProject: true });
-  assert.deepEqual(Object.keys(cut.project_patch).sort(), ["living_light_cues", "persistent_shader_slots", "persistent_shader_slots_schema", "score_dust_layer"],
+  assert.deepEqual(Object.keys(cut.project_patch).sort(), ["living_light_cues", "persistent_shader_slots", "persistent_shader_slots_schema", "score_dust_layer", "section_energy"],
     "lyrics stay with the song project, so a later lyric repair still reaches the cut");
   assert.equal(cut.director_show_graph, undefined, "the Director derives the graph; the cut stores none");
   assert.equal(cut.integrated_performance.layersUsed, 5);
@@ -230,6 +230,12 @@ test("an approved plan saves as one append-only cut that derives all five layers
   assert.equal(slots.length, p.layers.alwaysOn.filter((s) => s.enabled).length);
   assert.deepEqual(graph.directorV2.modulationBindings.filter((b) => b.target.kind === "visualizer_opacity").map((b) => b.target.visualizerId).sort(), slots.map((c) => c.cueId || c.id).sort());
   assert.deepEqual(derived.timed_lyrics, lines);
+  assert.deepEqual(cut.project_patch.section_energy.map((r) => [r.start, r.end]), p.sections.map((x) => [Number(x.start.toFixed(4)), Number(x.end.toFixed(4))]), "the cut carries the plan's measured sections");
+  // With a flat song map (one section), slot opacity follows the cut's measured sections instead.
+  const flat = { ...base, song_edit_map: { sections: [{ start: 0, end: song.durationSeconds, energy: 0.53 }] } };
+  const flatGraph = deriveEchoDirectionVariantProject(flat, { ...cut, variant_source: { kind: "append-only-project-variant", path: `${song.songId}/${cut.id}.json` } }).director_show_graph;
+  assert.equal(flatGraph.directorV2.modulationBindings.filter((b) => b.target.kind === "visualizer_opacity").length, slots.length);
+  assert.equal(flatGraph.directorV2.modulationBindings.find((b) => b.target.kind === "visualizer_opacity").source.sections.length, p.sections.length);
 
   assert.throws(() => buildEchoIntegratedPerformanceCut({ ...args, approval: { approvedBy: "Operator" } }), /operator approval/);
   assert.throws(() => buildEchoIntegratedPerformanceCut({ ...args, parentProjectSha256: "" }), /parent song project hash/);
@@ -238,4 +244,73 @@ test("an approved plan saves as one append-only cut that derives all five layers
   assert.throws(() => buildEchoIntegratedPerformanceCut({ ...args, plan: partial }), /4\/5 layers \(missing living-light\)/);
   assert.equal(buildEchoIntegratedPerformanceCut({ ...args, plan: partial, allowPartial: true }).integrated_performance.layersUsed, 4);
   assert.throws(() => echoIntegratedPerformanceCutId({ planId: "not-a-plan" }), /not a plan this module made/);
+});
+
+test("Score Dust follows the plan: plan boundaries, a piece per shot coloured by its picture, role density, grammar, stems and camera", () => {
+  const mediaPalettes = Object.fromEntries(mediaPool.map((m, i) => [m.mediaId, [{ h: (i * 60) % 360, s: 0.6, l: 0.6 }]]));
+  const p = plan("dust-chorus", { mediaPalettes });
+  const dir = p.layers.scoreDust.direction, score = p.layers.scoreDust.score;
+  assert.equal(p.layers.scoreDust.validation.ok, true);
+  assert.equal(p.layers.scoreDust.sectionEdits.skipped, 0, "every merge, move, split and piece applies");
+  // Dust pieces change exactly where the media cuts.
+  const cutTimes = p.layers.media.slice(1).map((s) => s.start);
+  for (const t of cutTimes) assert.ok(score.cues.some((c) => Math.abs(c.start - t) < 0.01), `dust changes at the cut at ${t}`);
+  assert.equal(score.cues.length, p.layers.media.length, "one dust piece per shot");
+  // Each piece wears its shot's colours.
+  for (const shot of p.layers.media) {
+    const cue = score.cues.find((c) => Math.abs(c.start - shot.start) < 0.01);
+    const motif = score.motifs.find((m) => m.id === cue.motifId);
+    assert.deepEqual(score.palettes[motif.paletteId], mediaPalettes[shot.mediaId]);
+  }
+  // Dust leads returns and the climax and recedes under the rest.
+  const densityAt = (section) => score.cues.find((c) => c.start >= section.start - 0.01 && c.start < section.end).density;
+  for (const section of p.sections) {
+    if (["return", "climax"].includes(section.role)) assert.ok(densityAt(section) >= 0.9, section.role);
+    else assert.ok(densityAt(section) <= 0.6, section.role);
+  }
+  assert.deepEqual(Object.keys(dir.eventResponses).sort(), [...new Set(p.transitions.map((t) => t.kind).filter((k) => ["lift", "fall", "break", "build", "change"].includes(k)))].sort());
+  assert.ok(Object.values(dir.stemResponses).every((v) => v >= 0.3 && v <= 1) && dir.stemResponses.vocals >= 0.8, "dust writes the sung words, so it follows the vocals");
+  assert.ok(dir.cameraMoves.length >= 1 && dir.cameraMoves.every((m) => ["hold", "drift", "orbit", "push"].includes(m.mode)));
+  assert.equal(dir.cameraMoves[0].mode, "drift", "fixture media drift");
+  assert.deepEqual(p.layers.scoreDust.layer.source.direction, dir, "the Builder renders exactly this direction");
+  assert.notEqual(plan("dust-chorus").planId, p.planId, "the pictures' colours are part of the plan's identity");
+});
+
+test("dust colours come from the picture's hues, lifted to read over it; greys give none", () => {
+  const bin = (r, g, b) => r * 36 + g * 6 + b;
+  const colours = echoIntegratedPaletteFromHistogram({ bins: [{ bin: bin(0, 0, 0), weight: 0.5 }, { bin: bin(5, 1, 0), weight: 0.2 }, { bin: bin(0, 1, 5), weight: 0.1 }, { bin: bin(5, 2, 0), weight: 0.05 }, { bin: bin(3, 3, 3), weight: 0.1 }] });
+  assert.equal(colours.length, 2, "black and grey carry no hue; two oranges are one colour");
+  assert.ok(colours[0].h < 30 && colours[1].h > 200 && colours[1].h < 240);
+  assert.ok(colours.every((c) => c.l >= 0.55 && c.l <= 0.78 && c.s >= 0.45));
+  assert.equal(echoIntegratedPaletteFromHistogram({ bins: [{ bin: bin(2, 2, 2), weight: 1 }] }), null);
+});
+
+test("the dust forms each shot's picture and its layer takes a look per section from role, energy and picture brightness", () => {
+  const pool = mediaPool.map((m, i) => ({ ...m, fields: { ...m.fields, media_thumbnail: m.kind === "image" ? undefined : `/media/poster-${m.mediaId}.jpg` } }));
+  const mediaLuma = Object.fromEntries(pool.map((m, i) => [m.mediaId, i % 2 ? 0.7 : 0.2]));
+  const p = planEchoIntegratedPerformance({ song, timeline, mediaPool: pool, shaderPool, livingLight, treatment: "dust-chorus", seed: "test", lyrics: { verified: true, lines, status: "verified" }, lyricAudioHash: MASTER, mediaLuma });
+  const dir = p.layers.scoreDust.layer.source.direction, score = p.layers.scoreDust.score;
+  assert.equal(p.layers.scoreDust.validation.ok, true);
+  for (const shot of p.layers.media) {
+    const cue = score.cues.find((c) => Math.abs(c.start - shot.start) < 0.01), motif = score.motifs.find((m) => m.id === cue.motifId);
+    const fields = pool.find((m) => m.mediaId === shot.mediaId);
+    const url = fields.fields.media_thumbnail || (fields.kind === "image" ? fields.fields.media_uri : null);
+    assert.deepEqual(motif.imageRef, { assetId: `media:${shot.mediaId}`, url }, `the dust of ${shot.id} forms its own picture`);
+  }
+  const segments = p.layers.scoreDust.layer.segments;
+  assert.equal(segments.length, p.sections.length);
+  p.sections.forEach((section, i) => {
+    const segment = segments[i];
+    if (["return", "climax"].includes(section.role)) assert.equal(segment.opacity, 1);
+    else if (section.role === "break") assert.equal(segment.opacity, 0.4);
+    else assert.ok(segment.opacity >= 0.55 && segment.opacity <= 0.9);
+    assert.ok(["over", "screen", "lighter"].includes(segment.blend));
+  });
+  const dark = planEchoIntegratedPerformance({ song, timeline, mediaPool: pool, shaderPool, livingLight, treatment: "dust-chorus", seed: "test", lyrics: { verified: true, lines, status: "verified" }, lyricAudioHash: MASTER, mediaLuma: Object.fromEntries(pool.map((m) => [m.mediaId, 0.1])) });
+  const bright = planEchoIntegratedPerformance({ song, timeline, mediaPool: pool, shaderPool, livingLight, treatment: "dust-chorus", seed: "test", lyrics: { verified: true, lines, status: "verified" }, lyricAudioHash: MASTER, mediaLuma: Object.fromEntries(pool.map((m) => [m.mediaId, 0.9])) });
+  assert.ok(dark.layers.scoreDust.layer.segments.every((s) => s.blend !== "over"), "light adds over dark pictures");
+  assert.ok(bright.layers.scoreDust.layer.segments.every((s) => s.blend === "over"), "over bright pictures the dust is laid over, not added");
+  assert.ok(dir.sections.cues && Object.values(dir.sections.cues).every((c) => c.image?.assetId?.startsWith("media:")));
+  assert.equal(echoIntegratedLumaFromHistogram({ bins: [{ bin: 0, weight: 1 }] }) < 0.1, true);
+  assert.equal(echoIntegratedLumaFromHistogram({ bins: [{ bin: 215, weight: 1 }] }) > 0.9, true);
 });

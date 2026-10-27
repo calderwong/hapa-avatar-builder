@@ -195,7 +195,9 @@ export function compileEchoCutModulationBindings(graph, { project = {} } = {}) {
   });
   // Older compiles keep the same cue-graph sections without a visual budget policy; a cut
   // previewed before its graph is certified reads the song edit map they were derived from.
-  const energy = echoSectionEnergySource(director.visualBudgetPolicy?.sections || director.cueGraph?.sections || project.song_edit_map?.sections);
+  // The first section map with energy contrast: a one-section map cannot shape anything.
+  const energy = [director.visualBudgetPolicy?.sections, director.cueGraph?.sections, project.song_edit_map?.sections, project.section_energy]
+    .map(echoSectionEnergySource).find(Boolean) || null;
   const slots = energy ? cards.filter(card => (card.persistentSlotId || card.alwaysOn === true) && !coveredOpacity.has(cardKey(card)) && !frozen(card, "opacity"))
     .map(card => slotOpacityBinding(card, cardKey(card), energy)) : [];
   const modulationBindings = [...kept, ...compiled, ...slots];

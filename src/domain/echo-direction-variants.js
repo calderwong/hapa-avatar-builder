@@ -80,6 +80,7 @@ const VARIANT_PROJECT_PATCH_FIELDS = Object.freeze([
   "persistent_shader_slots_schema",
   "persistent_shader_slots",
   "score_dust_layer",
+  "section_energy",
 ]);
 
 function object(value) {
@@ -487,8 +488,23 @@ export function pickEchoDirectionVariantProjectPatch(project = {}) {
     .map((key) => [key, clone(project[key])]));
   if (patch.living_light_cues !== undefined) validateEchoLivingLightCues(patch.living_light_cues);
   if (patch.score_dust_layer !== undefined) validateEchoScoreDustLayer(patch.score_dust_layer);
+  if (patch.section_energy !== undefined) validateEchoSectionEnergy(patch.section_energy);
   if (patch.output_profile !== undefined) patch.output_profile = resolveEchoOutputProfile(patch.output_profile);
   return patch;
+}
+
+/** Measured section energy a cut carries: [{ start, end, energy, source? }], in order, non-overlapping. */
+export function validateEchoSectionEnergy(rows) {
+  const ok = Array.isArray(rows) && rows.length >= 1 && rows.length <= 256 && rows.every((row, i) => row && typeof row === "object"
+    && Number.isFinite(row.start) && Number.isFinite(row.end) && row.start >= 0 && row.end > row.start && Number.isFinite(row.energy)
+    && (row.source === undefined || typeof row.source === "string") && Object.keys(row).every((k) => ["start", "end", "energy", "source"].includes(k))
+    && (i === 0 || row.start >= rows[i - 1].end - 1e-6));
+  if (!ok) {
+    const error = new Error("section_energy must be 1–256 ordered, non-overlapping { start, end, energy, source? } rows.");
+    error.code = "echo_section_energy_invalid";
+    throw error;
+  }
+  return rows;
 }
 
 /** Patch fields this build does not keep. A cut save refuses them instead of dropping them. */
@@ -624,8 +640,17 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
     && text(certifiedReceipt.cutId) === id
     && text(certifiedReceipt.cutFingerprint) === variantHash
   );
-  const sourceGraph = (!durationProjectionApplied || deliveredRuntimeGraph) && declaredGraph?.tracks
-    ? hydrateEchoVariantGraphOverlay(baseProject.director_show_graph, declaredGraph)
+  // A stored graph copy made before the song was re-timed has the old length.
+  // It is stale, not the cut: rebuild the cut's graph from its own timeline and
+  // patches on the current song (as for cuts that store no graph) instead of
+  // refusing the whole cut. The source file is unchanged.
+  const declaredHydrated = declaredGraph?.tracks ? hydrateEchoVariantGraphOverlay(baseProject.director_show_graph, declaredGraph) : null;
+  const declaredDurationSeconds = number(declaredHydrated?.song?.durationSeconds, null);
+  const staleDeclaredGraph = Boolean(declaredHydrated && !deliveredRuntimeGraph && baseDurationSeconds !== null && declaredDurationSeconds !== null
+    && Math.abs(declaredDurationSeconds - baseDurationSeconds) > 0.050001);
+  if (staleDeclaredGraph) durationProjection.declaredGraph = { status: "stale-song-duration-reprojected", declaredDurationSeconds, songDurationSeconds: baseDurationSeconds };
+  const sourceGraph = (!durationProjectionApplied || deliveredRuntimeGraph) && declaredHydrated && !staleDeclaredGraph
+    ? declaredHydrated
     : !durationProjectionApplied && certifiedSelectedGraph
       ? clone(baseProject.director_show_graph)
       : projectToEditorGraph({ ...projected, director_show_graph: baseProject.director_show_graph });

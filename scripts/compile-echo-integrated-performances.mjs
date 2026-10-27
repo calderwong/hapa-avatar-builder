@@ -26,8 +26,11 @@ import { createLivingLightRegistry } from "../src/living-light/registry.js";
 import { LivingLightStore } from "../server/living-light-store.mjs";
 import { loadGatedEchoIsfManifest, repairEchoProjectShaders, DEFAULT_ECHO_ISF_MANIFEST_PATH, DEFAULT_ECHO_ISF_PIXEL_GATE_PATH } from "./echo-isf-gated-manifest.mjs";
 import { preflightEchoDirectionCut } from "./preflight-echo-director-media.mjs";
+import { extractFramePixels } from "../server/media-visual-signature-extract.mjs";
+import { resolveEchoRuntimeMediaUri } from "../server/echo-runtime-media-route.mjs";
+import { paletteHistogramFromPixels } from "../src/domain/media-visual-signature.js";
 import {
-  ECHO_INTEGRATED_CUT_LINEAGE, ECHO_INTEGRATED_TREATMENTS, echoIntegratedMediaPool, echoIntegratedShaderPool, planEchoIntegratedPerformance,
+  ECHO_INTEGRATED_CUT_LINEAGE, ECHO_INTEGRATED_TREATMENTS, echoIntegratedMediaPool, echoIntegratedPaletteFromHistogram, echoIntegratedLumaFromHistogram, echoIntegratedShaderPool, planEchoIntegratedPerformance,
   projectEchoIntegratedPerformance, renderEchoIntegratedPerformanceScript,
 } from "../src/domain/echo-integrated-performance.js";
 
@@ -82,6 +85,35 @@ function songJourney(songId, cuts, durationUs) {
   return found.find((f) => f.durationUs >= durationUs) || found.sort((a, b) => b.durationUs - a.durationUs)[0] || null;
 }
 
+// Dust colours: each cast shot's poster (or its video's first frame), one
+// bounded ffmpeg decode at a time through the media visual signature owner.
+const paletteCache = new Map();
+async function mediaLooks(shots, pool) {
+  const fields = new Map(pool.map((m) => [m.mediaId, m.fields || {}]));
+  const palettes = {}, luma = {};
+  for (const mediaId of [...new Set(shots.map((shot) => shot.mediaId))]) {
+    if (!paletteCache.has(mediaId)) {
+      const f = fields.get(mediaId) || {};
+      let look = null;
+      for (const [uri, timeSeconds] of [[f.media_thumbnail, 0], [f.runtime_media_uri || f.media_uri, Number(f.media_contract?.sourceInSeconds || 0) + 0.5]]) {
+        const route = uri ? resolveEchoRuntimeMediaUri(uri, { root }) : null;
+        if (!route?.ok || !route.resolvedPath) continue;
+        try {
+          const frame = await extractFramePixels({ path: route.resolvedPath, timeSeconds, width: 64, height: 64, pixelFormat: "rgb24", timeoutMs: 15000 });
+          const histogram = paletteHistogramFromPixels(frame.pixels, frame.width, frame.height);
+          look = { palette: echoIntegratedPaletteFromHistogram(histogram), luma: echoIntegratedLumaFromHistogram(histogram) };
+          break;
+        } catch { /* An unreadable picture leaves the dust on its generated colours. */ }
+      }
+      paletteCache.set(mediaId, look);
+    }
+    const look = paletteCache.get(mediaId);
+    if (look?.palette) palettes[mediaId] = look.palette;
+    if (Number.isFinite(look?.luma)) luma[mediaId] = look.luma;
+  }
+  return { palettes, luma };
+}
+
 // Drop media the preflight cannot resolve, so every script is renderable.
 function resolvableMedia(pool, baseProject, projectPath) {
   const probe = { ...baseProject, director_show_graph: undefined, hyperframe_script: undefined, persistent_shader_slots: [], visualizer_timeline: [], living_light_cues: undefined,
@@ -122,7 +154,12 @@ for (const file of projectFiles) {
     const livingLight = songJourney(songId, cuts, Math.floor(durationSeconds * 1000) * 1000);
     Object.assign(entry, { atlasRunId: run.run.id, lyricTiming: lyrics.status, cuts: cuts.length, mediaPool: media.pool.length, mediaDropped: media.dropped.length, livingLightJourney: livingLight?.journeyRef?.journeyId || null, livingLightMapping: livingLight ? (livingLight.durationUs >= Math.floor(durationSeconds * 1000) * 1000 ? "song-clocked" : "entered-late") : null });
     for (const treatment of treatments) {
-      const plan = planEchoIntegratedPerformance({ song: { songId, title: entry.title, durationSeconds }, timeline, lyrics, lyricAudioHash: verdict.lyricAudioHash, mediaPool: media.pool, shaderPool, livingLight, treatment, seed });
+      const planInputs = { song: { songId, title: entry.title, durationSeconds }, timeline, lyrics, lyricAudioHash: verdict.lyricAudioHash, mediaPool: media.pool, shaderPool, livingLight, treatment, seed };
+      // Colours do not change the casting, so the second pass keeps the same shots and adds their palettes.
+      const cast = planEchoIntegratedPerformance(planInputs).layers.media;
+      const looks = await mediaLooks(cast, media.pool);
+      const plan = planEchoIntegratedPerformance({ ...planInputs, mediaPalettes: looks.palettes, mediaLuma: looks.luma });
+      if (JSON.stringify(plan.layers.media.map((s) => s.mediaId)) !== JSON.stringify(cast.map((s) => s.mediaId))) throw new Error("Palettes changed the casting.");
       // The layer must name the score the Builder will render: the same Atlas
       // visual-score composition the preview's "Render layer" requests.
       let scoreDustBinding = null;

@@ -631,3 +631,106 @@ can play and export it. Only that cut is certified; historical cuts are not.
 - **Candidates:** Lesson Card "canary one song through certification before
   saving a batch"; Decision Card "integrated cuts carry only layer fields;
   lyrics stay with the song project".
+
+## Score Dust follows the plan (2026-10-27)
+
+Calder rendered the 11:23 integrated cut's dust and found it "super lazy and
+not well integrated": it touched a Living Light moment or two, never the media
+or shaders. The cause was in the plan, not the renderer. The plan knew where
+dust should lead, the transition grammar, each section's media and shaders and
+each shot's camera, but sent the score composer only the lyric hooks and a
+density cap. The dust was composed from the song's analysis alone, on its own
+section boundaries, in colours from a seeded random hue. The Living Light
+overlap was a shared clock (both answer lift events), not coupling.
+
+`echoIntegratedDustDirection` now builds the direction from the plan, using
+fields the composer already had:
+
+- `sections`: merge and move the analysis boundaries onto the plan's
+  downbeat-snapped sections, then split at every media cut, so there is one
+  dust piece per shot.
+- Each piece takes its density from the section's role (the treatment's lead
+  roles at 0.95; the rest 0.18–0.58 by energy; breaks 0.12) and its palette from
+  that shot's poster or first frame (`echoIntegratedPaletteFromHistogram` over
+  the media visual signature histogram, hues lifted to read over the picture).
+- `eventResponses`: the plan's grammar per transition kind.
+- `stemResponses`: weighted by how long the plan's shaders follow each signal;
+  vocals stay at least 0.8 when the dust writes words.
+- `cameraMoves`: each shot's camera motion (push, orbit, hold, drift).
+
+The generator plans twice: the first pass casts the shots, their pictures give
+the palettes (one bounded ffmpeg decode each), and the second pass adds them
+without changing the cast. Palettes are part of the plan's identity.
+
+Two more levers, added the same day for every song rather than one at a time
+(Calder: "DO YOUR BEST FIRST", and apply it to more than one song):
+
+- **The dust forms each shot's picture.** Each dust piece's motif takes the
+  shot's poster (`{assetId: "media:<id>", url}`); the live and offline dust
+  renderers already sample an image into particle targets. Sung phrases still
+  take the dust while they are sung. Shots without a poster image keep their
+  shape family.
+- **The layer has a look per section.** `score_dust_layer.segments` (optional,
+  `{startUs, endUs, opacity, blend}`): segment opacity multiplies the layer's
+  opacity, so the editor's opacity stays the master, and ramps from the
+  previous section over 250 ms; the blend switches at the boundary. Preview and
+  export both read it through `echoScoreDustLayerFrame`, and the preview's
+  canvas now follows the blend frame by frame. It is applied when compositing,
+  so a bound render stays bound when looks change.
+  - The planner sets lead roles to full opacity, breaks to 0.4 and the rest to
+    0.55–0.9 by energy. Blend comes from how bright the section's pictures are
+    (`echoIntegratedLumaFromHistogram`): "lighter" (lead) or "screen" over dark
+    pictures, "over" over bright ones, where added light would wash out.
+
+On 11:23 Meant to Meet, Thu?: 17 shots → 17 dust pieces (13 forming their
+poster, all 13 posters served), 10 section looks, 29 section edits applied and
+none skipped, and the Builder's score matches the plan. Cut
+`integrated-dust-chorus-54eecb4016ea2cd9`. Not yet rendered or judged by eye.
+
+## The 0.2 s songs: cause, deadlock and fix (2026-10-27)
+
+**Cause.** On 2026-10-09 a one-off master duration sync (backup
+`data/backups/master-duration-sync-20261009T221759/`, no committed script) set
+`duration` in 19 song projects to their new WAV masters' measured length. It
+was 0.2 s longer than the MP3-era value (for example 394.08 → 394.28 s). Only the
+projects changed. The album graphs (compiled 2026-09-28 to 10-07) and the graph
+copies stored inside cuts saved before then kept the old length.
+
+**Why it blocked everything for those songs.** Three gates compare a graph's
+length with the song's, within 50 ms, and all three were right to refuse:
+
+1. Deriving a cut (projection validation) refused every new cut, because the
+   album graph it derives against was 0.2 s short.
+2. The compiled-graph validator refused the album graph itself
+   (`source_project_hash_mismatch`).
+3. Rebuilding the album graph was impossible. The album compiler's media
+   preflight derives *every* saved cut of the song first. Older cuts that store
+   a graph copy of the old length threw during that derive, outside the
+   preflight's per-cut error handling, so the whole song was reported as an
+   invalid project and the compile stopped. The stale graph could not be
+   replaced, so nothing for the song could ever pass again.
+
+**Fix.**
+
+- `deriveEchoDirectionVariantProject` treats a stored graph copy whose length
+  no longer matches the song as stale. It rebuilds the cut's graph from the
+  cut's own timeline and patches on the current song, as for cuts that store no
+  graph, and records `durationProjection.declaredGraph: stale-song-duration-reprojected`.
+  The saved cut file is unchanged. A stored graph of the right length is used
+  as before.
+- With that, `compile-echo-director-v2-album.mjs --song` rebuilt all 19 stale
+  album graphs (backup `data/backups/album-graph-recompile-2026-10-27/`): 14
+  from the 0.2 s sync, *American Kings* and four more stale by project hash. All
+  19 media preflights passed with 0 unresolved cues, and every one of the 209
+  album graphs now validates against its song project.
+- *Gangsta in the Broadlight*'s song map is one section, so its always-on slots
+  had nothing to follow. Integrated cuts now carry the Atlas-measured section
+  energy their plan used (`section_energy`, a kept patch field), and the
+  telemetry compiler takes the first section map that has contrast.
+
+**Result:** all 209 songs have an integrated Dust Chorus cut with plan-driven
+dust and per-section looks. None is rendered yet.
+
+**Guardrail:** a change to a song's length must recompile its album graph in
+the same step. A preflight must report one bad historical cut as that cut's
+failure, never abort the song.

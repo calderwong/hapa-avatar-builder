@@ -27,7 +27,14 @@ export const ECHO_SCORE_DUST_LAYER_BLENDS = Object.freeze({
   lighter: Object.freeze({ canvas: "lighter", css: "plus-lighter" }),
 });
 
-const LAYER_FIELDS = ["schemaVersion", "layerId", "songId", "source", "binding", "window", "opacity", "blend", "render"];
+const LAYER_FIELDS = ["schemaVersion", "layerId", "songId", "source", "binding", "window", "opacity", "blend", "segments", "render"];
+// Optional per-section look: { startUs, endUs, opacity, blend }. Segment opacity
+// multiplies the layer's opacity (so the editor's opacity stays the master) and
+// ramps from the previous adjacent segment over SEGMENT_RAMP_US; the blend
+// switches at the boundary. Applied at composite time, so a bound render stays bound.
+const SEGMENT_FIELDS = ["startUs", "endUs", "opacity", "blend"];
+export const ECHO_SCORE_DUST_SEGMENT_RAMP_US = 250000;
+const MAX_SEGMENTS = 256;
 const SOURCE_FIELDS = ["atlasRunId", "direction", "playSettings", "lyricLines"];
 const BINDING_FIELDS = ["scoreFingerprint", "seed"];
 const RENDER_FIELDS = ["recordingId", "uri", "sha256", "width", "height", "fps", "startSeconds", "durationSeconds", "background", "scoreFingerprint", "seed", "loopBridgeSeconds", "codec", "particles", "finalStateFingerprint"];
@@ -97,6 +104,17 @@ export function validateEchoScoreDustLayer(layer, { songId, durationUs } = {}) {
   if (durationUs !== undefined && (!Number.isSafeInteger(durationUs) || layer.window.endUs > durationUs)) fail("score_dust_layer_duration", `${path}.window`, "The layer must fit the song; it is never silently clipped.");
   if (!finite(layer.opacity) || layer.opacity <= 0 || layer.opacity > 1) fail("score_dust_layer_opacity", `${path}.opacity`, "Opacity is greater than 0 and at most 1.");
   if (!Object.hasOwn(ECHO_SCORE_DUST_LAYER_BLENDS, layer.blend)) fail("score_dust_layer_blend", `${path}.blend`, `Blend is one of ${Object.keys(ECHO_SCORE_DUST_LAYER_BLENDS).join(", ")}.`);
+  if (layer.segments !== undefined) {
+    if (!Array.isArray(layer.segments) || !layer.segments.length || layer.segments.length > MAX_SEGMENTS) fail("score_dust_layer_segments", `${path}.segments`, `Segments are 1–${MAX_SEGMENTS} sections.`);
+    layer.segments.forEach((segment, i) => {
+      const at = `${path}.segments[${i}]`;
+      fields(segment, at, SEGMENT_FIELDS);
+      if (!Number.isSafeInteger(segment.startUs) || !Number.isSafeInteger(segment.endUs) || segment.startUs < 0 || segment.endUs <= segment.startUs) fail("score_dust_layer_segments", at, "A segment is a positive, half-open interval in integer microseconds.");
+      if (i > 0 && segment.startUs < layer.segments[i - 1].endUs) fail("score_dust_layer_segments", at, "Segments are in order and never overlap.");
+      if (!finite(segment.opacity) || segment.opacity <= 0 || segment.opacity > 1) fail("score_dust_layer_segments", `${at}.opacity`, "Segment opacity is greater than 0 and at most 1.");
+      if (!Object.hasOwn(ECHO_SCORE_DUST_LAYER_BLENDS, segment.blend)) fail("score_dust_layer_segments", `${at}.blend`, `Blend is one of ${Object.keys(ECHO_SCORE_DUST_LAYER_BLENDS).join(", ")}.`);
+    });
+  }
   if (layer.render !== null) validateRender(layer.render, layer, `${path}.render`);
   return layer;
 }
@@ -158,10 +176,25 @@ export function echoScoreDustLayerFrame(track, songSeconds) {
   const layer = track?.layer, render = layer?.render;
   const t = Number(songSeconds), us = Math.round(t * 1e6);
   if (!render || !Number.isFinite(t) || us < layer.window.startUs || us >= layer.window.endUs) return { active: false, sourceSeconds: null, sourceFrame: null, seekSeconds: null, renderFps: null, opacity: 0, canvasComposite: null, cssBlend: null };
-  const blend = ECHO_SCORE_DUST_LAYER_BLENDS[layer.blend], frames = Math.max(1, Math.round(render.durationSeconds * render.fps));
+  const look = echoScoreDustLayerLookAt(layer, us);
+  const blend = ECHO_SCORE_DUST_LAYER_BLENDS[look.blend], frames = Math.max(1, Math.round(render.durationSeconds * render.fps));
   const sourceSeconds = Math.max(0, Math.min(render.durationSeconds, t - render.startSeconds));
   const sourceFrame = Math.min(frames - 1, Math.floor(sourceSeconds * render.fps + 1e-6));
-  return { active: true, sourceSeconds, sourceFrame, seekSeconds: (sourceFrame + 0.5) / render.fps, renderFps: render.fps, opacity: layer.opacity, canvasComposite: blend.canvas, cssBlend: blend.css };
+  return { active: true, sourceSeconds, sourceFrame, seekSeconds: (sourceFrame + 0.5) / render.fps, renderFps: render.fps, opacity: look.opacity, canvasComposite: blend.canvas, cssBlend: blend.css };
+}
+
+/** The layer's opacity and blend at a song time (µs): its segment, ramped from an adjacent one. */
+export function echoScoreDustLayerLookAt(layer, us) {
+  const segments = Array.isArray(layer?.segments) ? layer.segments : [];
+  const i = segments.findIndex((segment) => us >= segment.startUs && us < segment.endUs);
+  if (i < 0) return { opacity: layer.opacity, blend: layer.blend };
+  const segment = segments[i], previous = segments[i - 1];
+  let relative = segment.opacity;
+  if (previous && previous.endUs === segment.startUs && us - segment.startUs < ECHO_SCORE_DUST_SEGMENT_RAMP_US) {
+    const k = (us - segment.startUs) / ECHO_SCORE_DUST_SEGMENT_RAMP_US;
+    relative = previous.opacity + (segment.opacity - previous.opacity) * k;
+  }
+  return { opacity: Number((layer.opacity * relative).toFixed(6)), blend: segment.blend };
 }
 
 /** True when the video shows the frame's source frame (within a quarter frame of its middle). */
@@ -229,13 +262,13 @@ export function paintEchoScoreDustLayer(ctx, video, frame, width, height) {
  * Plan a layer (no render yet). Windows snap to whole milliseconds inside the
  * requested span so they always fit a song duration compiled to the millisecond.
  */
-export function planEchoScoreDustLayer({ songId, atlasRunId, direction, playSettings = null, lyricLines = null, scoreFingerprint, seed, startSeconds, endSeconds, opacity = 1, blend = "over", layerId = null } = {}) {
+export function planEchoScoreDustLayer({ songId, atlasRunId, direction, playSettings = null, lyricLines = null, scoreFingerprint, seed, startSeconds, endSeconds, opacity = 1, blend = "over", segments = null, layerId = null } = {}) {
   const startUs = Math.ceil(Number(startSeconds) * 1e3) * 1e3, endUs = Math.floor(Number(endSeconds) * 1e3) * 1e3;
   const layer = {
     schemaVersion: ECHO_SCORE_DUST_LAYER_SCHEMA,
     layerId: layerId || `score-dust-layer:${String(scoreFingerprint).slice(0, 16)}:${startUs}-${endUs}`,
     songId, source: { atlasRunId, direction: JSON.parse(JSON.stringify(direction || {})), playSettings: playSettings ? JSON.parse(JSON.stringify(playSettings)) : null, lyricLines },
-    binding: { scoreFingerprint, seed }, window: { startUs, endUs }, opacity, blend, render: null,
+    binding: { scoreFingerprint, seed }, window: { startUs, endUs }, opacity, blend, ...(segments ? { segments: JSON.parse(JSON.stringify(segments)) } : {}), render: null,
   };
   return validateEchoScoreDustLayer(layer);
 }

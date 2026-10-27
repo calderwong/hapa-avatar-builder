@@ -358,8 +358,132 @@ function mergeWindows(windows) {
   return out.map((w) => ({ start: round(w.start, 4), end: round(w.end, 4) }));
 }
 
-function planScoreDust(timeline, sections, lyrics, lyricAudioHash, treatment, songId) {
+const DUST_CAMERA = [[/push|zoom-in|dolly-in|punch/u, "push"], [/orbit|rotate|spin|arc/u, "orbit"], [/static|hold|locked|none/u, "hold"]];
+// Signals the shaders follow → the dust stem group that answers the same sound.
+const SIGNAL_STEM = Object.freeze({ beat: "drums", onset: "drums", high: "drums", bass: "bass", low: "bass", mid: "harmony", rms: "vocals", peak: "vocals" });
+
+/** Dust density for a plan section: the lead roles carry it, the others recede under the picture. */
+function dustDensityFor(section, treatment) {
+  const leads = treatment.dust.show === "returns" ? ["return", "climax"] : treatment.dust.show === "motes" ? [] : ["climax"];
+  if (leads.includes(section.role)) return { density: 0.95, busy: [0.55, 1] };
+  if (section.role === "break") return { density: 0.12, busy: [0, 0.2] };
+  const density = round(0.18 + 0.4 * section.relEnergy, 2);
+  return { density, busy: [0, round(Math.min(0.6, density + 0.15), 2)] };
+}
+
+/**
+ * The Score Dust direction for one plan: the dust follows the plan, not only
+ * the song. Its sections sit on the plan's downbeat-snapped boundaries and
+ * split at every media cut; each piece takes its density from the section's
+ * role and its colours from that shot's own picture. Transitions answer with
+ * the plan's grammar, the stems weigh what the shaders follow, and the dust
+ * camera moves with each shot's camera.
+ */
+export function echoIntegratedDustDirection({ timeline, sections, transitions, shots, shaders, mediaPool = [], mediaPalettes = {}, treatment }) {
   const direction = structuredClone(treatment.dust.direction);
+  const atlasStart = new Map(timeline.sections.map((s) => [s.id, s.start]));
+  const near = (a, b) => Math.abs(a - b) <= 0.05;
+  const merge = [], move = [], split = [], cues = {};
+  sections.forEach((section, i) => {
+    for (const id of section.atlasSectionIds.slice(1)) merge.push(round(atlasStart.get(id), 3));
+    const from = atlasStart.get(section.atlasSectionIds[0]);
+    if (i > 0 && round(from, 3) !== round(section.start, 3)) move.push({ from: round(from, 3), to: round(section.start, 3) });
+  });
+  // A piece of dust per shot: split at every cut inside a section (latest first,
+  // so each split lands in the section's own cue and keeps a predictable id).
+  const minCue = 0.5 + 0.01;
+  const cuts = shots.filter((shot) => {
+    const section = sections.find((s) => s.id === shot.sectionId);
+    return section && shot.start - section.start >= minCue && section.end - shot.start >= minCue;
+  }).sort((a, b) => b.start - a.start).slice(0, 64);
+  for (const shot of cuts) split.push(round(shot.start, 3));
+  const palette = (mediaId) => mediaPalettes[mediaId] || null;
+  const poolFields = new Map(mediaPool.map((m) => [m.mediaId, { fields: m.fields || {}, kind: m.kind }]));
+  const posterOf = (mediaId) => {
+    const entry = poolFields.get(mediaId), url = entry?.fields.media_thumbnail || (entry?.kind === "image" ? entry.fields.media_uri : null);
+    return typeof url === "string" && url.startsWith("/") ? { assetId: `media:${mediaId}`, url } : null;
+  };
+  for (const section of sections) {
+    const base = `cue-${section.atlasSectionIds[0]}`, look = dustDensityFor(section, treatment);
+    const own = shots.filter((shot) => shot.sectionId === section.id);
+    const pieces = [{ id: base, shot: own[0] }, ...cuts.filter((c) => c.sectionId === section.id).map((c) => ({ id: `${base}-split-${Math.round(round(c.start, 3) * 1000)}`, shot: c }))];
+    for (const piece of pieces) {
+      const colours = piece.shot && palette(piece.shot.mediaId), picture = piece.shot && posterOf(piece.shot.mediaId);
+      // The dust forms its shot's own picture (sung phrases still take the dust while they are sung).
+      cues[piece.id] = { density: Math.min(look.density, direction.maxDensity ?? 1), busy: look.busy, ...(colours ? { palette: colours } : {}), ...(picture ? { image: picture } : {}) };
+    }
+  }
+  direction.sections = { ...(merge.length ? { merge } : {}), ...(move.length ? { move } : {}), ...(split.length ? { split } : {}), cues };
+  // The plan's transition grammar, kind by kind, as the dust's event responses.
+  const responses = {};
+  for (const tr of transitions) if (["lift", "fall", "break", "build", "change"].includes(tr.kind) && tr.grammar.dust && tr.grammar.dust !== "none") responses[tr.kind] = tr.grammar.dust;
+  if (Object.keys(responses).length) direction.eventResponses = responses;
+  // Stems: weigh each group by how long the plan's shaders follow it.
+  const weight = { drums: 0, bass: 0, vocals: 0, harmony: 0 };
+  for (const shader of shaders) for (const signal of shader.signals || []) if (SIGNAL_STEM[signal]) weight[SIGNAL_STEM[signal]] += shader.end - shader.start;
+  const top = Math.max(...Object.values(weight));
+  if (top > 0) direction.stemResponses = Object.fromEntries(Object.entries(weight).map(([k, v]) => [k, round(Math.max(k === "vocals" && direction.lyrics ? 0.8 : 0.3, v / top), 2)]));
+  // Camera: the dust moves the way each shot's camera moves.
+  const fields = new Map(mediaPool.map((m) => [m.mediaId, m.fields || {}]));
+  const moves = [];
+  for (const shot of shots) {
+    const motion = String(fields.get(shot.mediaId)?.camera_motion || "drift").toLowerCase();
+    const mode = DUST_CAMERA.find(([re]) => re.test(motion))?.[1] || "drift";
+    if (moves.at(-1)?.mode === mode && near(moves.at(-1).end, shot.start)) moves.at(-1).end = round(shot.end, 3);
+    else moves.push({ mode, start: round(shot.start, 3), end: round(shot.end, 3) });
+  }
+  if (moves.length) direction.cameraMoves = moves.slice(0, 64);
+  return direction;
+}
+
+/**
+ * The dust layer's look per plan section: opacity from the section's role and
+ * energy, blend from how bright its pictures are. Light adds best over dark
+ * pictures; over bright ones it would wash out, so dust is laid over them.
+ */
+export function echoIntegratedDustSegments({ sections, shots, mediaLuma = {}, treatment }) {
+  const leads = treatment.dust.show === "returns" ? ["return", "climax"] : treatment.dust.show === "motes" ? [] : ["climax"];
+  return sections.map((section) => {
+    const own = shots.filter((shot) => shot.sectionId === section.id && Number.isFinite(mediaLuma[shot.mediaId]));
+    const span = own.reduce((sum, shot) => sum + (shot.end - shot.start), 0);
+    const luma = span > 0 ? own.reduce((sum, shot) => sum + mediaLuma[shot.mediaId] * (shot.end - shot.start), 0) / span : null;
+    const lead = leads.includes(section.role);
+    const opacity = lead ? 1 : section.role === "break" ? 0.4 : round(0.55 + 0.35 * section.relEnergy, 2);
+    const blend = luma === null ? (lead ? "screen" : "over") : luma < 0.42 ? (lead ? "lighter" : "screen") : "over";
+    return { startUs: Math.ceil(section.start * 1e3) * 1e3, endUs: Math.floor(section.end * 1e3) * 1e3, opacity, blend };
+  }).filter((segment) => segment.endUs > segment.startUs);
+}
+
+/** Mean luminance (0–1) of a media palette histogram, for choosing the blend. */
+export function echoIntegratedLumaFromHistogram(histogram = {}, levels = 6) {
+  const bins = (histogram.bins || []).filter((b) => b.weight > 0), total = bins.reduce((sum, b) => sum + b.weight, 0);
+  if (!total) return null;
+  const centre = (i) => (i + 0.5) * (256 / levels) / 255;
+  return round(bins.reduce((sum, { bin, weight }) => {
+    const [r, g, b] = [Math.floor(bin / (levels * levels)), Math.floor(bin / levels) % levels, bin % levels].map(centre);
+    return sum + weight * (0.2126 * r + 0.7152 * g + 0.0722 * b);
+  }, 0) / total, 3);
+}
+
+/** Up to four dust colours from a media palette histogram: the picture's hues, lifted so particles read over it. */
+export function echoIntegratedPaletteFromHistogram(histogram = {}, levels = 6) {
+  const colours = [];
+  for (const { bin, weight } of histogram.bins || []) {
+    if (weight < 0.02) continue;
+    const step = 256 / levels, centre = (i) => (i + 0.5) * step / 255;
+    const [r, g, b] = [Math.floor(bin / (levels * levels)), Math.floor(bin / levels) % levels, bin % levels].map(centre);
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+    if (d < 0.08) continue; // greys and blacks carry no hue
+    const h = d === 0 ? 0 : max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    const s = d / (1 - Math.abs(2 * l - 1));
+    const colour = { h: round((h * 60) % 360, 1), s: round(Math.min(1, Math.max(0.45, s)), 3), l: round(Math.min(0.78, Math.max(0.55, l + 0.15)), 3) };
+    if (!colours.some((c) => Math.min(Math.abs(c.h - colour.h), 360 - Math.abs(c.h - colour.h)) < 18)) colours.push(colour);
+    if (colours.length === 4) break;
+  }
+  return colours.length ? colours : null;
+}
+
+function planScoreDust(timeline, sections, lyrics, lyricAudioHash, treatment, songId, direction = structuredClone(treatment.dust.direction), segments = null) {
   const score = composeEchoVisualScore(timeline, direction, { lyricLines: lyrics?.verified ? lyrics.lines : null, lyricAudioHash: lyrics?.verified ? lyricAudioHash : null });
   const validation = validateEchoVisualScore(score, { timeline });
   const d = timeline.durationSeconds;
@@ -374,6 +498,7 @@ function planScoreDust(timeline, sections, lyrics, lyricAudioHash, treatment, so
     songId, atlasRunId: timeline.source.runId, direction, playSettings: null, lyricLines: withLyrics ? "project" : null,
     scoreFingerprint: score.fingerprint, seed: normalizeDustPlaySettings(direction.playSettings || {}, timeline).seed,
     startSeconds: visibleWindows[0].start, endSeconds: Math.min(d, visibleWindows.at(-1).end), ...treatment.dust.layer,
+    ...(segments?.length ? { segments } : {}),
   }) : null;
   return {
     status: validation.ok ? "composed" : "invalid", compositeExportSupported: Boolean(layer), runtime: layer ? "score-dust-layer" : "score-dust-preview",
@@ -384,6 +509,7 @@ function planScoreDust(timeline, sections, lyrics, lyricAudioHash, treatment, so
     phraseSource: score.phraseSource, phrases: score.phrases.map((p) => ({ text: p.text, start: p.start, end: p.end, lineIndex: p.source?.lineIndex ?? null })),
     motifs: score.motifs.map((m) => ({ repeatGroup: m.repeatGroup, family: m.family })), events: score.events.map((e) => ({ kind: e.kind, at: e.at, response: e.response })),
     visibleWindows, validation: { ok: validation.ok, errors: validation.errors.length, warnings: validation.warnings.length },
+    sectionEdits: score.sectionEdits ? { applied: score.sectionEdits.applied, skipped: score.sectionEdits.skipped.length } : null,
     score,
   };
 }
@@ -402,7 +528,7 @@ function storyBeat(section) {
  * timing (verified against this master), the song's media pool, the ready
  * shader pool and the song-clocked Living Light Journey reference.
  */
-export function planEchoIntegratedPerformance({ song, timeline, lyrics = null, lyricAudioHash = null, mediaPool = [], shaderPool = [], livingLight = null, treatment = "story-arc", seed = "echo-integrated-v1" } = {}) {
+export function planEchoIntegratedPerformance({ song, timeline, lyrics = null, lyricAudioHash = null, mediaPool = [], shaderPool = [], livingLight = null, mediaPalettes = {}, mediaLuma = {}, treatment = "story-arc", seed = "echo-integrated-v1" } = {}) {
   const t = ECHO_INTEGRATED_TREATMENTS[treatment];
   if (!t) throw new Error(`Unknown treatment ${treatment}; expected ${Object.keys(ECHO_INTEGRATED_TREATMENTS).join(", ")}.`);
   if (timeline?.schemaVersion !== ECHO_MUSICAL_TIMELINE_SCHEMA || !timeline.sections?.length) throw new Error("A musical timeline with sections is required.");
@@ -417,7 +543,8 @@ export function planEchoIntegratedPerformance({ song, timeline, lyrics = null, l
   const shaders = planShaders(sections, transitions, shaderPool, t, seed);
   const alwaysOn = planAlwaysOn(shaderPool, t, seed, durationSeconds);
   const livingLightLayer = planLivingLight(sections, transitions, livingLight, t, { ...song, durationSeconds });
-  const dust = planScoreDust(timeline, sections, lyrics, lyricAudioHash, t, song.songId);
+  const dustDirection = echoIntegratedDustDirection({ timeline, sections, transitions, shots, shaders, mediaPool, mediaPalettes, treatment: t });
+  const dust = planScoreDust(timeline, sections, lyrics, lyricAudioHash, t, song.songId, dustDirection, echoIntegratedDustSegments({ sections, shots, mediaLuma, treatment: t }));
   const llAt = (s) => livingLightLayer.cues.filter((c) => c.window.startUs < s.end * 1e6 && c.window.endUs > s.start * 1e6);
   const dustShare = (s) => dust.visibleWindows.reduce((sum, w) => sum + Math.max(0, Math.min(w.end, s.end) - Math.max(w.start, s.start)), 0) / Math.max(1e-6, s.end - s.start);
   for (const section of sections) {
@@ -458,7 +585,8 @@ export function planEchoIntegratedPerformance({ song, timeline, lyrics = null, l
   const media = shots;
   const layersUsed = [alwaysOn.some((s) => s.enabled), media.length > 0, shaders.length > 0, livingLightLayer.cues.length > 0, dust.status === "composed" && dust.visibleWindows.length > 0];
   const planInput = { song: song.songId, treatment: t.id, seed, timeline: timeline.fingerprint, lyricAudioHash: lyrics?.verified ? lyricAudioHash : null, media: mediaPool.map((m) => m.mediaId), shaders: shaderPool.map((s) => s.id),
-    journey: livingLight?.journeyRef ? { ...livingLight.journeyRef, sourceBindingRef: livingLight.sourceBindingRef ?? null } : null };
+    journey: livingLight?.journeyRef ? { ...livingLight.journeyRef, sourceBindingRef: livingLight.sourceBindingRef ?? null } : null,
+    palettes: Object.keys(mediaPalettes).sort().map((id) => [id, mediaPalettes[id]]), luma: Object.keys(mediaLuma).sort().map((id) => [id, mediaLuma[id]]), dustDirection: "plan-driven-v2" };
   return {
     schemaVersion: ECHO_INTEGRATED_PERFORMANCE_SCHEMA,
     planId: `integrated:${song.songId}:${t.id}:${hex(planInput)}`,
@@ -511,6 +639,9 @@ export function projectEchoIntegratedPerformance(plan, baseProject = {}, mediaPo
     persistent_shader_slots_schema: ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
     persistent_shader_slots: structuredClone(plan.layers.alwaysOn),
     living_light_cues: structuredClone(plan.layers.livingLight.cues),
+    // The Atlas-measured section energy the plan used, so telemetry can follow it
+    // even when the song's own section map has no contrast.
+    section_energy: plan.sections.map((s) => ({ start: round(s.start, 4), end: round(s.end, 4), energy: s.energy, source: `atlas-run:${plan.sources.atlasRunId || "unknown"}` })),
     ...(plan.layers.scoreDust.layer ? { score_dust_layer: structuredClone(plan.layers.scoreDust.layer) } : {}),
     integrated_performance: { schemaVersion: plan.schemaVersion, planId: plan.planId, treatment: plan.treatment,
       scoreDust: { fingerprint: plan.layers.scoreDust.fingerprint, compositeExportSupported: plan.layers.scoreDust.compositeExportSupported, layerStatus: plan.layers.scoreDust.layer ? "render-required" : "absent", visibleWindows: plan.layers.scoreDust.visibleWindows, renderPlacement: plan.layers.scoreDust.renderPlacement } },
@@ -564,7 +695,7 @@ export const ECHO_INTEGRATED_CUT_LINEAGE = "append-only-integrated-performance";
 // Only the integrated layers travel in the patch. Lyrics and output profile
 // stay with the song project, so a later lyric repair still reaches the cut.
 const text = (value) => String(value ?? "").trim();
-const INTEGRATED_CUT_PATCH_FIELDS = Object.freeze(["persistent_shader_slots_schema", "persistent_shader_slots", "living_light_cues", "score_dust_layer"]);
+const INTEGRATED_CUT_PATCH_FIELDS = Object.freeze(["persistent_shader_slots_schema", "persistent_shader_slots", "living_light_cues", "score_dust_layer", "section_energy"]);
 
 /** The append-only cut ID for a plan: stable for the same plan inputs. */
 export function echoIntegratedPerformanceCutId(plan = {}) {

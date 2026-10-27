@@ -634,3 +634,35 @@ test("delivery-time per-shot human enrichment does not break a saved cut's decla
     "enrichment must not mask any other change to the saved cut",
   );
 });
+
+test("a cut whose stored graph predates the song's re-timing derives on the current song instead of refusing", () => {
+  // The Oct 9 master-duration sync made songs 0.2 s longer; cuts saved before it
+  // still store a graph of the old length. The cut is reprojected, not lost.
+  const base = project();
+  base.duration = 20.2;
+  base.director_show_graph = { ...base.director_show_graph, song: { id: "song-one", durationSeconds: 20.2 } };
+  const cut = variant("before-retiming", "Dense", 1);
+  cut.director_show_graph = { ...structuredClone(project().director_show_graph), song: { id: "song-one", durationSeconds: 20 } };
+  const savedSource = structuredClone(cut);
+  const derived = deriveEchoDirectionVariantProject(base, cut);
+  assert.deepEqual(cut, savedSource, "the saved cut is unchanged");
+  assert.equal(derived.director_show_graph.song.durationSeconds, 20.2);
+  assert.ok(derived.director_show_graph.tracks.flatMap((t) => t.cards).some((card) => card.media?.id === "before-retiming-media"), "the cut's own media plays");
+  assert.deepEqual(derived.active_direction_script_variant.durationProjection.declaredGraph,
+    { status: "stale-song-duration-reprojected", declaredDurationSeconds: 20, songDurationSeconds: 20.2 });
+  assert.equal(derived.active_direction_script_variant.projectionValidation.ok, true);
+  // A stored graph of the right length is still used as before.
+  const current = variant("current", "Dense", 2);
+  current.director_show_graph = structuredClone(base.director_show_graph);
+  assert.equal(deriveEchoDirectionVariantProject(base, current).active_direction_script_variant.durationProjection.declaredGraph, undefined);
+});
+
+test("section_energy is a kept patch field and must be ordered measured rows", async () => {
+  const { pickEchoDirectionVariantProjectPatch, unsupportedEchoDirectionVariantPatchFields } = await import("../src/domain/echo-direction-variants.js");
+  const rows = [{ start: 0, end: 10, energy: 0.2, source: "atlas-run:r1" }, { start: 10, end: 20, energy: 0.8 }];
+  assert.deepEqual(pickEchoDirectionVariantProjectPatch({ section_energy: rows }).section_energy, rows);
+  assert.deepEqual(unsupportedEchoDirectionVariantPatchFields({ section_energy: rows }), []);
+  assert.throws(() => pickEchoDirectionVariantProjectPatch({ section_energy: [rows[1], rows[0]] }), /ordered/);
+  assert.throws(() => pickEchoDirectionVariantProjectPatch({ section_energy: [{ start: 0, end: 10, energy: "high" }] }), /section_energy/);
+  assert.throws(() => pickEchoDirectionVariantProjectPatch({ section_energy: [] }), /section_energy/);
+});

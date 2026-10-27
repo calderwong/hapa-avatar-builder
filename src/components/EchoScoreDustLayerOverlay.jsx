@@ -50,6 +50,8 @@ export default function EchoScoreDustLayerOverlay({ project, audioRef, clockRef,
       const t = Number(audio?.currentTime ?? clockRef?.current ?? 0), playing = Boolean(audio) && !audio.paused && !audio.ended;
       const frame = echoScoreDustLayerFrame(track, t);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // The blend can change per section, so the browser compositor follows it frame by frame.
+      if (frame.active && canvas.style.mixBlendMode !== frame.cssBlend) canvas.style.mixBlendMode = frame.cssBlend;
       if (!frame.active) { if (!video.paused) video.pause(); publish("outside-window"); return; }
       // Follow the song clock: play along while the song plays; when paused,
       // seek to the export's exact frame target (the middle of the source frame).
@@ -100,7 +102,7 @@ export default function EchoScoreDustLayerOverlay({ project, audioRef, clockRef,
 
   if (!project?.score_dust_layer) return null;
   const status = compiled.error ? `Score Dust layer is invalid: ${compiled.error}`
-    : render ? `Score Dust layer · render ${render.recordingId.slice(0, 8)} · ${track.layer.blend} ${Math.round(track.layer.opacity * 100)}%${playState === "loading" ? " · loading" : ""}`
+    : render ? `Score Dust layer · render ${render.recordingId.slice(0, 8)} · ${track.layer.segments ? `${track.layer.segments.length} section looks at ${Math.round(track.layer.opacity * 100)}%` : `${track.layer.blend} ${Math.round(track.layer.opacity * 100)}%`}${playState === "loading" ? " · loading" : ""}`
       : "Score Dust layer needs its render before preview or export.";
   return (
     <div data-testid="echo-score-dust-layer" data-state={compiled.error ? "invalid" : render ? playState : "render-required"} style={{ position: "absolute", inset: 0, zIndex: 4, pointerEvents: "none" }}>

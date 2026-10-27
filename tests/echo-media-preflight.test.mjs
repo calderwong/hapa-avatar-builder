@@ -386,3 +386,29 @@ test("custom director recipes cannot overwrite the canonical album output or sil
     assert.match(result.stderr, /Unknown Echo director recipe|Custom direction requires/);
   }
 });
+
+test("a saved cut that cannot be derived is reported as that cut's failure, not an unreadable song", () => {
+  const fx = fixture();
+  try {
+    const songId = "song-with-wrong-song-cut";
+    const projectPath = path.join(fx.root, "data/music-video-projects/song.json");
+    const variantsRoot = path.join(fx.root, "data/music-video-project-variants");
+    fs.mkdirSync(path.dirname(projectPath), { recursive: true });
+    fs.mkdirSync(path.join(variantsRoot, songId), { recursive: true });
+    const payload = project([mediaShot(0, "/media/app.mp4")], songId);
+    fs.writeFileSync(projectPath, JSON.stringify({ music_video_project: payload }));
+    // A cut whose stored graph belongs to another song cannot be derived.
+    fs.writeFileSync(path.join(variantsRoot, songId, "foreign.json"), JSON.stringify({
+      id: "foreign-cut", title: "Foreign cut", timeline: [mediaShot(0, "/media/app.mp4")],
+      director_show_graph: { song: { id: "another-song", durationSeconds: 1 }, tracks: [] },
+    }));
+    const report = preflightEchoProjectAndSavedCuts({ payload, projectPath, avatarRoot: fx.root, variantsRoot });
+    assert.equal(report.cutCount, 2);
+    assert.equal(report.cuts[0].ok, true, "the song's base project still preflights");
+    assert.equal(report.failures.length, 1);
+    assert.equal(report.failures[0].cutId, "foreign-cut");
+    assert.equal(report.failures[0].reason, "saved-cut-projection-invalid");
+  } finally {
+    fs.rmSync(fx.root, { recursive: true, force: true });
+  }
+});

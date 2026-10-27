@@ -195,14 +195,21 @@ export function preflightEchoDirectionCut({
   referenceLoopRunsRoot = DEFAULT_ECHO_REFERENCE_LOOP_RUNS_ROOT,
 } = {}) {
   const baseProject = bodyOf(project);
-  const projected = variant ? deriveEchoDirectionVariantProject(baseProject, variant) : baseProject;
-  const identity = cutIdentity(projected, variant);
   const context = {
-    songId: text(projected.song_id || variant?.parent?.songId) || "unknown-song",
-    songTitle: text(projected.song_title) || "Untitled song",
-    ...identity,
+    songId: text(baseProject.song_id || variant?.parent?.songId) || "unknown-song",
+    songTitle: text(baseProject.song_title) || "Untitled song",
+    ...cutIdentity(baseProject, variant),
     sourcePath: sourcePath ? path.resolve(sourcePath) : null,
   };
+  let projected;
+  try {
+    projected = variant ? deriveEchoDirectionVariantProject(baseProject, variant) : baseProject;
+  } catch (error) {
+    // A cut that cannot be derived is that cut's failure, reported under its own
+    // identity; it is not an unreadable song project.
+    const failure = invalidInputFailure(context, error?.code === "echo_direction_variant_projection_invalid" ? "saved-cut-projection-invalid" : "saved-cut-derive-exception", error?.message || String(error));
+    return { ...context, ok: false, declaredCount: 0, generatedCount: 0, resolvedCount: 0, unresolvedCount: 1, failures: [failure] };
+  }
   try {
     const fileResolver = isFile || createEchoMediaPreflightFileResolver({ loopRunsRoot: referenceLoopRunsRoot });
     const compilerReport = preflightHyperFramesMedia(graphOf(projected), {

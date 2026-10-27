@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   ECHO_SCORE_DUST_LAYER_SCHEMA, ECHO_SCORE_DUST_LAYER_ORDER, validateEchoScoreDustLayer, compileEchoScoreDustTrack, planEchoScoreDustLayer,
   bindEchoScoreDustLayerRender, echoScoreDustLayerFrame, echoScoreDustLayerSourceRect, paintEchoScoreDustLayer, seekEchoScoreDustLayerVideo, echoScoreDustLayerVideoAt,
-  assertEchoScoreDustLayerExportable,
+  assertEchoScoreDustLayerExportable, echoScoreDustLayerLookAt, adjustEchoScoreDustLayer, ECHO_SCORE_DUST_SEGMENT_RAMP_US,
 } from '../src/domain/echo-score-dust-layer.js';
 import { buildDirectorV2Artifacts } from '../src/domain/echo-director-v2.js';
 import { validateEchoCompiledShowGraph, reidentifyEchoCompiledShowGraph } from '../src/domain/echo-compiled-show-graph.js';
@@ -272,4 +272,33 @@ test('the editor binds with the exact score request the render step makes', asyn
   await assert.rejects(currentEchoScoreDustSongScore({ songId: 's', client: { request: async () => ({ run: null, reason: 'No Atlas run yet.' }) } }), /No Atlas run yet/);
   const overlay = fs.readFileSync(new URL('../src/components/EchoScoreDustLayerOverlay.jsx', import.meta.url), 'utf8');
   assert.match(overlay, /loadEchoScoreDustLayerScore\(\{ apiBase, source: layer\.source, signal \}\)/, 'the render step uses the same request');
+});
+
+test('per-section looks: segment opacity scales the master, ramps in, switches blend, and preview and export paint the same', () => {
+  const segments = [{ startUs: 4e6, endUs: 10e6, opacity: 0.5, blend: 'over' }, { startUs: 10e6, endUs: 20e6, opacity: 1, blend: 'lighter' }];
+  const track = compileEchoScoreDustTrack(project({ ...bound(), segments }));
+  assert.deepEqual(track.layer.segments, segments, 'the graph track carries the looks');
+  const at = (t) => echoScoreDustLayerFrame(track, t);
+  assert.deepEqual([at(6).opacity, at(6).canvasComposite, at(6).cssBlend], [0.45, 'source-over', 'normal']);
+  assert.deepEqual([at(15).opacity, at(15).canvasComposite, at(15).cssBlend], [0.9, 'lighter', 'plus-lighter']);
+  const mid = at(10 + ECHO_SCORE_DUST_SEGMENT_RAMP_US / 2e6);
+  assert.ok(Math.abs(mid.opacity - 0.9 * 0.75) < 1e-6 && mid.cssBlend === 'plus-lighter', 'opacity ramps from the previous section; blend switches at the boundary');
+  // Preview and export call the same painter with the same frame.
+  const calls = [];
+  const ctx = { save() {}, restore() {}, drawImage: () => calls.push([ctx.globalAlpha, ctx.globalCompositeOperation]), globalAlpha: 1, globalCompositeOperation: 'source-over' };
+  paintEchoScoreDustLayer(ctx, { videoWidth: 1920, videoHeight: 1080 }, at(6), 1920, 1080);
+  paintEchoScoreDustLayer(ctx, { videoWidth: 1920, videoHeight: 1080 }, at(15), 1920, 1080);
+  assert.deepEqual(calls, [[0.45, 'source-over'], [0.9, 'lighter']]);
+  // Outside every segment the layer's own look applies; editing opacity keeps the render bound.
+  assert.deepEqual(echoScoreDustLayerLookAt({ opacity: 0.8, blend: 'screen', segments }, 2e6), { opacity: 0.8, blend: 'screen' });
+  const adjusted = adjustEchoScoreDustLayer({ ...bound(), segments }, { opacity: 0.6 }, { songId: 'song-fixture', durationSeconds: 24 });
+  assert.notEqual(adjusted.layer.render, null);
+  assert.deepEqual(adjusted.layer.segments, segments);
+  assert.equal(echoScoreDustLayerLookAt(adjusted.layer, 15e6).opacity, 0.6);
+  // A layer without segments is unchanged by this field.
+  assert.equal('segments' in layer(), false);
+  rejects(() => validateEchoScoreDustLayer({ ...layer(), segments: [{ ...segments[1] }, { ...segments[0] }] }), 'score_dust_layer_segments');
+  rejects(() => validateEchoScoreDustLayer({ ...layer(), segments: [{ ...segments[0], blend: 'multiply' }] }), 'score_dust_layer_segments');
+  rejects(() => validateEchoScoreDustLayer({ ...layer(), segments: [{ ...segments[0], opacity: 0 }] }), 'score_dust_layer_segments');
+  rejects(() => validateEchoScoreDustLayer({ ...layer(), segments: [] }), 'score_dust_layer_segments');
 });
