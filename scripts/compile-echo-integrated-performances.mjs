@@ -10,13 +10,16 @@
 //
 //   node scripts/compile-echo-integrated-performances.mjs [--output=DIR] [--songs=a,b] [--treatments=story-arc,...] [--seed=S] [--limit=N] [--registry=FILE]
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import { createAudioAtlas } from "../server/audio-atlas.mjs";
 import { buildEchoMusicalTimelineFromAtlas } from "../src/domain/echo-visual-score.js";
 import { buildDirectorV2Artifacts } from "../src/domain/echo-director-v2.js";
 import { hydrateManifestNativeRoutes } from "../src/domain/native-visualizer-route.js";
 import { echoShaderFinalRenderReadiness } from "../src/domain/echo-shader-picker.js";
-import { attachEchoLivingLightTrack } from "../src/domain/echo-living-light-cues.js";
+import { attachEchoLivingLightTrack, validateEchoLivingLightSavedReferences } from "../src/domain/echo-living-light-cues.js";
+import { attachEchoScoreDustTrack } from "../src/domain/echo-score-dust-layer.js";
+import { compileEchoCutModulationBindings } from "../src/domain/echo-recipe-execution.js";
 import { generateEchoHyperframeScript } from "../src/domain/echo-hyperframe-script.js";
 import { echoSavedVariantRows } from "../server/echo-saved-cut-reader.mjs";
 import { createLivingLightRegistry } from "../src/living-light/registry.js";
@@ -24,7 +27,7 @@ import { LivingLightStore } from "../server/living-light-store.mjs";
 import { loadGatedEchoIsfManifest, repairEchoProjectShaders, DEFAULT_ECHO_ISF_MANIFEST_PATH, DEFAULT_ECHO_ISF_PIXEL_GATE_PATH } from "./echo-isf-gated-manifest.mjs";
 import { preflightEchoDirectionCut } from "./preflight-echo-director-media.mjs";
 import {
-  ECHO_INTEGRATED_TREATMENTS, echoIntegratedMediaPool, echoIntegratedShaderPool, planEchoIntegratedPerformance,
+  ECHO_INTEGRATED_CUT_LINEAGE, ECHO_INTEGRATED_TREATMENTS, echoIntegratedMediaPool, echoIntegratedShaderPool, planEchoIntegratedPerformance,
   projectEchoIntegratedPerformance, renderEchoIntegratedPerformanceScript,
 } from "../src/domain/echo-integrated-performance.js";
 
@@ -56,7 +59,8 @@ function savedCuts(songId) {
   const dir = path.join(data, "music-video-project-variants", songId);
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir).filter((f) => f.endsWith(".json")).flatMap((f) => {
-    try { return echoSavedVariantRows(readJson(path.join(dir, f))).map((v) => ({ ...v, sourceFile: f })); } catch { return []; }
+    // Integrated cuts are this script's own output; feeding them back in would change the next plan.
+    try { return echoSavedVariantRows(readJson(path.join(dir, f))).filter((v) => v.lineage?.kind !== ECHO_INTEGRATED_CUT_LINEAGE).map((v) => ({ ...v, sourceFile: f })); } catch { return []; }
   });
 }
 
@@ -72,7 +76,7 @@ function songJourney(songId, cuts, durationUs) {
       const { journey } = journeys.journey(ref.journeyId, ref.revisionId);
       const end = Math.max(0, ...(journey.schedule || []).map((row) => Number(row.endUs ?? row.window?.endUs ?? 0)));
       const covered = Number(journey.durationUs ?? end);
-      if (journey.songId === songId && covered > 0) found.push({ journeyRef: { journeyId: ref.journeyId, revisionId: ref.revisionId }, durationUs: covered, fromCut: cut.id, title: journey.title || null });
+      if (journey.songId === songId && covered > 0) found.push({ journeyRef: { journeyId: ref.journeyId, revisionId: ref.revisionId }, sourceBindingRef: journey.sourceBindingRef ?? null, schedule: (journey.schedule || []).map(({ startUs, endUs, fromInstanceId, toInstanceId }) => ({ startUs, endUs, fromInstanceId, toInstanceId })), durationUs: covered, fromCut: cut.id, title: journey.title || null });
     } catch { /* A missing or unreadable Journey is skipped. */ }
   }
   return found.find((f) => f.durationUs >= durationUs) || found.sort((a, b) => b.durationUs - a.durationUs)[0] || null;
@@ -95,7 +99,9 @@ const index = { schemaVersion: "hapa.echo.integrated-performance-batch.v1", crea
 let attempted = 0;
 for (const file of projectFiles) {
   const projectPath = path.join(projectsDir, file);
-  const raw = readJson(projectPath);
+  const projectBytes = fs.readFileSync(projectPath);
+  const raw = JSON.parse(projectBytes.toString("utf8"));
+  const sourceProjectSha256 = crypto.createHash("sha256").update(projectBytes).digest("hex");
   const baseProject = raw.music_video_project || raw.project || raw;
   const songId = String(baseProject.song_id || file.replace(/-video-project\.json$/, ""));
   if (onlySongs && !onlySongs.has(songId)) continue;
@@ -131,11 +137,16 @@ for (const file of projectFiles) {
       // quarantined cue can never reach the compiler.
       const { project, shaderRepair } = repairEchoProjectShaders(projectEchoIntegratedPerformance(plan, baseProject, media.pool), manifest);
       const preflight = preflightEchoDirectionCut({ project, sourcePath: projectPath, avatarRoot: root });
+      // Every cue must resolve against the saved Journey revision, as certification resolves it.
+      validateEchoLivingLightSavedReferences(project, (ref) => journeys.journey(ref.journeyId, ref.revisionId));
       const artifacts = buildDirectorV2Artifacts({ project, sourceProject: project, manifest, registry, duration: durationSeconds, recipe: plan.recipe, seed: `${seed}:${treatment}`, avatarRoot: root,
         locks: [{ targetId: "media-casting", reason: "integrated performance plan cast the media" }] });
-      const showGraph = attachEchoLivingLightTrack(artifacts.showGraph, project);
+      // The same layer and telemetry compile a saved cut gets when it is derived.
+      const showGraph = compileEchoCutModulationBindings(attachEchoScoreDustTrack(attachEchoLivingLightTrack(artifacts.showGraph, project), project), { project });
+      const bindings = showGraph.directorV2?.modulationBindings || [];
       const hyperframe = generateEchoHyperframeScript({ ...project, director_show_graph: showGraph });
-      const compiled = { tracks: showGraph.tracks.length, modulationBindings: (showGraph.directorV2?.modulationBindings || []).filter((b) => b.target?.kind === "visualizer_uniform").length,
+      const compiled = { sourceProjectSha256, livingLightResolved: true, tracks: showGraph.tracks.length, modulationBindings: bindings.filter((b) => b.target?.kind === "visualizer_uniform").length,
+        slotOpacityBindings: bindings.filter((b) => b.target?.kind === "visualizer_opacity").length, cutModulation: showGraph.directorV2?.cutModulation || null,
         livingLight: Boolean(showGraph.livingLight), scoreDustLayer: showGraph.scoreDust?.status || null, scoreDustBinding, shaderRepairs: shaderRepair.replacementCount, mediaPreflight: preflight.ok ? "ok" : `${preflight.failures.length} unresolved`,
         // The compiled picture track must be the plan's cast, shot for shot.
         castPreserved: JSON.stringify((showGraph.tracks.find((t) => t.id === "track-a")?.cards || []).map((c) => c.media?.id)) === JSON.stringify(plan.layers.media.map((s) => s.mediaId)) };

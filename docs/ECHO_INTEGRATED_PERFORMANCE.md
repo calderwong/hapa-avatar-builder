@@ -74,7 +74,7 @@ Status: **done** means met by the generator in this pass, with tests.
 | IP-8 | Living Light answers the song: an intensity or rate response to telemetry, and final encoding. | A cue's surface intensity follows master intensity; export no longer reports `finalEncoding: unsupported`. | **open** |
 | IP-9 | Saved cuts carry executable telemetry. Bindings are compiled from shader audio maps when a cut is saved, and the runtime executes the camera and edit-permission targets it already emits. | New saved graphs have non-empty `modulationBindings`; runtime tests for camera and accent targets. | **bindings done 2026-10-27**: every cut graph compiles its shader bindings from its own cards (results below). Executing the camera and edit-permission targets is still **open** |
 | IP-10 | One shader-readiness answer shared by the catalog, the picker and the compile gate. | Catalog, picker and compile path report the same ready set. | **open** |
-| IP-11 | Integrated plans become saved cuts only through the append-only cut owner, with operator approval and `planId` lineage. | A saved integrated cut reopens identically and names its plan. | **open** (no cut was written in this pass) |
+| IP-11 | Integrated plans become saved cuts only through the append-only cut owner, with operator approval and `planId` lineage. | A saved integrated cut reopens identically and names its plan. | **save path done 2026-10-27** (one Dust Chorus cut saved for 194 of 209 songs; below). Certification is blocked by each layer's missing Score Dust render and by song-level data gaps |
 | IP-12 | Integrated cuts report into Song Health Topview. Generator success never establishes Healthy. | Song Health lists the integrated cut's evidence and gaps. | **open** |
 | IP-13 | A review surface that compares treatments side by side: a five-lane section map with transitions and the script text. | Operator can open a song's treatments and pick one to save. | **open** |
 | IP-14 | Determinism and provenance. The plan ID derives from its inputs, and the same inputs give the same plan. It records the Atlas run, master hash, Journey revision, shader manifest hash and media pool. | Test: identical plans for identical inputs. | done |
@@ -200,10 +200,12 @@ Command: `node scripts/compile-echo-integrated-performances.mjs --output=data/ec
    - Prove Living Light and Score Dust together in one prepared take.
    - Refresh the stale media contract found below.
 2. Done 2026-10-27: IP-9 bindings and IP-7 (below). Still open from IP-9:
-   execute the camera and edit-permission targets, and re-certify the album's
-   cut graphs so published execution graphs carry the compiled bindings.
-3. IP-11 and IP-13: review the generated treatments in the Director and save
-   chosen ones through the cut owner, with lineage.
+   execute the camera and edit-permission targets. Album-wide re-certification
+   of every historical cut is **not** a goal (Calder, 2026-10-27): certify only
+   the one current cut per song.
+3. IP-11 save path done 2026-10-27 (below). Open: render each saved cut's
+   Score Dust layer, fix the song-level gaps that block certification, then
+   IP-13 (side-by-side review of treatments).
 4. IP-8, IP-10, IP-12 and IP-15: Living Light response and encoding, one
    readiness gate, Song Health reporting and composite safety.
 
@@ -539,3 +541,93 @@ binding compiled from its own audio map.
 - **Candidates:** Lesson Card "inherited telemetry must name the cut's own
   cards"; Decision Card "always-on opacity follows song-relative section
   energy, 0.5×–1.3×".
+
+## IP-11 — one saved integrated cut per song (2026-10-27)
+
+Goal (Calder): every song has **one** saved Director cut that uses all five
+layers, with song-driven transitions and telemetry, certified so the Builder
+can play and export it. Only that cut is certified; historical cuts are not.
+
+### What was built
+
+- `buildEchoIntegratedPerformanceCut` (`src/domain/echo-integrated-performance.js`)
+  shapes one append-only cut from an approved plan:
+  - ID `integrated-<treatment>-<plan digest>`, stable for the same plan inputs;
+  - the song project is the immutable parent (`parent.projectSha256`);
+  - lineage `append-only-integrated-performance` names the plan, its sources
+    and the operator approval;
+  - the patch carries only the layer fields (always-on slots, Living Light
+    cues, Score Dust layer). Lyrics stay with the song project;
+  - no graph is stored: the Director derives it like any generated cut.
+- `scripts/save-echo-integrated-cuts.mjs` saves one treatment per song:
+  - refuses a plan whose song project changed since it was compiled, or whose
+    Living Light cues were not resolved against the saved Journey;
+  - derives each cut the way certification does (album base graph, runtime
+    shader repair) and refuses it if any layer, binding or slot-opacity
+    binding is missing;
+  - writes with no overwrite, records the existing cut files under
+    `data/backups/`, and logs one line per song. Dry run unless `--apply`
+    with `--approved-by` and `--request`.
+- The generator (`compile-echo-integrated-performances.mjs`) now:
+  - compiles each graph the way a saved cut is derived (Living Light, Score
+    Dust track, the cut's own bindings and slot opacity);
+  - resolves every Living Light cue against the saved Journey revision;
+  - plans transitions as exactly one authored Journey passage and trims scenes
+    so no passage is cut in half (the planner had ignored the schedule);
+  - ignores integrated cuts as source material, so a rerun gives the same plan.
+
+### Results
+
+- Dust Chorus regenerated for 209 of 209 songs (about 6 s per song).
+- **194 cuts saved**, one per song. Each is now its song's latest cut.
+- 15 refused, nothing written:
+  - 14 songs: the song project is 0.2 s longer than the album graph stored on
+    disk (compiled 2026-09-28 to 10-07). Every recent cut of these songs fails
+    the same check; the album graph needs recompiling by its owner
+    (`scripts/compile-echo-director-v2.mjs`).
+  - 1 song (*Gangsta in the Broadlight*): no section-energy contrast, so its
+    always-on slots have no opacity target.
+- Sample certification (4 cuts): 3 are blocked only by the missing Score Dust
+  render; *American Kings* by a stale album graph (`source_project_hash_mismatch`).
+- Song-level gaps seen while certifying:
+  - 57 songs play a master that differs from the external song registry row
+    (56 are Builder WAV uploads where the registry lists the Suno MP3), which
+    blocks stem telemetry. The registry is owned by `hapa-song-registry`.
+
+### Mistakes, kept as evidence
+
+- An album-wide certification of all 8,101 historical cuts was started with no
+  per-cut progress output, and stopped after 69 minutes on request. Guardrail:
+  state scope and duration first, scope to the target cut per song, log each
+  item.
+- 194 cuts were saved with Living Light cues that could never certify
+  (`sourceBindingRef: null`, and windows that cut authored passages). The
+  generator had never resolved cues against the Journey store. They remain on
+  disk (append-only) under their own IDs; the corrected cuts superseded them as
+  each song's latest. Guardrail: run one song end to end through
+  certification before any batch save.
+- The corrected batch was planned while the broken cuts were still read as
+  source material, which skewed media reuse counts and gave *90s Nerd* a third
+  cut. The generator now ignores integrated cuts as inputs.
+
+### Not done
+
+- No Score Dust layer is rendered, so no integrated cut certifies yet.
+  Rendering runs in the browser (Render layer) for the whole song and is then
+  bound into a child cut.
+- No video was rendered and no cut was reviewed by eye.
+
+### Turn-to-Lore reflection (IP-11)
+
+- **Objective:** one saved, certifiable five-layer cut per song.
+- **Reused:** the generator, the append-only generated-cut pattern (Vibes
+  transitions), the readiness preflight's derive and shader repair, the
+  Living Light cue resolver.
+- **Noise:** certifying historical cuts; dry-running all songs separately from
+  the checked save.
+- **Guardrails:** a generator's output must pass the certifier's own checks on
+  one song before a batch writes; a planner fed from saved cuts must not read
+  its own output.
+- **Candidates:** Lesson Card "canary one song through certification before
+  saving a batch"; Decision Card "integrated cuts carry only layer fields;
+  lyrics stay with the song project".

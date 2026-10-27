@@ -10,13 +10,15 @@
 // transition grammar keyed to the Atlas event found there.
 //
 // Everything is a pure function of its inputs and the seed. Nothing here
-// saves a cut, renders or mints. An intent the runtime cannot execute yet is
+// writes a cut, renders or mints; buildEchoIntegratedPerformanceCut only
+// shapes the append-only cut file an approved save writes. An intent the runtime cannot execute yet is
 // kept in the plan and marked executable: false, never presented as working.
 
 import { composeEchoVisualScore, validateEchoVisualScore, normalizeDustPlaySettings, ECHO_MUSICAL_TIMELINE_SCHEMA } from "./echo-visual-score.js";
 import { planEchoScoreDustLayer } from "./echo-score-dust-layer.js";
 import { validateEchoLivingLightCues, ECHO_LIVING_LIGHT_CUE_SCHEMA } from "./echo-living-light-cues.js";
 import { ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA } from "./echo-persistent-shader-slots.js";
+import { echoDirectionVariantFingerprint, pickEchoDirectionVariantProjectPatch } from "./echo-direction-variants.js";
 
 export const ECHO_INTEGRATED_PERFORMANCE_SCHEMA = "hapa.echo.integrated-performance.v1";
 export const ECHO_INTEGRATED_LAYERS = Object.freeze(["always-on", "media", "shader", "living-light", "score-dust"]);
@@ -299,12 +301,21 @@ function planLivingLight(sections, transitions, livingLight, treatment, song) {
   const durationUs = Math.floor(song.durationSeconds * 1000) * 1000;
   const journeyUs = Number.isSafeInteger(livingLight.durationUs) && livingLight.durationUs > 0 ? livingLight.durationUs : durationUs;
   const us = (t) => clamp(Math.round(t * 1e6), 0, durationUs);
-  const wanted = transitions.filter((tr) => tr.grammar.livingLight === "transition")
-    .map((tr) => ({ role: "transition", startUs: us(tr.at - Math.max(1, tr.grammar.preRollSeconds)), endUs: us(tr.at + 1.5), why: `${tr.kind} at ${round(tr.at, 2)}s` }));
+  const minUs = MIN_LIVING_LIGHT_SECONDS * 1e6;
+  // The Journey's authored passages (bridges between two scenes). A cue may
+  // contain whole passages only, and a transition cue is exactly one passage.
+  const bridges = (livingLight.schedule || []).filter((row) => row.fromInstanceId && row.toInstanceId && Number.isSafeInteger(row.startUs) && row.endUs > row.startUs)
+    .map((row) => ({ startUs: row.startUs, endUs: row.endUs })).sort((a, b) => a.startUs - b.startUs);
   const accepted = [];
-  for (const cue of wanted.sort((a, b) => a.startUs - b.startUs)) {
-    if (accepted.length && cue.startUs < accepted.at(-1).endUs) cue.startUs = accepted.at(-1).endUs;
-    if (cue.endUs - cue.startUs >= MIN_LIVING_LIGHT_SECONDS * 1e6) accepted.push(cue);
+  // Transitions: the next authored passage, at 1x, centred on the song event.
+  let next = 0;
+  for (const tr of transitions.filter((x) => x.grammar.livingLight === "transition").sort((a, b) => a.at - b.at)) {
+    if (!bridges.length) break;
+    const bridge = bridges[next % bridges.length], length = bridge.endUs - bridge.startUs;
+    const startUs = us(tr.at) - Math.round(length / 2);
+    if (startUs < 0 || startUs + length > durationUs || (accepted.length && startUs < accepted.at(-1).endUs)) continue;
+    accepted.push({ role: "transition", startUs, endUs: startUs + length, journeyStartUs: bridge.startUs, why: `${tr.kind} at ${round(tr.at, 2)}s through authored passage ${next % bridges.length + 1}` });
+    next += 1;
   }
   // Scenes fill their sections around the transitions, which keep priority.
   for (const section of sections.filter((s) => treatment.livingLightScenes.includes(s.role))) {
@@ -312,23 +323,31 @@ function planLivingLight(sections, transitions, livingLight, treatment, song) {
     for (const tr of accepted.filter((c) => c.role === "transition")) {
       pieces = pieces.flatMap((p) => (tr.endUs <= p.startUs || tr.startUs >= p.endUs) ? [p] : [{ startUs: p.startUs, endUs: tr.startUs }, { startUs: tr.endUs, endUs: p.endUs }]);
     }
-    for (const p of pieces) if (p.endUs - p.startUs >= MIN_LIVING_LIGHT_SECONDS * 1e6) accepted.push({ role: "scene", ...p, why: `${section.role} section ${section.id}` });
+    for (const p of pieces) {
+      // At 1x on a song-length Journey journey time is song time; a shorter
+      // Journey is entered as late as the cue allows.
+      let length = Math.min(p.endUs - p.startUs, journeyUs);
+      let journeyStartUs = p.startUs + length <= journeyUs ? p.startUs : journeyUs - length;
+      let startUs = p.startUs;
+      // Trim both clocks together so no authored passage is cut in half.
+      for (const b of bridges) {
+        if (b.startUs < journeyStartUs && b.endUs > journeyStartUs) { const cut = b.endUs - journeyStartUs; journeyStartUs += cut; startUs += cut; length -= cut; }
+        if (b.startUs < journeyStartUs + length && b.endUs > journeyStartUs + length && b.startUs >= journeyStartUs) length = b.startUs - journeyStartUs;
+      }
+      if (length >= minUs) accepted.push({ role: "scene", startUs, endUs: startUs + length, journeyStartUs, why: `${section.role} section ${section.id}` });
+    }
   }
-  // A cue plays its Journey at 1x. On a song-length Journey journey time is
-  // song time; a shorter Journey is entered as late as the cue allows.
-  const ordered = accepted.sort((a, b) => a.startUs - b.startUs).slice(0, 128).map((cue) => {
-    const length = Math.min(cue.endUs - cue.startUs, journeyUs);
-    const endUs = cue.startUs + length;
-    return { ...cue, endUs, journeyStartUs: endUs <= journeyUs ? cue.startUs : journeyUs - length };
-  }).filter((cue) => cue.endUs - cue.startUs >= MIN_LIVING_LIGHT_SECONDS * 1e6);
+  const ordered = accepted.sort((a, b) => a.startUs - b.startUs).slice(0, 128);
   const cues = ordered.map((cue, i) => ({
     schemaVersion: ECHO_LIVING_LIGHT_CUE_SCHEMA, cueId: `ll-cue:integrated-${treatment.id}-${i + 1}`, role: cue.role, songId: song.songId,
-    journeyRef: { journeyId: livingLight.journeyRef.journeyId, revisionId: livingLight.journeyRef.revisionId }, sourceBindingRef: null,
+    // A cue resolves only when it names the Journey's own song/source binding.
+    journeyRef: { journeyId: livingLight.journeyRef.journeyId, revisionId: livingLight.journeyRef.revisionId }, sourceBindingRef: structuredClone(livingLight.sourceBindingRef ?? null),
     window: { startUs: cue.startUs, endUs: cue.endUs }, journeyWindow: { startUs: cue.journeyStartUs, endUs: cue.journeyStartUs + cue.endUs - cue.startUs },
     clock: "echo-song", mapping: "offset-1x", outputProfile: "project", locks: { timing: false, journey: false },
   }));
   validateEchoLivingLightCues(cues, { songId: song.songId, durationUs });
-  return { status: cues.length ? "planned" : "not-used", journeyRef: livingLight.journeyRef, mapping: journeyUs >= durationUs ? "song-clocked" : "entered-late", cues, reasons: ordered.map((c, i) => ({ cueId: cues[i].cueId, why: c.why })) };
+  return { status: cues.length ? "planned" : "not-used", journeyRef: livingLight.journeyRef, mapping: journeyUs >= durationUs ? "song-clocked" : "entered-late", authoredPassages: bridges.length, cues, reasons: ordered.map((c, i) => ({ cueId: cues[i].cueId, why: c.why })),
+    ...(!bridges.length && transitions.some((x) => x.grammar.livingLight === "transition") ? { transitionNote: "The Journey has no authored passages, so no Living Light transition cue is placed." } : {}) };
 }
 
 function mergeWindows(windows) {
@@ -433,12 +452,13 @@ export function planEchoIntegratedPerformance({ song, timeline, lyrics = null, l
           via: signals.length ? "Director V2 compiles each mapped uniform into a stem_signal binding" : "no audio-mapped uniforms; it moves on its own clock" };
       }),
     { id: "dust:density-follows-energy", layer: "score-dust", source: ["section energy"], target: "dust density", executable: false, via: "runs only in the Score Dust preview" },
-    { id: "always-on:opacity-follows-energy", layer: "always-on", source: ["section energy"], target: "slot opacity", executable: false, via: "persistent slots have one opacity for the whole song" },
+    { id: "always-on:opacity-follows-energy", layer: "always-on", source: ["section energy"], target: "slot opacity", executable: true, via: "each enabled slot compiles a visualizer_opacity binding on song-relative section energy (IP-7)" },
     { id: "living-light:speed-follows-intensity", layer: "living-light", source: ["master intensity"], target: "journey rate", executable: false, via: "Living Light cues are fixed offset-1x" },
   ];
   const media = shots;
   const layersUsed = [alwaysOn.some((s) => s.enabled), media.length > 0, shaders.length > 0, livingLightLayer.cues.length > 0, dust.status === "composed" && dust.visibleWindows.length > 0];
-  const planInput = { song: song.songId, treatment: t.id, seed, timeline: timeline.fingerprint, lyricAudioHash: lyrics?.verified ? lyricAudioHash : null, media: mediaPool.map((m) => m.mediaId), shaders: shaderPool.map((s) => s.id), journey: livingLight?.journeyRef || null };
+  const planInput = { song: song.songId, treatment: t.id, seed, timeline: timeline.fingerprint, lyricAudioHash: lyrics?.verified ? lyricAudioHash : null, media: mediaPool.map((m) => m.mediaId), shaders: shaderPool.map((s) => s.id),
+    journey: livingLight?.journeyRef ? { ...livingLight.journeyRef, sourceBindingRef: livingLight.sourceBindingRef ?? null } : null };
   return {
     schemaVersion: ECHO_INTEGRATED_PERFORMANCE_SCHEMA,
     planId: `integrated:${song.songId}:${t.id}:${hex(planInput)}`,
@@ -538,4 +558,69 @@ export function renderEchoIntegratedPerformanceScript(plan, { compiled = null } 
   for (const m of plan.modulation) out.push(`- ${m.executable ? "✓" : m.executable === false ? "✗ not executable yet:" : "–"} ${m.title ? `${m.title} (${m.layer} uniforms)` : `${m.id} (${m.layer})`} ← ${m.source.join(", ") || "no mapped signals"} — ${m.via}`);
   out.push("");
   return out.join("\n");
+}
+
+export const ECHO_INTEGRATED_CUT_LINEAGE = "append-only-integrated-performance";
+// Only the integrated layers travel in the patch. Lyrics and output profile
+// stay with the song project, so a later lyric repair still reaches the cut.
+const text = (value) => String(value ?? "").trim();
+const INTEGRATED_CUT_PATCH_FIELDS = Object.freeze(["persistent_shader_slots_schema", "persistent_shader_slots", "living_light_cues", "score_dust_layer"]);
+
+/** The append-only cut ID for a plan: stable for the same plan inputs. */
+export function echoIntegratedPerformanceCutId(plan = {}) {
+  const [, , treatment, digest] = String(plan.planId || "").split(":");
+  if (!treatment || !/^[a-f0-9]{8,}$/u.test(digest || "")) throw new Error(`Integrated plan ID ${plan.planId || "(missing)"} is not a plan this module made.`);
+  return `integrated-${treatment}-${digest}`;
+}
+
+/**
+ * The saved cut for one approved integrated plan (IP-11). The song project is
+ * the immutable parent; the plan is the lineage. No graph is stored: the
+ * Director derives it from the base graph like any other generated cut, then
+ * attaches Living Light, Score Dust and the cut's own telemetry bindings.
+ * Refuses a plan that does not use all five layers unless allowPartial is set.
+ */
+export function buildEchoIntegratedPerformanceCut({ plan, project, hyperframeScript = "", parentProjectSha256, approval, createdAt = new Date().toISOString(), allowPartial = false } = {}) {
+  if (plan?.schemaVersion !== ECHO_INTEGRATED_PERFORMANCE_SCHEMA) throw new Error("An integrated performance plan is required.");
+  if (!project || project.integrated_performance?.planId !== plan.planId) throw new Error(`The project was not projected from plan ${plan.planId}.`);
+  if (text(project.song_id) !== plan.songId) throw new Error(`The project is for ${project.song_id || "no song"}, not ${plan.songId}.`);
+  if (!/^[a-f0-9]{64}$/u.test(String(parentProjectSha256 || ""))) throw new Error("The parent song project hash is required.");
+  if (!text(approval?.approvedBy) || !text(approval?.request)) throw new Error("A save needs the operator approval: who approved it and what they asked for.");
+  if (!allowPartial && plan.checks?.layersUsed !== ECHO_INTEGRATED_LAYERS.length) {
+    const missing = ECHO_INTEGRATED_LAYERS.filter((name) => !plan.checks?.layers?.[name]);
+    throw new Error(`Plan ${plan.planId} uses ${plan.checks?.layersUsed ?? 0}/5 layers (missing ${missing.join(", ")}).`);
+  }
+  const id = echoIntegratedPerformanceCutId(plan);
+  const media = (project.timeline || []).filter((shot) => shot?.media_id && shot.media_id !== "none");
+  const patch = pickEchoDirectionVariantProjectPatch(Object.fromEntries(INTEGRATED_CUT_PATCH_FIELDS.filter((key) => project[key] !== undefined).map((key) => [key, project[key]])));
+  const cut = {
+    schemaVersion: "hapa.echo.direction-script-variant.v1",
+    id,
+    title: `Integrated · ${plan.treatmentLabel}`,
+    status: "ready",
+    createdAt,
+    updatedAt: createdAt,
+    selectionMode: "operator-approved-integrated-plan",
+    variationSet: { id: "integrated-performance", label: "Integrated performances" },
+    cut: { kind: "integrated-performance", label: plan.treatmentLabel, treatment: plan.treatment },
+    parent: { songId: plan.songId, projectSha256: parentProjectSha256, immutableLegacyProject: true },
+    lineage: {
+      kind: ECHO_INTEGRATED_CUT_LINEAGE, planId: plan.planId, planSchema: plan.schemaVersion, treatment: plan.treatment, recipe: plan.recipe, seed: plan.seed,
+      sources: structuredClone(plan.sources), approval: { approvedBy: text(approval.approvedBy), request: text(approval.request), approvedAt: text(approval.approvedAt) || createdAt },
+      createdAt, nonDestructive: true,
+    },
+    seed: `${plan.songId}:${plan.planId}`,
+    sourcePolicy: { mode: "append-only-integrated-performance-plan", publicActivation: false, canonPromotion: false, mint: false },
+    timeline: structuredClone(project.timeline),
+    visualizer_timeline: structuredClone(project.visualizer_timeline || []),
+    project_patch: patch,
+    hyperframe_script: String(hyperframeScript || ""),
+    integrated_performance: { planId: plan.planId, treatment: plan.treatment, lead: plan.lead, layersUsed: plan.checks.layersUsed, layers: structuredClone(plan.checks.layers),
+      sections: plan.sections.length, transitions: plan.transitions.length, scoreDust: structuredClone(project.integrated_performance.scoreDust) },
+    telemetry: { replacementShots: media.length, uniqueMedia: new Set(media.map((shot) => shot.media_contract?.contentHash || shot.media_id)).size, shaderCues: (project.visualizer_timeline || []).length,
+      livingLightCues: (patch.living_light_cues || []).length, alwaysOnSlots: (patch.persistent_shader_slots || []).filter((slot) => slot.enabled).length },
+    preservation: { legacyProjectUnchanged: true, existingDirectionScriptsUntouched: true, lyricTiming: "inherited-from-song-project" },
+  };
+  cut.fingerprint = echoDirectionVariantFingerprint(cut);
+  return cut;
 }

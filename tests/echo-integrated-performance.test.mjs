@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildEchoMusicalTimelineFromAtlas } from "../src/domain/echo-visual-score.js";
-import { validateEchoLivingLightCues } from "../src/domain/echo-living-light-cues.js";
+import { validateEchoLivingLightCues, resolveEchoLivingLightCue } from "../src/domain/echo-living-light-cues.js";
 import { normalizeEchoPersistentShaderSlots } from "../src/domain/echo-persistent-shader-slots.js";
 import { validateEchoScoreDustLayer, compileEchoScoreDustTrack } from "../src/domain/echo-score-dust-layer.js";
 import {
   ECHO_INTEGRATED_TREATMENTS, echoIntegratedMediaPool, echoIntegratedShaderPool, planEchoIntegratedPerformance,
-  projectEchoIntegratedPerformance, renderEchoIntegratedPerformanceScript,
+  projectEchoIntegratedPerformance, renderEchoIntegratedPerformanceScript, buildEchoIntegratedPerformanceCut, echoIntegratedPerformanceCutId,
 } from "../src/domain/echo-integrated-performance.js";
+import { deriveEchoDirectionVariantProject, echoDirectionVariantFingerprint, validateEchoDirectionVariantProjection } from "../src/domain/echo-direction-variants.js";
 import { atlasFixture } from "./echo-score-dust-fixture.mjs";
 
 const MASTER = "a".repeat(64);
@@ -32,7 +33,11 @@ const manifest = [
   { ...shader("a-filter"), shaderType: "filter" },
 ];
 const shaderPool = echoIntegratedShaderPool(manifest, (s) => s.id !== "unready");
-const livingLight = { journeyRef: { journeyId: "ll-journey:trip", revisionId: "ll-journey-r:1" } };
+// A song-length Journey: three scenes joined by two authored passages.
+const schedule = [{ startUs: 0, endUs: 60e6, instanceId: "s1" }, { startUs: 60e6, endUs: 66e6, fromInstanceId: "s1", toInstanceId: "s2" }, { startUs: 66e6, endUs: 140e6, instanceId: "s2" },
+  { startUs: 140e6, endUs: 148e6, fromInstanceId: "s2", toInstanceId: "s3" }, { startUs: 148e6, endUs: 204920000, instanceId: "s3" }];
+const livingLight = { journeyRef: { journeyId: "ll-journey:trip", revisionId: "ll-journey-r:1" }, sourceBindingRef: { bindingId: "ll-binding:trip", revisionId: "ll-binding-r:1" }, schedule };
+const journeyRecord = { journeyId: "ll-journey:trip", revisionId: "ll-journey-r:1", songId: "song-trip", sourceBindingRef: livingLight.sourceBindingRef, schedule };
 const lines = [
   { text: "Join a Navy, Sea the World,", start: 12, end: 15, voice: "lead" },
   { text: "I Herd the Others,", start: 16, end: 18, voice: "lead", voices: [{ voice: "backing" }] },
@@ -96,15 +101,24 @@ test("Living Light cues validate, never overlap and keep song time; no Journey m
     const cues = plan(treatment).layers.livingLight.cues;
     assert.ok(cues.length > 0, treatment);
     validateEchoLivingLightCues(cues, { songId: song.songId, durationUs: Math.round(song.durationSeconds * 1e6) });
-    assert.ok(cues.every((c) => c.journeyWindow.startUs === c.window.startUs && c.window.endUs - c.window.startUs >= 2e6));
+    assert.ok(cues.every((c) => c.window.endUs - c.window.startUs >= 2e6 && c.journeyWindow.endUs - c.journeyWindow.startUs === c.window.endUs - c.window.startUs), "1x");
+    for (const cue of cues) resolveEchoLivingLightCue(cue, { resolveJourney: () => journeyRecord }); // whole passages; transitions are exactly one
+    assert.ok(cues.filter((c) => c.role === "transition").every((c) => schedule.some((r) => r.fromInstanceId && r.startUs === c.journeyWindow.startUs && r.endUs === c.journeyWindow.endUs)));
+    assert.ok(cues.filter((c) => c.role === "scene").every((c) => c.journeyWindow.startUs === c.window.startUs), "a song-length Journey plays scenes on song time");
   }
   assert.ok(plan("telemetry-pulse").layers.livingLight.cues.every((c) => c.role === "transition"));
   assert.ok(plan("tunnel-journey").layers.livingLight.cues.filter((c) => c.role === "scene").length > plan("story-arc").layers.livingLight.cues.filter((c) => c.role === "scene").length);
-  const short = plan("tunnel-journey", { livingLight: { ...livingLight, durationUs: 20e6 } });
+  const none2 = plan("telemetry-pulse", { livingLight: { ...livingLight, schedule: schedule.filter((r) => !r.fromInstanceId) } }).layers.livingLight;
+  assert.equal(none2.cues.length, 0, "without authored passages there is no truthful native transition");
+  assert.match(none2.transitionNote, /no authored passages/);
+  const short = plan("tunnel-journey", { livingLight: { ...livingLight, schedule: [{ startUs: 0, endUs: 20e6, instanceId: "s1" }], durationUs: 20e6 } });
   assert.equal(short.layers.livingLight.mapping, "entered-late");
   assert.ok(short.layers.livingLight.cues.every((c) => c.journeyWindow.startUs >= 0 && c.journeyWindow.endUs <= 20e6 && c.journeyWindow.endUs - c.journeyWindow.startUs === c.window.endUs - c.window.startUs),
     "a shorter Journey still plays at 1x and never past its end");
   assert.ok(plan("tunnel-journey").layers.livingLight.cues.at(-1).window.endUs % 1000 === 0, "cue times are whole milliseconds, as the compiler measures the song");
+  // Certification resolves each cue against the saved Journey, which compares this binding.
+  assert.ok(plan("story-arc").layers.livingLight.cues.every((c) => JSON.stringify(c.sourceBindingRef) === JSON.stringify(livingLight.sourceBindingRef)));
+  assert.notEqual(plan("story-arc", { livingLight: { ...livingLight, sourceBindingRef: null } }).planId, plan("story-arc").planId, "the binding is part of the plan's identity");
   const none = plan("story-arc", { livingLight: null });
   assert.equal(none.layers.livingLight.status, "unavailable");
   assert.equal(none.checks.layers["living-light"], false);
@@ -140,7 +154,7 @@ test("intents the runtime cannot execute are labelled, and Score Dust composites
   const chorus = plan("dust-chorus").layers.scoreDust.renderPlacement;
   assert.equal(chorus.status, "needs-render");
   assert.ok(chorus.shots.length > 0 && chorus.windows.length > 0, "dust-led shots are the ones a published render would replace");
-  assert.ok(p.modulation.some((m) => m.id === "always-on:opacity-follows-energy" && m.executable === false));
+  assert.ok(p.modulation.some((m) => m.id === "always-on:opacity-follows-energy" && m.executable === true), "IP-7 compiles slot opacity from section energy");
   assert.ok(p.modulation.filter((m) => m.target === "visualizer_uniform").every((m) => m.executable === (m.source.length > 0 ? true : null)), "a shader with no audio map is not an unmet intent");
   assert.ok(p.layers.alwaysOn.filter((s) => s.enabled).length === 3, "telemetry uses a second waveform");
 });
@@ -173,7 +187,8 @@ test("the director script tells the story section by section", () => {
   assert.match(text, /^# Trip — Story Arc/);
   assert.match(text, /> Join a Navy, Sea the World,/);
   assert.match(text, /\*\*In:\*\* lift at /);
-  assert.match(text, /✗ not executable yet: always-on:opacity-follows-energy/);
+  assert.match(text, /✓ always-on:opacity-follows-energy/);
+  assert.match(text, /✗ not executable yet: living-light:speed-follows-intensity/);
   assert.match(text, /7 executable modulation bindings/);
 });
 
@@ -182,4 +197,45 @@ test("plans refuse missing telemetry, media or shaders", () => {
   assert.throws(() => plan("story-arc", { timeline: {} }), /musical timeline/);
   assert.throws(() => plan("story-arc", { mediaPool: [] }), /no cast media/);
   assert.throws(() => plan("story-arc", { shaderPool: shaderPool.filter((s) => s.alwaysOn) }), /final-render-ready/);
+});
+
+test("an approved plan saves as one append-only cut that derives all five layers and its own telemetry (IP-11)", () => {
+  const p = plan("dust-chorus");
+  const base = { song_id: song.songId, duration: song.durationSeconds, timeline: [{ section_id: "verse_1", section_label: "Verse 1", section_type: "verse", start_sec: 0, end_sec: song.durationSeconds }],
+    timed_lyrics: lines, lyrics: "Join a Navy", lyric_variant: "written",
+    song_edit_map: { sections: [{ start: 0, end: 100, energy: 0.2 }, { start: 100, end: song.durationSeconds, energy: 0.9 }] } };
+  const project = projectEchoIntegratedPerformance(p, base, mediaPool);
+  const approval = { approvedBy: "Operator", request: "Save one Dust Chorus cut per song." };
+  const args = { plan: p, project, hyperframeScript: "<hf/>", parentProjectSha256: "c".repeat(64), approval, createdAt: "2026-10-27T00:00:00.000Z" };
+  const cut = buildEchoIntegratedPerformanceCut(args);
+  assert.equal(cut.id, echoIntegratedPerformanceCutId(p));
+  assert.match(cut.id, /^integrated-dust-chorus-[a-f0-9]{16}$/);
+  assert.equal(cut.fingerprint, echoDirectionVariantFingerprint(cut));
+  assert.deepEqual(buildEchoIntegratedPerformanceCut(args), cut, "same plan, parent and approval give the same cut");
+  assert.equal(cut.lineage.kind, "append-only-integrated-performance");
+  assert.equal(cut.lineage.planId, p.planId);
+  assert.deepEqual(cut.lineage.approval, { ...approval, approvedAt: "2026-10-27T00:00:00.000Z" });
+  assert.deepEqual(cut.parent, { songId: song.songId, projectSha256: "c".repeat(64), immutableLegacyProject: true });
+  assert.deepEqual(Object.keys(cut.project_patch).sort(), ["living_light_cues", "persistent_shader_slots", "persistent_shader_slots_schema", "score_dust_layer"],
+    "lyrics stay with the song project, so a later lyric repair still reaches the cut");
+  assert.equal(cut.director_show_graph, undefined, "the Director derives the graph; the cut stores none");
+  assert.equal(cut.integrated_performance.layersUsed, 5);
+
+  const derived = deriveEchoDirectionVariantProject(base, { ...cut, variant_source: { kind: "append-only-project-variant", path: `${song.songId}/${cut.id}.json` } });
+  const graph = derived.director_show_graph;
+  assert.equal(validateEchoDirectionVariantProjection({ baseProject: base, variant: cut, graph }).ok, true);
+  assert.equal(graph.livingLight.cues.length, p.layers.livingLight.cues.length);
+  assert.equal(graph.scoreDust.status, "render-required");
+  const slots = graph.tracks.filter((t) => t.id.startsWith("track-shader-always-on-")).flatMap((t) => t.cards);
+  assert.equal(slots.length, p.layers.alwaysOn.filter((s) => s.enabled).length);
+  assert.deepEqual(graph.directorV2.modulationBindings.filter((b) => b.target.kind === "visualizer_opacity").map((b) => b.target.visualizerId).sort(), slots.map((c) => c.cueId || c.id).sort());
+  assert.deepEqual(derived.timed_lyrics, lines);
+
+  assert.throws(() => buildEchoIntegratedPerformanceCut({ ...args, approval: { approvedBy: "Operator" } }), /operator approval/);
+  assert.throws(() => buildEchoIntegratedPerformanceCut({ ...args, parentProjectSha256: "" }), /parent song project hash/);
+  assert.throws(() => buildEchoIntegratedPerformanceCut({ ...args, project: { ...project, integrated_performance: { planId: "integrated:other:dust-chorus:0000000000000000" } } }), /not projected from plan/);
+  const partial = { ...p, checks: { ...p.checks, layersUsed: 4, layers: { ...p.checks.layers, "living-light": false } } };
+  assert.throws(() => buildEchoIntegratedPerformanceCut({ ...args, plan: partial }), /4\/5 layers \(missing living-light\)/);
+  assert.equal(buildEchoIntegratedPerformanceCut({ ...args, plan: partial, allowPartial: true }).integrated_performance.layersUsed, 4);
+  assert.throws(() => echoIntegratedPerformanceCutId({ planId: "not-a-plan" }), /not a plan this module made/);
 });
