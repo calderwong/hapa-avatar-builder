@@ -1817,6 +1817,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const [enriching, setEnriching] = useState(false);
   const [panelStatus, setPanelStatus] = useState({});
   const panelLoaderRef = useRef(null);
+  const catalogRefreshTimerRef = useRef(null);
   const videoDetailControllerRef = useRef(null);
   const [echoOperationNotice, setEchoOperationNotice] = useState("");
   const [exportingMasterReference, setExportingMasterReference] = useState("");
@@ -5012,8 +5013,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         setAvailableShaders(prev => [...apiShaders, ...prev.filter(shader => !apiShaders.some(item => item.id === shader.id))]);
       }],
     };
-    await Promise.all(Object.entries(panels).filter(([key]) => !onlyPanel || key === onlyPanel)
-      .map(([key, [endpoint, apply]]) => panelLoaderRef.current.load(key, `${API_BASE}/api/echos/${endpoint}`, apply)));
+    const results = await Promise.all(Object.entries(panels).filter(([key]) => !onlyPanel || key === onlyPanel)
+      .map(async ([key, [endpoint, apply]]) => [key, await panelLoaderRef.current.load(key, `${API_BASE}/api/echos/${endpoint}`, apply)]));
+    // The song list is usable now; while the server refreshes changed songs, pick up
+    // their full rows a few seconds later without blocking anything.
+    const catalogPending = results.find(([key]) => key === "catalog")?.[1]?.pending || 0;
+    clearTimeout(catalogRefreshTimerRef.current);
+    if (catalogPending > 0) catalogRefreshTimerRef.current = setTimeout(() => fetchState("catalog"), 3000);
   };
 
   const markSongCardPlanUnsaved = () => {
@@ -5683,6 +5689,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
     fetchState();
     return () => {
       panelLoaderRef.current?.dispose();
+      clearTimeout(catalogRefreshTimerRef.current);
       panelLoaderRef.current = null;
       videoDetailControllerRef.current?.abort();
       for (const request of projectDetailControllerBySongRef.current.values()) request.controller.abort();
@@ -5739,11 +5746,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         const editableSelection = editableDirectionForkFromDetail(detail, latestVariantId, {
           fallbackProject: activeProject,
         });
-        if (!editableSelection?.savedProject?.director_show_graph?.tracks) {
-          throw new Error("a verified editor graph is unavailable while its exact preview graph prepares");
-        }
-        const savedShowGraph = projectToEditorGraph(editableSelection.savedProject);
-        const usingEditorFallback = editableSelection.savedProject?.editor_graph_fallback?.requiresExactCertificate !== false;
+        // Like a manual pick: a cut whose exact graph is still preparing (or cannot
+        // certify yet, e.g. an unrendered Score Dust layer) opens as an editable
+        // copy on its editor graph instead of falling back to Legacy.
+        if (!editableSelection) throw new Error("its editable copy is still preparing");
+        const savedGraphReady = Boolean(editableSelection.savedProject?.director_show_graph?.tracks);
+        const usingEditorFallback = !savedGraphReady || editableSelection.savedProject?.editor_graph_fallback?.requiresExactCertificate !== false;
         if (!commitDirectorProjectDetail(detail, detailResult.requestGeneration)) {
           throw new Error("a newer project refresh superseded this response");
         }
@@ -5753,7 +5761,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
           queueSongCardPlanForSavedRevision(selectedProjectSongId, latestVariantId, {
             cutId: latestVariantId,
             project: editableSelection.savedProject,
-            showGraph: savedShowGraph,
+            showGraph: projectToEditorGraph(editableSelection.savedProject),
           });
         }
         setWorkingDirectionFork(usingEditorFallback

@@ -23,9 +23,14 @@ async function mapBounded(values, concurrency, fn) {
  * Only stat manifests and the small variant index are inspected on a cache hit.
  * A revision includes every variant's stamp, not just the newest mtime: deleting
  * or editing an older cut must invalidate the song too. No full graphs are kept.
+ *
+ * With responseBudgetMs, a request never waits for the whole album: when the
+ * budget runs out it answers with every finished row, the previous row of each
+ * song still refreshing, or (cold cache) a project-only `summarizeLight` row,
+ * and reports `pending`. The refresh keeps running and later requests see it.
  */
 export function createEchoProjectCatalog({
-  projectsRoot, variantsRoot, cacheRoot, summarize,
+  projectsRoot, variantsRoot, cacheRoot, summarize, summarizeLight = null, responseBudgetMs = Infinity,
   version = "1", concurrency = 2, maxProjectBytes = 32 * 1024 * 1024,
   maxRowBytes = 64 * 1024, maxCacheBytes = 32 * 1024 * 1024,
   maxRows = 10_000, io = { readFile, readdir, stat }, logger = console,
@@ -108,17 +113,34 @@ export function createEchoProjectCatalog({
     return hash(JSON.stringify([projectStamp, stamps, index.get(songId) || index.get("*") || "none"]));
   }
 
-  async function refresh() {
+  async function lightRow(file) {
+    try {
+      const payload = JSON.parse(await readBounded(path.join(root, file), maxProjectBytes));
+      const songId = payload.music_video_project?.song_id || file.replace(/-video-project\.json$/u, "");
+      if (!safeSegment(songId)) return null;
+      const value = await summarizeLight({ payload, file, songId });
+      return value?.summary?.music_video_project ? value : null;
+    } catch { return null; }
+  }
+
+  async function refresh(state) {
     await loadCache();
-    const started = performance.now();
+    const started = state.started;
     const index = await indexBySong();
     let entries;
     try { entries = await io.readdir(root, { withFileTypes: true }); }
     catch (error) { if (error.code !== "ENOENT") throw error; entries = []; }
     const files = entries.filter(entry => entry.isFile() && entry.name.endsWith(".json")).map(entry => entry.name).sort();
     if (files.length > maxRows) throw new Error("catalog_row_limit_exceeded");
+    state.files = files;
+    // Songs never summarized get a project-only row first, so a cold catalog can answer at once.
+    if (summarizeLight) await mapBounded(files.filter(file => !rows.has(file)), 8, async file => {
+      const value = await lightRow(file);
+      if (value) state.light.set(file, value);
+    });
+    state.listed();
     let rebuilt = 0;
-    const errors = [];
+    const errors = state.errors;
     const next = new Map();
     let retainedBytes = 0;
     const retain = (file, row) => {
@@ -133,7 +155,7 @@ export function createEchoProjectCatalog({
       try {
         let revision = await revisionFor(file, songId, index);
         const generation = invalidations.get(songId) || 0;
-        if (old?.revision === revision && !generation) { retain(file, old); return old.value; }
+        if (old?.revision === revision && !generation) { retain(file, old); state.done.set(file, old.value); return old.value; }
         const payload = JSON.parse(await readBounded(path.join(root, file), maxProjectBytes));
         const declaredId = payload.music_video_project?.song_id || songId;
         if (!safeSegment(declaredId)) throw new Error("invalid_song_id");
@@ -149,10 +171,12 @@ export function createEchoProjectCatalog({
         const row = { file, songId, revision, value };
         retain(file, row);
         invalidations.delete(songId);
-        rebuilt += 1;
+        rebuilt += 1; state.rebuilt = rebuilt;
+        state.done.set(file, value);
         return value;
       } catch (error) {
         errors.push({ file, songId, error: error.message });
+        state.done.set(file, null);
         return null;
       }
     });
@@ -160,7 +184,7 @@ export function createEchoProjectCatalog({
     rows = next;
     const values = results.filter(Boolean);
     const summary = values.map(value => value.summary);
-    const result = { summary, values, errors, rebuilt, cachePath, elapsedMs: performance.now() - started };
+    const result = { summary, values, errors, rebuilt, pending: 0, partial: false, cachePath, elapsedMs: performance.now() - started };
     if (changed) {
       let temp;
       try {
@@ -178,11 +202,40 @@ export function createEchoProjectCatalog({
     return result;
   }
 
+  /** What the catalog can serve now, while a refresh is still running. */
+  function snapshot(state) {
+    const values = [];
+    let pending = 0;
+    for (const file of state.files || [...rows.keys()]) {
+      if (state.done.has(file)) { const value = state.done.get(file); if (value) values.push(value); continue; }
+      pending += 1;
+      const value = rows.get(file)?.value || state.light.get(file);
+      if (value) values.push(value);
+    }
+    if (!state.files) pending = Math.max(pending, 1);
+    return { summary: values.map(value => value.summary), values, errors: [...state.errors], rebuilt: state.rebuilt, pending, partial: true,
+      cachePath, elapsedMs: performance.now() - state.started };
+  }
+
   return {
     cachePath,
     // Concurrent clients share work; a disconnect does not abort another client's
     // cache build. HTTP/UI clients can abort their own subscription independently.
-    get() { return inFlight ||= refresh().finally(() => { inFlight = null; }); },
+    get() {
+      if (!inFlight) {
+        let listed;
+        const state = { files: null, done: new Map(), light: new Map(), errors: [], rebuilt: 0, started: performance.now(), listedPromise: new Promise(resolve => { listed = resolve; }) };
+        state.listed = listed;
+        inFlight = { state, promise: refresh(state).finally(() => { inFlight = null; }) };
+      }
+      const { state, promise } = inFlight;
+      if (!Number.isFinite(responseBudgetMs)) return promise;
+      let timer;
+      // A first answer lists every song: it waits for the project-only rows (never for cut files).
+      const budget = new Promise(resolve => { timer = setTimeout(resolve, Math.max(0, responseBudgetMs)); });
+      return Promise.race([promise, Promise.all([budget, state.listedPromise]).then(() => snapshot(state))])
+        .finally(() => clearTimeout(timer));
+    },
     invalidate(songId) { invalidations.set(songId, (invalidations.get(songId) || 0) + 1); },
   };
 }

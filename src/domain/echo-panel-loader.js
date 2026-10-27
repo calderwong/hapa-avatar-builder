@@ -31,7 +31,12 @@ export function createEchoPanelLoader({ fetchImpl = globalThis.fetch, onStatus =
         if (!current() || request.controller.signal.aborted) return;
         await onData(data);
         const omitted = Number(response.headers?.get?.("x-hapa-echo-catalog-errors") || 0);
-        status(omitted ? { state: "partial", message: `${omitted} unavailable song summaries. Retry after source repair.` } : { state: "ready", message: "Ready" });
+        // The server answers at once and keeps refreshing changed songs; the caller re-polls quietly.
+        const pending = Number(response.headers?.get?.("x-hapa-echo-catalog-pending") || 0);
+        status(omitted ? { state: "partial", message: `${omitted} unavailable song summaries. Retry after source repair.` }
+          : pending ? { state: "ready", message: `Ready · refreshing ${pending} song${pending === 1 ? "" : "s"} in the background`, pending }
+          : { state: "ready", message: "Ready" });
+        return { pending };
       } catch (error) {
         if (!request.controller.signal.aborted) status({ state: "error", message: error?.message || "Could not load panel" });
       } finally {

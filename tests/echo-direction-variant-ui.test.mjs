@@ -47,13 +47,17 @@ test("song changes hydrate the exact newest cut before selection and manual choi
   assert.match(songChange, /fetchPreparedProjectDetail\(selectedProjectSongId, latestVariantId(?:, \{)?/);
   assert.match(songChange, /echoDirectionVariantId\(variant\) === latestVariantId && Array\.isArray\(variant\.timeline\)/);
   assert.match(songChange, /hydratedSelectionId !== latestVariantId/);
-  assert.match(songChange, /editableSelection\?\.savedProject\?\.director_show_graph\?\.tracks/);
+  // A cut still preparing opens on its editor graph (as a manual pick does);
+  // Song Card rendering waits for the exact certificate.
+  assert.match(songChange, /if \(!editableSelection\) throw/);
+  assert.match(songChange, /const savedGraphReady = Boolean\(editableSelection\.savedProject\?\.director_show_graph\?\.tracks\)/);
+  assert.match(songChange, /holdSongCardPlanForExactCutCertificate\(selectedProjectSongId, latestVariantId\)/);
   assert.ok(
     songChange.indexOf("hydratedSelectionId !== latestVariantId")
       < songChange.indexOf("setSelectedDirectionVariantId(latestVariantId)"),
     "the newest exact projection must be certified before selection changes",
   );
-  assert.match(songChange, /const usingEditorFallback = editableSelection\.savedProject\?\.editor_graph_fallback/);
+  assert.match(songChange, /const usingEditorFallback = !savedGraphReady \|\| editableSelection\.savedProject\?\.editor_graph_fallback/);
   assert.match(songChange, /setWorkingDirectionFork\(usingEditorFallback/);
   assert.doesNotMatch(songChange, /directorEditingLocked/);
   assert.match(songChange, /savingProject[\s\S]*directionForkTransitionPending[\s\S]*pendingSavedDirectionCut[\s\S]*pendingLegacyProjectSave/);

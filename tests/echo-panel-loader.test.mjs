@@ -42,3 +42,17 @@ test("HTTP failure and timeout stay retryable; late responses do not erase timeo
   wait.resolve(response("too late")); await pending;
   assert.equal(delivered, false); assert.equal(statuses.at(-1), "error"); loader.dispose();
 });
+
+test("a catalog still refreshing in the background is ready now and reports what is pending", async () => {
+  const statuses = [];
+  const loader = createEchoPanelLoader({
+    onStatus: (key, value) => statuses.push(value),
+    fetchImpl: async () => ({ ok: true, headers: new Map([["x-hapa-echo-catalog-pending", "12"]]), json: async () => [{ id: "song" }] }),
+  });
+  let applied = null;
+  const result = await loader.load("catalog", "/catalog", (data) => { applied = data; });
+  assert.deepEqual(applied, [{ id: "song" }]);
+  assert.deepEqual(result, { pending: 12 });
+  assert.equal(statuses.at(-1).state, "ready");
+  assert.match(statuses.at(-1).message, /refreshing 12 songs in the background/);
+});

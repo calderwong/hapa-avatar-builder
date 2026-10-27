@@ -116,8 +116,19 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     assert.equal((await postBoard({ ...boardCommand, commandId: 'fixture-stale-command', status: 'done' })).status, 409);
     assert.equal((await postBoard(board)).status, 422);
 
-    const summaryResponse = await fetch(`${BASE}/api/echos/director-projects?summary=1`);
+    // The song list answers within its budget, then the background refresh completes.
+    const firstAnswer = await fetch(`${BASE}/api/echos/director-projects?summary=1`);
+    assert.equal(firstAnswer.ok, true);
+    assert.match(firstAnswer.headers.get("x-hapa-echo-catalog-pending") || "", /^\d+$/);
+    assert.ok((await firstAnswer.json()).length > 0, "every song is listed in the first answer");
+    let summaryResponse = await fetch(`${BASE}/api/echos/director-projects?summary=1`);
+    for (let attempt = 0; attempt < 240 && summaryResponse.headers.get("x-hapa-echo-catalog-pending") !== "0"; attempt += 1) {
+      await summaryResponse.arrayBuffer();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      summaryResponse = await fetch(`${BASE}/api/echos/director-projects?summary=1`);
+    }
     assert.equal(summaryResponse.ok, true);
+    assert.equal(summaryResponse.headers.get("x-hapa-echo-catalog-pending"), "0", "the background refresh finishes");
     assert.equal(summaryResponse.headers.get("x-hapa-echo-direction-variant-summary"), "index", "fresh album summaries should be served from the compact index");
     assert.equal(summaryResponse.headers.get("x-hapa-echo-record-preview"), "compact-index", "fresh living-record loops should be served without full-cut hydration");
     const summaryText = await summaryResponse.text();

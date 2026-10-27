@@ -118,3 +118,36 @@ test("bounded inputs and failed persistence preserve other usable rows", async t
   assert.ok(result.persistenceError);
   assert.equal((await catalog.get()).rebuilt, 0);
 });
+
+test("with a response budget the catalog never waits for the album: light rows cold, previous rows while refreshing", async t => {
+  const f = await fixture(t);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const slow = { ...f.options, responseBudgetMs: 20,
+    summarize: async input => { await gate; return f.options.summarize(input); },
+    summarizeLight: async ({ payload, songId }) => ({ summary: { music_video_project: { song_id: songId, song_title: payload.music_video_project.song_title, light: true } } }) };
+  const cold = createEchoProjectCatalog(slow);
+  const first = await cold.get();
+  assert.equal(first.partial, true);
+  assert.equal(first.pending, 2);
+  assert.deepEqual(first.summary.map(row => [row.music_video_project.song_id, row.music_video_project.light]), [["a", true], ["b", true]], "every song is listed at once");
+  release();
+  let done = await cold.get();
+  for (let i = 0; i < 50 && done.partial; i++) { await new Promise(resolve => setTimeout(resolve, 10)); done = await cold.get(); }
+  assert.equal(done.partial, false);
+  assert.equal(done.pending, 0);
+  assert.ok(done.summary.every(row => !row.music_video_project.light), "full rows replace light rows once summarized");
+
+  // A changed song keeps serving its previous full row until its refresh finishes.
+  let release2;
+  const gate2 = new Promise(resolve => { release2 = resolve; });
+  const warm = createEchoProjectCatalog({ ...slow, summarize: async input => { await gate2; return f.options.summarize(input); } });
+  await f.write("b", "changed");
+  const during = await warm.get();
+  assert.equal(during.partial, true);
+  assert.equal(during.pending, 1);
+  assert.deepEqual(during.summary.map(row => [row.music_video_project.song_id, row.music_video_project.song_title]), [["a", "a"], ["b", "b"]]);
+  release2();
+  for (let i = 0; i < 50; i++) { const next = await warm.get(); if (!next.partial) { assert.equal(next.summary[1].music_video_project.song_title, "changed"); return; } await new Promise(resolve => setTimeout(resolve, 10)); }
+  assert.fail("the background refresh never finished");
+});

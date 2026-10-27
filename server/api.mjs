@@ -238,6 +238,7 @@ import {
 } from "./echo-mint-plan-certification-queue.mjs";
 import { createEchoDirectionVariantSummaryIndex } from "./echo-direction-variant-summary-index.mjs";
 import { createEchoProjectCatalog } from "./echo-project-catalog.mjs";
+import { createEchoVariantSummaryFileCache } from "./echo-variant-summary-file-cache.mjs";
 import {
   createEchoDirectorShowGraphCache,
   guardEchoCertifiedGraphDelivery,
@@ -875,6 +876,12 @@ const echoProjectCatalog = createEchoProjectCatalog({
   cacheRoot: process.env.HAPA_ECHO_CATALOG_CACHE_DIR || path.join(DATA_DIR, "cache/echo-project-catalog"),
   version: "latest-cut-summary-4",
   summarize: summarizeEchoCatalogProject,
+  summarizeLight: (input) => summarizeEchoCatalogProject({ ...input, light: true }),
+  // The song list answers within this budget; songs still refreshing keep their previous row.
+  responseBudgetMs: Number(process.env.HAPA_ECHO_CATALOG_RESPONSE_BUDGET_MS || 1500),
+});
+const echoVariantSummaryFileCache = createEchoVariantSummaryFileCache({
+  cacheRoot: process.env.HAPA_ECHO_VARIANT_SUMMARY_CACHE_DIR || path.join(DATA_DIR, "cache/echo-variant-summaries"),
 });
 const echoIsfAssets = new EchoIsfAssetCatalog({ musicVizRoot: HAPA_MUSIC_VIZ_ROOT });
 const echoDirectorShowGraphCache = createEchoDirectorShowGraphCache();
@@ -3590,6 +3597,7 @@ async function route(req, res) {
         res.setHeader("X-Hapa-Echo-Record-Preview", hydrated ? `compact-index+${hydrated}-authoritative-fallbacks` : "compact-index");
         res.setHeader("X-Hapa-Echo-Catalog", `persistent-v1; rebuilt=${catalog.rebuilt}; errors=${catalog.errors.length}`);
         res.setHeader("X-Hapa-Echo-Catalog-Errors", String(catalog.errors.length));
+        res.setHeader("X-Hapa-Echo-Catalog-Pending", String(catalog.pending || 0));
         res.setHeader("Server-Timing", `catalog;dur=${catalog.elapsedMs.toFixed(1)}`);
         if (catalog.errors.length) console.warn("Echo catalog omitted unavailable rows:", catalog.errors);
         sendJson(res, catalog.summary.length || !catalog.errors.length ? 200 : 503, catalog.summary.length || !catalog.errors.length ? catalog.summary : { error: "catalog_unavailable", details: catalog.errors });
@@ -12346,9 +12354,14 @@ async function createEchoDirectionVariantFork(body = {}) {
   };
 }
 
-async function summarizeEchoCatalogProject({ payload, file, songId }) {
+// light: a project-only row (no cut file is read) so the song list can show at once
+// while the full summary is built in the background.
+async function summarizeEchoCatalogProject({ payload, file, songId, light = false }) {
   const project = attachEchoOutputProfile(payload.music_video_project || {});
-  const indexedVariants = await echoDirectionVariantSummaryIndex.variantsForSongs([songId], id => readEchoDirectionScriptVariantSummaries(id, project));
+  const indexedVariants = light
+    ? { bySong: new Map(), sourceBySong: new Map([[songId, "light"]]) }
+    : await echoDirectionVariantSummaryIndex.variantsForSongs([songId], id => readEchoDirectionScriptVariantSummaries(id, project));
+  const savedCutFileCount = light ? await echoSavedCutFileCount(songId) : 0;
   let hydratedRecordPreviewCount = 0;
   const fileVariants = indexedVariants.bySong.get(songId) || [];
   const variants = mergeEchoDirectionScriptVariants(fileVariants, project.direction_script_variants);
@@ -12417,7 +12430,8 @@ async function summarizeEchoCatalogProject({ payload, file, songId }) {
       timeline_count: Array.isArray(project.timeline) ? project.timeline.length : 0,
       visualizer_timeline_count: Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline.length : 0,
       timed_lyrics_count: Array.isArray(project.timed_lyrics) ? project.timed_lyrics.length : 0,
-      direction_script_variant_count: variants.length,
+      direction_script_variant_count: light ? savedCutFileCount + (Array.isArray(project.direction_script_variants) ? project.direction_script_variants.length : 0) : variants.length,
+      ...(light ? { catalog_row: "light" } : {}),
       direction_script_variant_summaries: variantSummaries.filter(variant => variant.id === latestCut?.id),
       catalog_variants_truncated: variantSummaries.length > 1,
       selected_cut: latestCut ? { id: latestCut.id, fingerprint: sourceFingerprint, status: latestCut.status || "undeclared" } : { id: "legacy", fingerprint: echoDirectionVariantFingerprint(project), status: "legacy" },
@@ -12427,26 +12441,43 @@ async function summarizeEchoCatalogProject({ payload, file, songId }) {
   }};
 }
 
+async function echoSavedCutFileCount(songId) {
+  const directory = path.resolve(ECHO_DIRECTION_VARIANTS_DIR, songId);
+  if (!withinDirectory(path.resolve(ECHO_DIRECTION_VARIANTS_DIR), directory)) return 0;
+  const entries = await readdir(directory, { withFileTypes: true }).catch(error => { if (error.code === "ENOENT") return []; throw error; });
+  return entries.filter(row => row.isFile() && row.name.endsWith(".json")).length;
+}
+
 // Rebuild a missing/stale summary index one file at a time. Do not retain every
 // full timeline/script while selecting a single catalog thumbnail.
 async function readEchoDirectionScriptVariantSummaries(songId, project) {
   const directory = path.resolve(ECHO_DIRECTION_VARIANTS_DIR, songId);
   if (!withinDirectory(path.resolve(ECHO_DIRECTION_VARIANTS_DIR), directory)) return [];
   const entries = await readdir(directory, { withFileTypes: true }).catch(error => { if (error.code === "ENOENT") return []; throw error; });
+  const files = entries.filter(row => row.isFile() && row.name.endsWith(".json")).sort((a, b) => a.name.localeCompare(b.name));
+  // Each cut file is parsed once; its summary rows are reused while its stat and the song's project are unchanged.
+  const projectKey = createHash("sha256").update(JSON.stringify(project)).digest("hex");
   const result = [];
-  for (const entry of entries.filter(row => row.isFile() && row.name.endsWith(".json")).sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const entry of files) {
     const file = path.join(directory, entry.name);
-    if ((await stat(file)).size > 32 * 1024 * 1024) throw new Error("catalog_variant_too_large");
-    for (const [index, row] of echoDirectionVariantRows(await readJson(file)).entries()) {
-      const id = echoDirectionVariantId(row, `${entry.name.slice(0, -5)}${index ? `-${index + 1}` : ""}`);
-      const variant = { ...row, id };
-      const summary = summarizeEchoDirectionScriptVariant(variant);
-      result.push({ ...summary, fingerprint: summary.fingerprint || echoDirectionVariantFingerprint(variant),
-        recordPreview: echoRecordSummaryPreview(project, variant, summary),
-        variant_source: { kind: "append-only-project-variant-summary", path: path.relative(ECHO_DIRECTION_VARIANTS_DIR, file), nonDestructive: true, summary: true },
-      });
-    }
+    const info = await stat(file);
+    if (info.size > 32 * 1024 * 1024) throw new Error("catalog_variant_too_large");
+    const rows = await echoVariantSummaryFileCache.rows(songId, entry.name, { stamp: `${info.size}:${info.mtimeMs}:${info.ctimeMs}:${info.ino}`, key: projectKey }, async () => {
+      const out = [];
+      for (const [index, row] of echoDirectionVariantRows(await readJson(file)).entries()) {
+        const id = echoDirectionVariantId(row, `${entry.name.slice(0, -5)}${index ? `-${index + 1}` : ""}`);
+        const variant = { ...row, id };
+        const summary = summarizeEchoDirectionScriptVariant(variant);
+        out.push({ ...summary, fingerprint: summary.fingerprint || echoDirectionVariantFingerprint(variant),
+          recordPreview: echoRecordSummaryPreview(project, variant, summary),
+          variant_source: { kind: "append-only-project-variant-summary", path: path.relative(ECHO_DIRECTION_VARIANTS_DIR, file), nonDestructive: true, summary: true },
+        });
+      }
+      return out;
+    });
+    result.push(...rows);
   }
+  await echoVariantSummaryFileCache.flush(songId, new Set(files.map(entry => entry.name)));
   return mergeEchoDirectionScriptVariants(result);
 }
 
