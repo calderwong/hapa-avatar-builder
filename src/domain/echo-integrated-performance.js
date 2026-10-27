@@ -1,0 +1,526 @@
+// Integrated multi-visual performance plans for Echo songs.
+//
+// One plan layers five visual families over a song's measured telemetry:
+//   L0 always-on Echo shaders: persistent slots, the glue under every cut
+//   L1 Hapa Media: the song's own media, remembered across repeated sections
+//   L2 changing Echo shaders: final-render-ready only, energy-tiered per section
+//   L3 Living Light: scene and transition cues on the song's saved Journey
+//   L4 Score Dust: a composed visual score (live in preview; in a cut only as a whole-shot render)
+// Section boundaries snap to Atlas downbeats, and every boundary takes one
+// transition grammar keyed to the Atlas event found there.
+//
+// Everything is a pure function of its inputs and the seed. Nothing here
+// saves a cut, renders or mints. An intent the runtime cannot execute yet is
+// kept in the plan and marked executable: false, never presented as working.
+
+import { composeEchoVisualScore, validateEchoVisualScore, ECHO_MUSICAL_TIMELINE_SCHEMA } from "./echo-visual-score.js";
+import { validateEchoLivingLightCues, ECHO_LIVING_LIGHT_CUE_SCHEMA } from "./echo-living-light-cues.js";
+import { ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA } from "./echo-persistent-shader-slots.js";
+
+export const ECHO_INTEGRATED_PERFORMANCE_SCHEMA = "hapa.echo.integrated-performance.v1";
+export const ECHO_INTEGRATED_LAYERS = Object.freeze(["always-on", "media", "shader", "living-light", "score-dust"]);
+const MIN_SECTION_SECONDS = 4;
+const MIN_SHOT_SECONDS = 1.5;
+const MIN_LIVING_LIGHT_SECONDS = 2;
+
+/**
+ * Four treatments: the same song telemetry and media, a different lead layer.
+ * barsPerShot is keyed by relative section energy tier.
+ */
+export const ECHO_INTEGRATED_TREATMENTS = Object.freeze({
+  "story-arc": Object.freeze({
+    id: "story-arc", label: "Story Arc", lead: "media", recipe: "conservative",
+    intent: "The song's media carries the story; shaders and dust underline it, Living Light opens up the climax and the way out.",
+    barsPerShot: { calm: 4, middle: 4, high: 2 }, shaderOpacity: [0.14, 0.34], alwaysOnOpacity: 0.14,
+    livingLightScenes: ["climax", "break", "release"], livingLightTransitions: ["lift", "build"],
+    dust: { show: "hooks", direction: { lyrics: { pick: "hooks", max: 4, font: "serif" }, maxDensity: 0.7 } },
+  }),
+  "tunnel-journey": Object.freeze({
+    id: "tunnel-journey", label: "Tunnel Journey", lead: "living-light", recipe: "visualizer-forward",
+    intent: "Living Light leads: the song is a journey through tunnels and surfaces, with media as remembered windows along the way.",
+    barsPerShot: { calm: 8, middle: 8, high: 4 }, shaderOpacity: [0.08, 0.22], alwaysOnOpacity: 0.12,
+    livingLightScenes: ["arrival", "statement", "passage", "return", "climax", "break", "release"], livingLightTransitions: ["lift", "build", "fall", "break", "change", "return"],
+    dust: { show: "motes", direction: { lyrics: { pick: "off" }, maxDensity: 0.45, eventResponses: { lift: "gather", change: "none" } } },
+  }),
+  "dust-chorus": Object.freeze({
+    id: "dust-chorus", label: "Dust Chorus", lead: "score-dust", recipe: "kinetic",
+    intent: "Score Dust leads every return and the climax, writing the sung words; media tells the verses between them.",
+    barsPerShot: { calm: 4, middle: 4, high: 4 }, shaderOpacity: [0.12, 0.3], alwaysOnOpacity: 0.16,
+    livingLightScenes: ["climax"], livingLightTransitions: ["lift"],
+    dust: { show: "returns", direction: { lyrics: { pick: "hooks", max: 8, wordByWord: true, textCase: "upper" }, maxDensity: 0.95 } },
+  }),
+  "telemetry-pulse": Object.freeze({
+    id: "telemetry-pulse", label: "Telemetry Pulse", lead: "shader", recipe: "kinetic",
+    intent: "Audio-mapped shaders lead and every layer answers the measured song: cuts on downbeats, dust on events, Living Light only in transitions.",
+    barsPerShot: { calm: 2, middle: 2, high: 1 }, shaderOpacity: [0.3, 0.62], alwaysOnOpacity: 0.2,
+    livingLightScenes: [], livingLightTransitions: ["lift", "build", "change"],
+    dust: { show: "events", direction: { lyrics: { pick: "off" }, maxDensity: 0.85, eventResponses: { change: "kick", build: "gather" } } },
+  }),
+});
+
+/**
+ * Transition grammar keyed to the Atlas event at a section boundary.
+ * media/shader use the timeline transitions the compiler and HyperFrames
+ * already render (cut, crossfade, scanline-dissolve); "return" is a match cut,
+ * written as a cut onto the media first shown in that motif.
+ */
+export const ECHO_INTEGRATED_TRANSITION_GRAMMAR = Object.freeze({
+  lift: Object.freeze({ media: "cut", shader: "cut", alwaysOn: "swell", livingLight: "transition", dust: "shock", preRollSeconds: 2, why: "Energy rises: hard cut on the downbeat while Living Light carries the run-up and the dust bursts." }),
+  build: Object.freeze({ media: "scanline-dissolve", shader: "crossfade", alwaysOn: "hold", livingLight: "transition", dust: "gather", preRollSeconds: 4, why: "A build: dissolve while the dust gathers and Living Light travels toward the next section." }),
+  fall: Object.freeze({ media: "crossfade", shader: "crossfade", alwaysOn: "hold", livingLight: "scene", dust: "calm", preRollSeconds: 1, why: "Energy falls: long crossfade, dust settles, the always-on layer keeps the thread." }),
+  break: Object.freeze({ media: "crossfade", shader: "crossfade", alwaysOn: "hold", livingLight: "scene", dust: "calm", preRollSeconds: 1, why: "A break opens: the picture thins out to the always-on layer and a calm surface." }),
+  change: Object.freeze({ media: "crossfade", shader: "crossfade", alwaysOn: "hold", livingLight: "transition", dust: "kick", preRollSeconds: 1, why: "Timbre or texture changes: crossfade with a dust kick on the boundary." }),
+  return: Object.freeze({ media: "cut", shader: "cut", alwaysOn: "hold", livingLight: "transition", dust: "kick", preRollSeconds: 1, why: "A motif returns: match cut to the media first seen with it, so the picture remembers." }),
+  boundary: Object.freeze({ media: "crossfade", shader: "crossfade", alwaysOn: "hold", livingLight: null, dust: "none", preRollSeconds: 0, why: "A section boundary with no measured event: a plain crossfade." }),
+});
+
+const ROLE_BEATS = Object.freeze({
+  arrival: "Arrival: establish the world before the first word.",
+  statement: "Statement: the first telling of this motif.",
+  passage: "Passage: the story moves between motifs.",
+  return: "Return: the motif comes back; the picture remembers it and grows busier.",
+  climax: "Climax: the highest measured energy in the song; every layer is at full strength.",
+  break: "Break: energy drops away; the picture breathes.",
+  release: "Release: the song lets go; layers thin toward the end.",
+});
+
+const finite = (v) => typeof v === "number" && Number.isFinite(v);
+const round = (v, d = 3) => Number(Number(v).toFixed(d));
+const clamp = (v, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
+
+/** Stable 32-bit FNV-1a; deterministic choices and IDs, not security. */
+function hash32(value) {
+  let h = 0x811c9dc5;
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+const pick = (items, seed, ...parts) => items.length ? items[hash32([seed, ...parts].join("|")) % items.length] : null;
+const hex = (value) => [hash32(value), hash32(`${JSON.stringify(value)}#`)].map((h) => h.toString(16).padStart(8, "0")).join("");
+
+// Timeline row fields that describe where and why a shot sat in its original
+// cut, not the media itself. Everything else is copied with the media.
+const SHOT_PLACEMENT_FIELDS = new Set(["section_id", "section_label", "section_type", "shot_index", "start_sec", "end_sec", "transition", "active_stems", "audio_bindings",
+  "audio_atlas_direction", "song_visual_context", "audio_atlas_acoustic_hint", "edit_reason", "decision_evidence", "audio_atlas_selected_source_context"]);
+
+/**
+ * Union of the media a song's saved cuts already cast, by media id, with how
+ * often each was used (editorial memory) and a family for visual recall.
+ */
+export function echoIntegratedMediaPool(cuts = []) {
+  const pool = new Map();
+  for (const cut of cuts) {
+    for (const row of cut?.timeline || []) {
+      const id = String(row?.media_id || "");
+      const uri = String(row?.media_contract?.runtimeUri || row?.runtime_media_uri || row?.media_uri || "");
+      if (!id || id === "none" || !uri || row?.media_contract?.type === "generated-visualizer") continue;
+      const existing = pool.get(id);
+      if (existing) { existing.uses += 1; continue; }
+      const fields = Object.fromEntries(Object.entries(row).filter(([key]) => !SHOT_PLACEMENT_FIELDS.has(key)));
+      const type = String(row.media_contract?.type || "");
+      pool.set(id, {
+        mediaId: id, title: String(row.media_title || row.media_card_title || id), uses: 1,
+        kind: type === "image" || /\.(png|jpe?g|webp|gif|avif)(?:$|[?#])/i.test(uri) ? "image" : "video",
+        family: String(row.media_source_group || row.characterIds?.[0] || row.media_card_kind || "media"),
+        fields,
+      });
+    }
+  }
+  return [...pool.values()].sort((a, b) => b.uses - a.uses || a.mediaId.localeCompare(b.mediaId));
+}
+
+/**
+ * Shader pool from a gated, proxy-hydrated manifest. Only shaders that pass
+ * the final-render readiness check are offered; generators only, since a
+ * filter needs live media input the director cannot guarantee.
+ */
+export function echoIntegratedShaderPool(shaders = [], isReady = () => false) {
+  return shaders.filter((shader) => shader?.shaderType === "generator" && isReady(shader)).map((shader) => {
+    const signals = [...new Set(Object.values(shader.audioMap || {}).map((m) => String(m?.signal || "off")).filter((s) => s !== "off"))].sort();
+    return { id: shader.id, title: String(shader.title || shader.id), alwaysOn: shader.hmvCategory === "Waveforms Always On", category: shader.hmvCategory || null,
+      signals, mappedUniforms: Object.keys(shader.audioMap || {}).length, beatReactive: signals.includes("beat") || signals.includes("bass") };
+  }).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function prepareSections(timeline, lyrics) {
+  const lo = Math.min(...timeline.sections.map((s) => s.meanIntensity)), hi = Math.max(...timeline.sections.map((s) => s.meanIntensity));
+  // Atlas sections shorter than a few seconds join the one before them.
+  const merged = [];
+  for (const s of timeline.sections) {
+    const last = merged.at(-1);
+    if (last && (s.end - s.start < MIN_SECTION_SECONDS || last.end - last.start < MIN_SECTION_SECONDS)) {
+      const span = s.end - last.start;
+      last.energy = (last.energy * (last.end - last.start) + s.meanIntensity * (s.end - s.start)) / span;
+      last.end = s.end; last.atlasSectionIds.push(s.id); continue;
+    }
+    merged.push({ id: `section-${merged.length + 1}`, atlasSectionIds: [s.id], start: s.start, end: s.end, repeatGroup: s.repeatGroup, occurrence: s.occurrence, energy: s.meanIntensity });
+  }
+  const lines = lyrics?.verified ? (lyrics.lines || []) : [];
+  for (const section of merged) {
+    section.relEnergy = round(hi > lo ? (section.energy - lo) / (hi - lo) : 0.5);
+    section.energy = round(section.energy, 4);
+    section.tier = section.relEnergy >= 0.68 ? "high" : section.relEnergy >= 0.38 ? "middle" : "calm";
+    section.lyrics = lines.map((line, index) => ({ line, index })).filter(({ line }) => finite(line.start) && line.start >= section.start && line.start < section.end)
+      .map(({ line, index }) => ({ index, text: String(line.text || ""), voice: line.voice || null, needsReview: line.alignmentReview?.needsReview === true }));
+    section.voices = [...new Set(lines.filter((l) => finite(l.start) && l.start >= section.start && l.start < section.end)
+      .flatMap((l) => [l.voice, ...(l.voices || []).map((v) => v?.voice)]).filter(Boolean))].sort();
+  }
+  // One climax: the loudest section, never the opening one when there is a choice.
+  const climax = merged.reduce((best, s, i) => ((merged.length < 3 || i > 0) && (!best || s.energy > best.energy) ? s : best), null);
+  merged.forEach((section, i) => {
+    const prev = merged[i - 1];
+    section.role = i === 0 && (!section.lyrics.length || section.relEnergy < 0.5) ? "arrival"
+      : i === merged.length - 1 && section.relEnergy < 0.6 ? "release"
+      : section === climax ? "climax"
+      : prev && section.relEnergy < 0.3 && prev.relEnergy > section.relEnergy + 0.2 ? "break"
+      : section.occurrence > 0 ? "return"
+      : section.lyrics.length ? "statement" : "passage";
+  });
+  return merged;
+}
+
+function snapBoundary(t, timeline, previous, nextEnd) {
+  const near = (list, tolerance) => list.filter((x) => Math.abs(x - t) <= tolerance).sort((a, b) => Math.abs(a - t) - Math.abs(b - t))[0];
+  const downbeat = near(timeline.downbeats || [], 0.4), beat = near(timeline.beats || [], 0.2);
+  const at = downbeat ?? beat ?? t;
+  // Never let a snap squeeze a neighbouring section below a second.
+  if (at <= previous + 1 || at >= nextEnd - 1) return { at: t, snappedTo: "atlas-boundary" };
+  return { at: round(at, 6), snappedTo: downbeat !== undefined ? "downbeat" : beat !== undefined ? "beat" : "atlas-boundary" };
+}
+
+function planTransitions(sections, timeline, treatment) {
+  const seenGroups = new Set([sections[0]?.repeatGroup]);
+  const transitions = [];
+  for (let i = 1; i < sections.length; i++) {
+    const section = sections[i], t = section.start;
+    const event = (timeline.events || []).filter((e) => Math.abs(e.at - t) <= 1.5).sort((a, b) => Math.abs(a.at - t) - Math.abs(b.at - t))[0];
+    const kind = event ? event.kind : seenGroups.has(section.repeatGroup) ? "return" : "boundary";
+    seenGroups.add(section.repeatGroup);
+    const { at, snappedTo } = snapBoundary(t, timeline, sections[i - 1].start, section.end);
+    const base = ECHO_INTEGRATED_TRANSITION_GRAMMAR[kind];
+    const grammar = { ...base };
+    if (treatment.id === "telemetry-pulse" && !["fall", "break"].includes(kind)) grammar.media = "cut";
+    if (!treatment.livingLightTransitions.includes(kind)) grammar.livingLight = null;
+    transitions.push({ id: `transition-${i}`, at, atlasBoundary: round(t, 4), snappedTo, kind, eventId: event?.id || null, deltaDb: event?.deltaDb ?? null,
+      fromSection: sections[i - 1].id, toSection: section.id, grammar, why: base.why });
+    sections[i - 1].end = at; section.start = at;
+  }
+  return transitions;
+}
+
+function planMedia(sections, transitions, timeline, pool, treatment, seed) {
+  const families = [...new Set(pool.map((m) => m.family))];
+  const groupFamily = new Map(), firstShown = new Map(), used = new Map();
+  let familyCursor = hash32(`${seed}|family`) % Math.max(1, families.length);
+  const hero = pool[0];
+  const shots = [];
+  for (const section of sections) {
+    if (!groupFamily.has(section.repeatGroup)) { groupFamily.set(section.repeatGroup, families[familyCursor % families.length]); familyCursor += 1; }
+    const family = groupFamily.get(section.repeatGroup);
+    const members = pool.filter((m) => m.family === family);
+    const ordered = [...members].sort((a, b) => (section.tier === "high" ? (a.kind === "video" ? -1 : 1) - (b.kind === "video" ? -1 : 1) : 0) || b.uses - a.uses || a.mediaId.localeCompare(b.mediaId));
+    const bars = treatment.barsPerShot[section.tier];
+    const downbeats = (timeline.downbeats || []).filter((d) => d > section.start + MIN_SHOT_SECONDS && d < section.end - MIN_SHOT_SECONDS);
+    let cuts = downbeats.filter((_, i) => (i + 1) % bars === 0);
+    if (!downbeats.length) { const step = bars * 2; cuts = []; for (let t = section.start + step; t < section.end - MIN_SHOT_SECONDS; t += step) cuts.push(round(t, 4)); }
+    const edges = [section.start];
+    for (const cut of cuts) if (cut - edges.at(-1) >= MIN_SHOT_SECONDS && section.end - cut >= MIN_SHOT_SECONDS) edges.push(cut);
+    edges.push(section.end);
+    const incoming = transitions.find((tr) => tr.toSection === section.id);
+    const offset = (used.get(family) || 0) + section.occurrence;
+    for (let k = 0; k < edges.length - 1; k++) {
+      let media, reason;
+      if (k === 0 && section.occurrence > 0 && firstShown.has(section.repeatGroup)) { media = firstShown.get(section.repeatGroup); reason = `match cut: ${section.repeatGroup} returns with the media first shown with it`; }
+      else if (k === 0 && section.role === "climax" && hero) { media = hero; reason = "climax opens on the song's most-cast media"; }
+      else { media = ordered[(offset + k) % Math.max(1, ordered.length)] || pool[(offset + k) % pool.length]; reason = `${section.role} · family ${family} · ${section.tier} energy · ${bars}-bar shots`; }
+      const previous = shots.at(-1);
+      if (previous && previous.mediaId === media.mediaId && pool.length > 1) {
+        if (/^match cut/.test(reason) && !/^match cut/.test(previous.reason)) {
+          // The match cut keeps its media; the shot before it gives way.
+          const swap = pool.find((m) => m.mediaId !== media.mediaId && m.mediaId !== shots.at(-2)?.mediaId);
+          if (swap) Object.assign(previous, { mediaId: swap.mediaId, title: swap.title, kind: swap.kind, family: swap.family, reason: `${previous.reason} (gives way to the match cut that follows)` });
+        } else {
+          media = (ordered.length > 1 ? ordered : pool).find((m) => m.mediaId !== previous.mediaId); reason += " (avoids repeating the previous shot)";
+        }
+      }
+      if (!firstShown.has(section.repeatGroup)) firstShown.set(section.repeatGroup, media);
+      used.set(family, (used.get(family) || 0) + 1);
+      shots.push({ id: `shot-${shots.length + 1}`, sectionId: section.id, start: round(edges[k], 4), end: round(edges[k + 1], 4), mediaId: media.mediaId, title: media.title, kind: media.kind, family: media.family,
+        transition: k === 0 ? (incoming?.grammar.media || "cut") : section.tier === "calm" ? "crossfade" : "cut", reason });
+    }
+  }
+  return shots;
+}
+
+function planShaders(sections, transitions, pool, treatment, seed) {
+  const generators = pool.filter((s) => !s.alwaysOn && (treatment.id !== "telemetry-pulse" || s.signals.length));
+  const groupShader = new Map(), taken = new Set();
+  const segments = [];
+  const [lo, hi] = treatment.shaderOpacity;
+  for (const section of sections) {
+    let shader = groupShader.get(section.repeatGroup);
+    if (!shader) {
+      const fit = generators.filter((s) => (section.tier === "high" ? s.beatReactive : section.tier === "calm" ? !s.beatReactive : true) && !taken.has(s.id) && s.id !== segments.at(-1)?.shaderId);
+      shader = pick(fit.length ? fit : generators.filter((s) => s.id !== segments.at(-1)?.shaderId), seed, "shader", section.repeatGroup, treatment.id);
+      if (!shader) continue;
+      groupShader.set(section.repeatGroup, shader); taken.add(shader.id);
+    }
+    const incoming = transitions.find((tr) => tr.toSection === section.id);
+    segments.push({ id: `shader-${segments.length + 1}`, sectionId: section.id, start: section.start, end: section.end, shaderId: shader.id, title: shader.title,
+      opacity: round(lo + (hi - lo) * section.relEnergy), signals: shader.signals, transition: incoming?.grammar.shader || "cut",
+      reason: `${section.tier} energy → ${shader.beatReactive ? "beat/bass-reactive" : "slow-moving"} shader; ${section.repeatGroup} keeps it on every return` });
+  }
+  return segments;
+}
+
+function planAlwaysOn(pool, treatment, seed, durationSeconds) {
+  const waves = pool.filter((s) => s.alwaysOn && (treatment.id !== "telemetry-pulse" || s.signals.length));
+  const atmospheres = pool.filter((s) => !s.alwaysOn && !s.beatReactive && s.signals.length);
+  const wave = pick(waves.length ? waves : pool.filter((s) => s.alwaysOn), seed, "always-on-wave", treatment.id);
+  const atmosphere = pick(atmospheres, seed, "always-on-atmosphere", treatment.id);
+  const second = treatment.id === "telemetry-pulse" ? pick(waves.filter((s) => s.id !== wave?.id), seed, "always-on-wave-2") : null;
+  const slot = (index, shader, role, opacity, blend) => ({
+    id: `always-on-shader-${index}`, track_id: `track-shader-always-on-${index}`, label: shader ? `Always On ${index} · ${shader.title}` : `Always On ${index}`,
+    enabled: Boolean(shader), shader_id: shader?.id || "none", shader_title: shader?.title || "Open", stem_focus: "master", stem_fallback: "master",
+    allow_alternate_isolated_stems: false, opacity: round(opacity), layer_opacity: 1, knockout_blacks: true, blend_mode: blend, layer_role: role,
+    always_on: true, selection_mode: "persistent-full-song", start_sec: 0, end_sec: round(durationSeconds, 4),
+  });
+  return [
+    slot(1, wave, "persistent-waveform", treatment.alwaysOnOpacity, "plus-lighter"),
+    slot(2, atmosphere, "persistent-atmosphere", treatment.alwaysOnOpacity * 0.8, "screen"),
+    slot(3, second, "persistent-waveform", treatment.alwaysOnOpacity * 0.6, "plus-lighter"),
+  ];
+}
+
+function planLivingLight(sections, transitions, livingLight, treatment, song) {
+  if (!livingLight?.journeyRef) return { status: "unavailable", reason: "This song has no saved Living Light Journey to reference.", cues: [] };
+  // Whole milliseconds: the Director compiler measures the song to the millisecond.
+  const durationUs = Math.floor(song.durationSeconds * 1000) * 1000;
+  const journeyUs = Number.isSafeInteger(livingLight.durationUs) && livingLight.durationUs > 0 ? livingLight.durationUs : durationUs;
+  const us = (t) => clamp(Math.round(t * 1e6), 0, durationUs);
+  const wanted = transitions.filter((tr) => tr.grammar.livingLight === "transition")
+    .map((tr) => ({ role: "transition", startUs: us(tr.at - Math.max(1, tr.grammar.preRollSeconds)), endUs: us(tr.at + 1.5), why: `${tr.kind} at ${round(tr.at, 2)}s` }));
+  const accepted = [];
+  for (const cue of wanted.sort((a, b) => a.startUs - b.startUs)) {
+    if (accepted.length && cue.startUs < accepted.at(-1).endUs) cue.startUs = accepted.at(-1).endUs;
+    if (cue.endUs - cue.startUs >= MIN_LIVING_LIGHT_SECONDS * 1e6) accepted.push(cue);
+  }
+  // Scenes fill their sections around the transitions, which keep priority.
+  for (const section of sections.filter((s) => treatment.livingLightScenes.includes(s.role))) {
+    let pieces = [{ startUs: us(section.start), endUs: us(section.end) }];
+    for (const tr of accepted.filter((c) => c.role === "transition")) {
+      pieces = pieces.flatMap((p) => (tr.endUs <= p.startUs || tr.startUs >= p.endUs) ? [p] : [{ startUs: p.startUs, endUs: tr.startUs }, { startUs: tr.endUs, endUs: p.endUs }]);
+    }
+    for (const p of pieces) if (p.endUs - p.startUs >= MIN_LIVING_LIGHT_SECONDS * 1e6) accepted.push({ role: "scene", ...p, why: `${section.role} section ${section.id}` });
+  }
+  // A cue plays its Journey at 1x. On a song-length Journey journey time is
+  // song time; a shorter Journey is entered as late as the cue allows.
+  const ordered = accepted.sort((a, b) => a.startUs - b.startUs).slice(0, 128).map((cue) => {
+    const length = Math.min(cue.endUs - cue.startUs, journeyUs);
+    const endUs = cue.startUs + length;
+    return { ...cue, endUs, journeyStartUs: endUs <= journeyUs ? cue.startUs : journeyUs - length };
+  }).filter((cue) => cue.endUs - cue.startUs >= MIN_LIVING_LIGHT_SECONDS * 1e6);
+  const cues = ordered.map((cue, i) => ({
+    schemaVersion: ECHO_LIVING_LIGHT_CUE_SCHEMA, cueId: `ll-cue:integrated-${treatment.id}-${i + 1}`, role: cue.role, songId: song.songId,
+    journeyRef: { journeyId: livingLight.journeyRef.journeyId, revisionId: livingLight.journeyRef.revisionId }, sourceBindingRef: null,
+    window: { startUs: cue.startUs, endUs: cue.endUs }, journeyWindow: { startUs: cue.journeyStartUs, endUs: cue.journeyStartUs + cue.endUs - cue.startUs },
+    clock: "echo-song", mapping: "offset-1x", outputProfile: "project", locks: { timing: false, journey: false },
+  }));
+  validateEchoLivingLightCues(cues, { songId: song.songId, durationUs });
+  return { status: cues.length ? "planned" : "not-used", journeyRef: livingLight.journeyRef, mapping: journeyUs >= durationUs ? "song-clocked" : "entered-late", cues, reasons: ordered.map((c, i) => ({ cueId: cues[i].cueId, why: c.why })) };
+}
+
+function mergeWindows(windows) {
+  const out = [];
+  for (const w of [...windows].sort((a, b) => a.start - b.start)) {
+    if (out.length && w.start <= out.at(-1).end) out.at(-1).end = Math.max(out.at(-1).end, w.end); else out.push({ ...w });
+  }
+  return out.map((w) => ({ start: round(w.start, 4), end: round(w.end, 4) }));
+}
+
+function planScoreDust(timeline, sections, lyrics, lyricAudioHash, treatment) {
+  const direction = structuredClone(treatment.dust.direction);
+  const score = composeEchoVisualScore(timeline, direction, { lyricLines: lyrics?.verified ? lyrics.lines : null, lyricAudioHash: lyrics?.verified ? lyricAudioHash : null });
+  const validation = validateEchoVisualScore(score, { timeline });
+  const d = timeline.durationSeconds;
+  const windows = treatment.dust.show === "motes" ? [{ start: 0, end: d }]
+    : treatment.dust.show === "returns" ? [...sections.filter((s) => ["return", "climax"].includes(s.role)).map((s) => ({ start: s.start, end: s.end })), ...score.phrases.map((p) => ({ start: p.start, end: p.end }))]
+    : treatment.dust.show === "events" ? score.events.filter((e) => e.response !== "none").map((e) => ({ start: Math.max(0, e.at - 0.25), end: Math.min(d, e.at + 1.5) }))
+    : [...score.phrases.map((p) => ({ start: Math.max(0, p.start - 0.5), end: Math.min(d, p.end + 0.5) })), ...score.events.filter((e) => e.response === "shock").map((e) => ({ start: e.at, end: Math.min(d, e.at + 2) }))];
+  return {
+    status: validation.ok ? "composed" : "invalid", compositeExportSupported: false, runtime: "score-dust-preview",
+    notice: "Score Dust reaches a Director cut only as a published browser render that replaces whole media shots (echo-score-dust-cut.js); it is not composited over the other layers in export. Elsewhere it is a preview layer.",
+    direction, fingerprint: score.fingerprint, timelineFingerprint: timeline.fingerprint,
+    phraseSource: score.phraseSource, phrases: score.phrases.map((p) => ({ text: p.text, start: p.start, end: p.end, lineIndex: p.source?.lineIndex ?? null })),
+    motifs: score.motifs.map((m) => ({ repeatGroup: m.repeatGroup, family: m.family })), events: score.events.map((e) => ({ kind: e.kind, at: e.at, response: e.response })),
+    visibleWindows: mergeWindows(windows), validation: { ok: validation.ok, errors: validation.errors.length, warnings: validation.warnings.length },
+    score,
+  };
+}
+
+function storyBeat(section) {
+  const sung = section.lyrics.find((l) => !l.needsReview) || section.lyrics[0];
+  const quote = sung ? ` “${sung.text.length > 90 ? `${sung.text.slice(0, 87)}…` : sung.text}”` : "";
+  const voices = section.voices.length > 1 ? ` Voices: ${section.voices.join(" + ")} — let the backing answer visibly.` : "";
+  const memory = section.occurrence > 0 ? ` (${section.repeatGroup}, time ${section.occurrence + 1})` : "";
+  return `${ROLE_BEATS[section.role]}${memory}${quote}${voices}`;
+}
+
+/**
+ * Plan one integrated performance. Inputs are already read and verified by
+ * the caller: an Atlas musical timeline, written lyric lines with measured
+ * timing (verified against this master), the song's media pool, the ready
+ * shader pool and the song-clocked Living Light Journey reference.
+ */
+export function planEchoIntegratedPerformance({ song, timeline, lyrics = null, lyricAudioHash = null, mediaPool = [], shaderPool = [], livingLight = null, treatment = "story-arc", seed = "echo-integrated-v1" } = {}) {
+  const t = ECHO_INTEGRATED_TREATMENTS[treatment];
+  if (!t) throw new Error(`Unknown treatment ${treatment}; expected ${Object.keys(ECHO_INTEGRATED_TREATMENTS).join(", ")}.`);
+  if (timeline?.schemaVersion !== ECHO_MUSICAL_TIMELINE_SCHEMA || !timeline.sections?.length) throw new Error("A musical timeline with sections is required.");
+  if (!song?.songId || !(song.durationSeconds > 0)) throw new Error("A song id and duration are required.");
+  if (!mediaPool.length) throw new Error("The song has no cast media to perform with.");
+  if (!shaderPool.some((s) => !s.alwaysOn)) throw new Error("No final-render-ready shaders are available.");
+  const durationSeconds = Math.min(song.durationSeconds, timeline.durationSeconds);
+  const sections = prepareSections(timeline, lyrics);
+  sections.at(-1).end = Math.min(sections.at(-1).end, durationSeconds);
+  const transitions = planTransitions(sections, timeline, t);
+  const shots = planMedia(sections, transitions, timeline, mediaPool, t, seed);
+  const shaders = planShaders(sections, transitions, shaderPool, t, seed);
+  const alwaysOn = planAlwaysOn(shaderPool, t, seed, durationSeconds);
+  const livingLightLayer = planLivingLight(sections, transitions, livingLight, t, { ...song, durationSeconds });
+  const dust = planScoreDust(timeline, sections, lyrics, lyricAudioHash, t);
+  const llAt = (s) => livingLightLayer.cues.filter((c) => c.window.startUs < s.end * 1e6 && c.window.endUs > s.start * 1e6);
+  const dustShare = (s) => dust.visibleWindows.reduce((sum, w) => sum + Math.max(0, Math.min(w.end, s.end) - Math.max(w.start, s.start)), 0) / Math.max(1e-6, s.end - s.start);
+  for (const section of sections) {
+    const ll = llAt(section), share = round(dustShare(section), 2);
+    const llScene = ll.some((c) => c.role === "scene");
+    section.lead = t.lead === "living-light" && llScene ? "living-light"
+      : t.lead === "score-dust" && share >= 0.5 ? "score-dust"
+      : llScene && section.role === "climax" ? "living-light"
+      : t.lead === "shader" ? "shader" : "media";
+    section.storyBeat = storyBeat(section);
+    section.layers = {
+      alwaysOn: { opacity: alwaysOn[0].opacity, note: "always-on stays at one opacity per slot today; it answers the music through its audio-mapped uniforms" },
+      media: { shots: shots.filter((s) => s.sectionId === section.id).length, families: [...new Set(shots.filter((s) => s.sectionId === section.id).map((s) => s.family))] },
+      shader: (({ shaderId, title, opacity } = {}) => (shaderId ? { shaderId, title, opacity } : null))(shaders.find((s) => s.sectionId === section.id)),
+      livingLight: ll.length ? [...new Set(ll.map((c) => c.role))] : [],
+      dust: { visibleShare: share },
+    };
+    section.transitionIn = transitions.find((tr) => tr.toSection === section.id)?.id || null;
+  }
+  // Where dust leads, an existing route works today: a published Score Dust
+  // render replaces exactly those media shots. It needs a browser render first.
+  const dustShots = shots.filter((shot) => sections.find((s) => s.id === shot.sectionId)?.lead === "score-dust");
+  dust.renderPlacement = { route: "score-dust-render-media", status: dustShots.length ? "needs-render" : "not-used",
+    shots: dustShots.map((shot) => shot.id), windows: mergeWindows(dustShots.map((shot) => ({ start: shot.start, end: shot.end }))) };
+  const modulation = [
+    ...[...alwaysOn.filter((s) => s.enabled), ...shaders].map((s) => ({ shader: s.shader_id || s.shaderId, layer: s.shader_id ? "always-on" : "shader" }))
+      .filter((v, i, all) => all.findIndex((w) => w.shader === v.shader) === i)
+      .map(({ shader, layer }) => {
+        const entry = shaderPool.find((s) => s.id === shader), signals = entry?.signals || [];
+        // A shader without an audio map has nothing to bind: it moves on its own clock.
+        return { id: `uniforms:${shader}`, title: entry?.title || shader, layer, source: signals, target: "visualizer_uniform", executable: signals.length ? true : null,
+          via: signals.length ? "Director V2 compiles each mapped uniform into a stem_signal binding" : "no audio-mapped uniforms; it moves on its own clock" };
+      }),
+    { id: "dust:density-follows-energy", layer: "score-dust", source: ["section energy"], target: "dust density", executable: false, via: "runs only in the Score Dust preview" },
+    { id: "always-on:opacity-follows-energy", layer: "always-on", source: ["section energy"], target: "slot opacity", executable: false, via: "persistent slots have one opacity for the whole song" },
+    { id: "living-light:speed-follows-intensity", layer: "living-light", source: ["master intensity"], target: "journey rate", executable: false, via: "Living Light cues are fixed offset-1x" },
+  ];
+  const media = shots;
+  const layersUsed = [alwaysOn.some((s) => s.enabled), media.length > 0, shaders.length > 0, livingLightLayer.cues.length > 0, dust.status === "composed" && dust.visibleWindows.length > 0];
+  const planInput = { song: song.songId, treatment: t.id, seed, timeline: timeline.fingerprint, lyricAudioHash: lyrics?.verified ? lyricAudioHash : null, media: mediaPool.map((m) => m.mediaId), shaders: shaderPool.map((s) => s.id), journey: livingLight?.journeyRef || null };
+  return {
+    schemaVersion: ECHO_INTEGRATED_PERFORMANCE_SCHEMA,
+    planId: `integrated:${song.songId}:${t.id}:${hex(planInput)}`,
+    songId: song.songId, title: song.title || song.songId, treatment: t.id, treatmentLabel: t.label, intent: t.intent, lead: t.lead, recipe: t.recipe, seed,
+    durationSeconds: round(durationSeconds, 4),
+    sources: {
+      atlasRunId: timeline.source?.runId || null, timelineFingerprint: timeline.fingerprint, masterSha256: timeline.source?.sourceSha256 || null,
+      tempoBpm: timeline.tempo?.bpm ?? null, beats: timeline.beats.length, downbeats: timeline.downbeats.length, atlasSections: timeline.sections.length, atlasEvents: timeline.events.length,
+      lyricTiming: lyrics ? { verified: lyrics.verified === true, status: lyrics.status || null, reason: lyrics.reason || null, lines: lyrics.lines?.length || 0 } : { verified: false, status: "absent", lines: 0 },
+      mediaPool: mediaPool.length, shaderPool: shaderPool.length, livingLightJourney: livingLight?.journeyRef || null,
+      qualification: "Atlas sections, repeats and events are candidate evidence; roles here are relative energy and repetition, not established verse/chorus.",
+    },
+    sections, transitions,
+    layers: { alwaysOn, media, shaders, livingLight: livingLightLayer, scoreDust: dust },
+    modulation,
+    checks: {
+      layersUsed: layersUsed.filter(Boolean).length,
+      layers: Object.fromEntries(ECHO_INTEGRATED_LAYERS.map((name, i) => [name, layersUsed[i]])),
+      mediaContinuous: media.every((s, i) => i === 0 ? s.start === sections[0].start : s.start === media[i - 1].end) && media.at(-1).end === sections.at(-1).end,
+      livingLightValid: true, scoreDustValid: dust.validation.ok,
+    },
+  };
+}
+
+/**
+ * A saved-cut-shaped project for the Director V2 compiler and HyperFrames.
+ * mediaPool is the same pool the plan was made from; it carries each shot's
+ * media fields exactly as the song's saved cuts cast them.
+ */
+export function projectEchoIntegratedPerformance(plan, baseProject = {}, mediaPool = []) {
+  // Director project files wrap the body; the projection is always the body.
+  const body = baseProject.music_video_project || baseProject.project || baseProject;
+  const base = structuredClone(body);
+  delete base.director_show_graph; delete base.hyperframe_script; delete base.active_direction_script_variant;
+  const rows = Array.isArray(body.timeline) ? body.timeline : [];
+  const sectionOf = (t) => rows.find((r) => r.start_sec <= t && r.end_sec > t) || rows.at(-1) || {};
+  const pool = new Map(mediaPool.map((m) => [m.mediaId, m.fields]));
+  const missing = plan.layers.media.filter((shot) => !pool.has(shot.mediaId)).map((shot) => shot.mediaId);
+  if (missing.length) throw new Error(`Media ${missing[0]} is not in the pool the plan was made from.`);
+  const timeline = plan.layers.media.map((shot, index) => {
+    const at = sectionOf(shot.start), fields = pool.get(shot.mediaId) || {};
+    return { ...structuredClone(fields), section_id: at.section_id || shot.sectionId, section_label: at.section_label || shot.sectionId, section_type: at.section_type || "section",
+      shot_index: index, start_sec: shot.start, end_sec: shot.end, transition: shot.transition, edit_reason: `Integrated ${plan.treatmentLabel}: ${shot.reason}` };
+  });
+  return {
+    ...base,
+    timeline,
+    visualizer_timeline: plan.layers.shaders.map((s) => ({ start_sec: s.start, end_sec: s.end, visualizer_id: s.shaderId, visualizer_title: s.title, transition: s.transition,
+      edit_reason: `Integrated ${plan.treatmentLabel}: ${s.reason}`, opacity: s.opacity, layer_opacity: 1, allow_alternate_isolated_stems: false })),
+    persistent_shader_slots_schema: ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
+    persistent_shader_slots: structuredClone(plan.layers.alwaysOn),
+    living_light_cues: structuredClone(plan.layers.livingLight.cues),
+    integrated_performance: { schemaVersion: plan.schemaVersion, planId: plan.planId, treatment: plan.treatment,
+      scoreDust: { fingerprint: plan.layers.scoreDust.fingerprint, compositeExportSupported: false, visibleWindows: plan.layers.scoreDust.visibleWindows, renderPlacement: plan.layers.scoreDust.renderPlacement } },
+  };
+}
+
+const clock = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
+
+/** The human-readable director script for one plan. */
+export function renderEchoIntegratedPerformanceScript(plan, { compiled = null } = {}) {
+  const L = plan.layers, out = [];
+  out.push(`# ${plan.title} — ${plan.treatmentLabel}`, "");
+  out.push(`> ${plan.intent}`, "");
+  out.push(`- Plan: \`${plan.planId}\` · seed \`${plan.seed}\` · ${clock(plan.durationSeconds)} · lead layer **${plan.lead}** · compiler recipe \`${plan.recipe}\``);
+  out.push(`- Telemetry: Atlas run \`${plan.sources.atlasRunId}\` · ${plan.sources.beats} beats / ${plan.sources.downbeats} downbeats${plan.sources.tempoBpm ? ` · ~${Math.round(plan.sources.tempoBpm)} BPM` : ""} · ${plan.sources.atlasSections} sections · ${plan.sources.atlasEvents} events`);
+  out.push(`- Lyrics: ${plan.sources.lyricTiming.verified ? `${plan.sources.lyricTiming.lines} written lines with timing verified against this master` : `not placed (${plan.sources.lyricTiming.reason || plan.sources.lyricTiming.status})`}`);
+  out.push(`- Layers in use: ${plan.checks.layersUsed}/5 (${Object.entries(plan.checks.layers).map(([k, v]) => `${k} ${v ? "✓" : "–"}`).join(", ")})`);
+  if (compiled) out.push(`- Compiled: ${compiled.tracks} tracks · ${compiled.modulationBindings} executable modulation bindings · Living Light track ${compiled.livingLight ? "attached" : "absent"} · media preflight ${compiled.mediaPreflight}`);
+  out.push("", "## Always-on layer", "");
+  for (const slot of L.alwaysOn.filter((s) => s.enabled)) out.push(`- ${slot.label} — ${slot.layer_role}, opacity ${slot.opacity}, ${slot.blend_mode}, whole song`);
+  out.push("", "## Score", "");
+  for (const section of plan.sections) {
+    const tr = plan.transitions.find((x) => x.id === section.transitionIn);
+    out.push(`### ${clock(section.start)}–${clock(section.end)} · ${section.role} · ${section.repeatGroup}${section.occurrence ? ` ×${section.occurrence + 1}` : ""} · ${section.tier} energy (${section.relEnergy}) · lead: ${section.lead}`, "");
+    if (tr) out.push(`**In:** ${tr.kind} at ${clock(tr.at)} (${tr.snappedTo}) — media ${tr.grammar.media}, shader ${tr.grammar.shader}, dust ${tr.grammar.dust}${tr.grammar.livingLight ? `, Living Light ${tr.grammar.livingLight}` : ""}. ${tr.why}`, "");
+    out.push(section.storyBeat, "");
+    for (const line of section.lyrics) out.push(`> ${line.text}${line.voice && line.voice !== "lead" ? ` _(${line.voice})_` : ""}${line.needsReview ? " _(timing flagged for review)_" : ""}`);
+    if (section.lyrics.length) out.push("");
+    const shots = L.media.filter((s) => s.sectionId === section.id);
+    out.push(`- Media: ${shots.map((s) => `${clock(s.start)} ${s.title} (${s.kind}, ${s.transition})`).join("; ")}`);
+    if (section.layers.shader) out.push(`- Shader: ${section.layers.shader.title} at ${section.layers.shader.opacity}`);
+    if (section.layers.livingLight.length) out.push(`- Living Light: ${section.layers.livingLight.join(" + ")}`);
+    out.push(`- Score Dust: visible ${Math.round(section.layers.dust.visibleShare * 100)}% of the section`, "");
+  }
+  out.push("## Living Light cues", "");
+  if (!L.livingLight.cues.length) out.push(`- ${L.livingLight.reason || "Not used in this treatment."}`);
+  for (const cue of L.livingLight.cues) out.push(`- ${cue.role} ${clock(cue.window.startUs / 1e6)}–${clock(cue.window.endUs / 1e6)} — ${L.livingLight.reasons.find((r) => r.cueId === cue.cueId)?.why || ""}`);
+  out.push("", "## Score Dust", "", `- ${L.scoreDust.notice}`, L.scoreDust.renderPlacement.shots.length
+    ? `- Render placement: a Score Dust render covering ${L.scoreDust.renderPlacement.windows.map((w) => `${clock(w.start)}–${clock(w.end)}`).join(", ")} would replace ${L.scoreDust.renderPlacement.shots.length} dust-led shots (needs a browser render first).`
+    : "- Render placement: no dust-led shots in this treatment.", `- Score \`${L.scoreDust.fingerprint}\` · ${L.scoreDust.motifs.length} motifs · ${L.scoreDust.phrases.length} lyric phrases (${typeof L.scoreDust.phraseSource === "object" ? L.scoreDust.phraseSource.status : L.scoreDust.phraseSource}) · ${L.scoreDust.visibleWindows.length} visible windows`);
+  out.push("", "## Telemetry bindings", "");
+  for (const m of plan.modulation) out.push(`- ${m.executable ? "✓" : m.executable === false ? "✗ not executable yet:" : "–"} ${m.title ? `${m.title} (${m.layer} uniforms)` : `${m.id} (${m.layer})`} ← ${m.source.join(", ") || "no mapped signals"} — ${m.via}`);
+  out.push("");
+  return out.join("\n");
+}
