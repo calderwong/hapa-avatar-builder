@@ -131,11 +131,13 @@ import {
   deriveEchoDirectionVariantProject,
   deriveEchoSavedDirectionPlanningProject,
   deriveEchoDirectionWorkingProject,
+  echoDirectionForkDroppedPatchFields,
   echoDirectionVariantId,
   echoDirectionVariantOptionLabel,
   echoDirectionVariantTitle,
   groupEchoDirectionVariants,
   pinEchoSongCardPlanSnapshot,
+  renewEchoDirectionWorkingForkRequest,
   restoreEchoSongCardPlanSnapshot,
 } from "../domain/echo-direction-variants.js";
 import {
@@ -190,6 +192,7 @@ function echoDirectorPreviewNoise(seed = 0, index = 0) {
 const ECHO_SAVE_TIMEOUT_MS = 30_000;
 const ECHO_PROJECT_DETAIL_TIMEOUT_MS = 15_000;
 const ECHO_PROJECT_GRAPH_WARMUP_TIMEOUT_MS = 10 * 60_000;
+const ECHO_CUT_FIELD_LABELS = Object.freeze({ score_dust_layer: "Score Dust layer", living_light_cues: "Living Light cues", persistent_shader_slots: "shader slots", timed_lyrics: "lyric timing" });
 const ECHO_EXPANDED_PREVIEW_WIDTH = "min(calc(100vw - 32px), calc(177.7778vh - 384px))";
 const ECHO_VERTICAL_EXPANDED_PREVIEW_WIDTH = "min(calc(100vw - 32px), calc(56.25vh - 121.5px))";
 const ECHO_STEM_DECODER_POOL_LIMIT = 6;
@@ -5333,6 +5336,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         echoDirectionVariantId(variant) === variantId && Array.isArray(variant.timeline)
       ));
       if (!hydratedVariant) throw new Error("its saved metadata is still preparing");
+      // An older server process keeps only the fields it knows. Keep this edit open under a fresh save ID instead.
+      const droppedFields = echoDirectionForkDroppedPatchFields(pending.request, hydratedVariant);
+      if (droppedFields.length) {
+        const names = droppedFields.map((field) => ECHO_CUT_FIELD_LABELS[field] || field).join(", ");
+        setWorkingDirectionFork((current) => current && renewEchoDirectionWorkingForkRequest(current));
+        setPendingSavedDirectionCut(null);
+        setDirectorHasUnsavedChanges(true);
+        setSaveFeedbackTone("error");
+        setSaveSuccessMessage(`The Builder server saved cut ${variantId} without: ${names}. It is running older code. Your edit is still open here and unsaved. Restart the Builder, then save again.`);
+        setEchoOperationNotice(`Saved cut ${variantId} is missing ${names}. The edit was kept open so it is not lost.`);
+        return false;
+      }
       const editableSelection = editableDirectionForkFromDetail(detail, variantId, {
         fallbackProject: pending.fallbackProject,
       });

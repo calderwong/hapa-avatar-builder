@@ -268,6 +268,7 @@ import {
   echoDirectionVariantTitle as domainEchoDirectionVariantTitle,
   pickEchoDirectionVariantProjectPatch,
   summarizeEchoDirectionVariantMetadata,
+  unsupportedEchoDirectionVariantPatchFields,
 } from "../src/domain/echo-direction-variants.js";
 import {
   echoRuntimeShaderRepairReceipt,
@@ -12188,6 +12189,11 @@ async function createEchoDirectionVariantFork(body = {}) {
 
   const requestedId = body.requestedId ? safeEchoDirectionPathSegment(body.requestedId, "variant") : "";
   const parentMetadata = echoDirectionVariantMetadata(parentVariant);
+  // Never drop a field silently: a client newer than this process would lose that edit.
+  const unsupportedPatchFields = unsupportedEchoDirectionVariantPatchFields(body.projectPatch);
+  if (unsupportedPatchFields.length) {
+    throw echoDirectionForkError("fork_patch_field_unsupported", `This Builder server does not keep ${unsupportedPatchFields.join(", ")}, so nothing was saved. Restart the Builder so it runs the current code, then save again.`, 409);
+  }
   const projectPatch = pickEchoDirectionVariantProjectPatch(body.projectPatch || {});
   const basePayload = JSON.parse(await readFile(projectPath, "utf8"));
   const baseProject = basePayload.music_video_project || basePayload;

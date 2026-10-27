@@ -487,6 +487,17 @@ export function pickEchoDirectionVariantProjectPatch(project = {}) {
   return patch;
 }
 
+/** Patch fields this build does not keep. A cut save refuses them instead of dropping them. */
+export function unsupportedEchoDirectionVariantPatchFields(patch = {}) {
+  return Object.keys(object(patch)).filter((key) => !VARIANT_PROJECT_PATCH_FIELDS.includes(key)).sort();
+}
+
+/** Fields a fork request sent that its saved cut does not hold, e.g. dropped by an older server process. */
+export function echoDirectionForkDroppedPatchFields(request = {}, savedVariant = {}) {
+  const sent = object(request.projectPatch), saved = object(savedVariant.project_patch || savedVariant.projectPatch);
+  return Object.keys(sent).filter((key) => sent[key] !== undefined && saved[key] === undefined).sort();
+}
+
 export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}, options = {}) {
   const id = echoDirectionVariantId(variant);
   if (!id) return baseProject;
@@ -701,18 +712,28 @@ export function deriveEchoSavedDirectionPlanningProject(baseProject = {}, varian
   }
 }
 
+function echoDirectionForkChildId(sourceVariantId, identity) {
+  const sourceSlug = sourceVariantId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || "direction-cut";
+  return `${sourceSlug}-edit-${compactHash(identity).slice(0, 16)}`;
+}
+
+/** The same working fork under a fresh save request ID, after its ID was consumed by an incomplete save. */
+export function renewEchoDirectionWorkingForkRequest(workingFork = {}, renewedAt = new Date().toISOString()) {
+  if (workingFork.schemaVersion !== ECHO_DIRECTION_WORKING_FORK_SCHEMA) throw new Error("Invalid working direction fork.");
+  return { ...workingFork, requestedChildId: echoDirectionForkChildId(workingFork.sourceVariantId, { consumedRequestId: workingFork.requestedChildId, renewedAt }) };
+}
+
 export function createEchoDirectionWorkingFork(project = {}, sourceVariant = {}) {
   const sourceVariantId = echoDirectionVariantId(sourceVariant);
   if (!sourceVariantId) throw new Error("A source direction cut is required.");
   const sourceVariantFingerprint = echoDirectionVariantSourceFingerprint(sourceVariant);
   const startedAt = new Date().toISOString();
-  const sourceSlug = sourceVariantId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || "direction-cut";
-  const requestedChildId = `${sourceSlug}-edit-${compactHash({
+  const requestedChildId = echoDirectionForkChildId(sourceVariantId, {
     songId: text(project.song_id),
     sourceVariantId,
     sourceVariantFingerprint,
     startedAt,
-  }).slice(0, 16)}`;
+  });
   const projectSnapshot = clone(project);
   delete projectSnapshot.direction_script_variants;
   return {

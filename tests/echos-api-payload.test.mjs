@@ -238,7 +238,7 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
       }],
       visualizerTimeline: [{ start_sec: 0, end_sec: 4, visualizer_id: "isf:fixture" }],
       mediaDensityTelemetry: { profile: "airy" },
-      projectPatch: { output_profile: "vertical", lyric_style: "cinematic", ignored_private_field: "must-not-persist" },
+      projectPatch: { output_profile: "vertical", lyric_style: "cinematic" },
       hyperframeScript: "<div data-direction-variant=\"edited-fixture\"></div>",
     };
     for (const invalid of [
@@ -262,6 +262,16 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
       if (invalid.requestedId.startsWith("generated-cast-")) assert.ok(payload.constraints.reasons.includes("required-character"));
       await assert.rejects(fs.access(path.join(targetVariantDir, `${invalid.requestedId}.json`)));
     }
+    // A field this server does not keep is refused, never dropped: a newer client would lose that edit.
+    const unknownFieldResponse = await fetch(`${BASE}/api/echos/direction-variant/fork`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...forkRequest, requestedId: "unknown-field-cut", projectPatch: { ...forkRequest.projectPatch, ignored_private_field: "must-not-persist" } }),
+    });
+    assert.equal(unknownFieldResponse.status, 409);
+    const unknownFieldPayload = await unknownFieldResponse.json();
+    assert.equal(unknownFieldPayload.error, "fork_patch_field_unsupported");
+    assert.match(unknownFieldPayload.message, /ignored_private_field.*nothing was saved/);
+    await assert.rejects(fs.access(path.join(targetVariantDir, "unknown-field-cut.json")));
     const forkResponse = await fetch(`${BASE}/api/echos/direction-variant/fork`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

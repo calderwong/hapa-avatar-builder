@@ -7,12 +7,15 @@ import {
   deriveEchoDirectionVariantProject,
   deriveEchoSavedDirectionPlanningProject,
   deriveEchoDirectionWorkingProject,
+  echoDirectionForkDroppedPatchFields,
   echoDirectionVariantOptionLabel,
   echoDirectionVariantFingerprint,
   echoDirectionVariantSourceFingerprint,
   groupEchoDirectionVariants,
   pinEchoSongCardPlanSnapshot,
+  renewEchoDirectionWorkingForkRequest,
   restoreEchoSongCardPlanSnapshot,
+  unsupportedEchoDirectionVariantPatchFields,
   validateEchoDirectionVariantProjection,
 } from "../src/domain/echo-direction-variants.js";
 
@@ -354,6 +357,32 @@ test("working continuation stays separate and serializes only an append-only chi
   assert.equal(request.direction_script_variants, undefined);
   assert.equal(request.director_show_graph, undefined);
   assert.equal(selected.timeline[0].media_id, "airy-a-media");
+});
+
+test("cut saves name fields a server would drop and renew a consumed save ID", () => {
+  const cut = variant("airy-a", "Airy", 1);
+  const working = createEchoDirectionWorkingFork(deriveEchoDirectionVariantProject(project(), cut), cut);
+  working.project.lyric_style = "cinematic";
+  const request = buildEchoDirectionForkRequest(working, deriveEchoDirectionWorkingProject(working));
+  assert.deepEqual(unsupportedEchoDirectionVariantPatchFields(request.projectPatch), []);
+  assert.deepEqual(unsupportedEchoDirectionVariantPatchFields({ ...request.projectPatch, zeta_field: 1, alpha_field: null }), ["alpha_field", "zeta_field"]);
+  assert.deepEqual(unsupportedEchoDirectionVariantPatchFields(null), []);
+
+  const sent = { projectPatch: { lyric_style: "cinematic", score_dust_layer: { layerId: "x" }, living_light_cues: null } };
+  // A null value is a saved removal, not a dropped field.
+  assert.deepEqual(echoDirectionForkDroppedPatchFields(sent, { project_patch: { lyric_style: "cinematic", score_dust_layer: { layerId: "x" }, living_light_cues: null } }), []);
+  assert.deepEqual(echoDirectionForkDroppedPatchFields(sent, { project_patch: { lyric_style: "cinematic" } }), ["living_light_cues", "score_dust_layer"]);
+  assert.deepEqual(echoDirectionForkDroppedPatchFields(sent, {}), ["living_light_cues", "lyric_style", "score_dust_layer"]);
+  assert.deepEqual(echoDirectionForkDroppedPatchFields({}, { project_patch: { lyric_style: "x" } }), []);
+
+  const renewed = renewEchoDirectionWorkingForkRequest(working, "2026-10-27T00:00:00.000Z");
+  assert.match(renewed.requestedChildId, /^airy-a-edit-[a-f0-9]{16}$/);
+  assert.notEqual(renewed.requestedChildId, working.requestedChildId);
+  assert.equal(renewEchoDirectionWorkingForkRequest(working, "2026-10-27T00:00:00.000Z").requestedChildId, renewed.requestedChildId);
+  assert.equal(renewed.project, working.project, "the edit itself is kept");
+  assert.equal(renewed.sourceVariantFingerprint, working.sourceVariantFingerprint);
+  assert.equal(buildEchoDirectionForkRequest(renewed, deriveEchoDirectionWorkingProject(renewed)).requestedId, renewed.requestedChildId);
+  assert.throws(() => renewEchoDirectionWorkingForkRequest({}), /Invalid working direction fork/);
 });
 
 test("working forks retain the canonical source fingerprint when the delivered cut is runtime-repaired", () => {

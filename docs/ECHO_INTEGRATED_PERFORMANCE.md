@@ -367,6 +367,12 @@ The proof used *11:23 Meant to Meet?*: the generator's Dust Chorus cut and a
     append-only.
   - **Guardrail:** after adding a cut field, restart the Builder API before
     saving through it. Check the saved file, not only the UI message.
+  - **Fixed the same day.** The fork save route now refuses any patch field
+    it does not keep (`409 fork_patch_field_unsupported`) and writes nothing.
+    When the Builder reopens a saved cut that lacks a field it sent (an older
+    server without that check), it keeps the edit open and unsaved, names the
+    missing fields, and renews the save request ID so a retry cannot collide
+    with the incomplete cut.
 
 ### Turn-to-Lore reflection (IP-6)
 
