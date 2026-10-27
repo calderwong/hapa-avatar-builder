@@ -2,6 +2,7 @@ import { validateEchoLivingLightCues, attachEchoLivingLightTrack } from "./echo-
 import { validateEchoScoreDustLayer, attachEchoScoreDustTrack } from "./echo-score-dust-layer.js";
 import { applyEchoMediaEvidenceProjection } from "./unified-media-catalog.js";
 import { projectToEditorGraph, reframeEchoShowGraphOutputProfile } from "./multitrack-editor.js";
+import { compileEchoCutModulationBindings } from "./echo-recipe-execution.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import { NARRATIVE_VARIANT_RECIPES } from "./echo-director-recipes.js";
 import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError } from "./echo-media-eligibility.js";
@@ -628,7 +629,7 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
     : !durationProjectionApplied && certifiedSelectedGraph
       ? clone(baseProject.director_show_graph)
       : projectToEditorGraph({ ...projected, director_show_graph: baseProject.director_show_graph });
-  const graph = attachEchoScoreDustTrack(attachEchoLivingLightTrack(reframeEchoShowGraphOutputProfile(sourceGraph, projected.output_profile), projected), projected);
+  const graph = compileEchoCutModulationBindings(attachEchoScoreDustTrack(attachEchoLivingLightTrack(reframeEchoShowGraphOutputProfile(sourceGraph, projected.output_profile), projected), projected), { project: projected });
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
     variantId: id,

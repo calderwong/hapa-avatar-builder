@@ -644,6 +644,52 @@ export function visualTimeFor(show, instance, timeSeconds, window) {
   };
 }
 
+/** A card's executable audio map: its portable card map with the cut's parameter
+ * overrides. Shared by the show compiler and the cut binding compiler. */
+export function normalizeEchoVisualizerCardAudioMap(portable = {}, parameterMappings = {}) {
+  const portableMap = portable.audioMap && typeof portable.audioMap === "object" && !Array.isArray(portable.audioMap)
+    ? portable.audioMap
+    : {};
+  const overrides = parameterMappings && typeof parameterMappings === "object" && !Array.isArray(parameterMappings)
+    ? parameterMappings
+    : {};
+  const inputByName = new Map((portable.inputs || []).map((input) => [inputName(input), input]).filter(([name]) => name));
+  const normalize = (value, fallback, input) => normalizeVisualizerAudioMapping(value, { fallback, input, generated: typeof value === "string", materializeDepth: true });
+  const names = [...new Set([...Object.keys(portableMap), ...Object.keys(overrides)])].sort();
+  return Object.fromEntries(names.flatMap((name) => {
+    const input = inputByName.get(name) || null;
+    const declared = normalize(portableMap[name], null, input);
+    const normalized = Object.hasOwn(overrides, name) ? normalize(overrides[name], declared, input) : declared;
+    return normalized ? [[name, normalized]] : [];
+  }));
+}
+
+/** Level (0..1) of a `section_energy` modulation source at a song time. Section
+ * maps leave gaps (often instrumental passages); a gap holds the level of the
+ * last section that started, and time before the first section takes its level. */
+export function echoSectionEnergyLevel(source = {}, atSeconds = 0) {
+  const sections = Array.isArray(source.sections) ? source.sections : [];
+  if (!sections.length) return null;
+  const time = finite(atSeconds);
+  const started = sections.filter((row) => finite(row.startSeconds) <= time);
+  return clamp((started.at(-1) || sections[0]).level);
+}
+
+/** Combined opacity scale of the prepared `visualizer_opacity` outputs for one layer, or null. */
+export function echoPreparedVisualizerOpacityScale(outputs = [], ids = []) {
+  const keys = new Set(ids.map(text).filter(Boolean));
+  const scales = outputs.filter((output) => output.target?.kind === "visualizer_opacity" && keys.has(text(output.target.visualizerId)))
+    .map((output) => Math.max(0, finite(output.value, 1)));
+  return scales.length ? round(scales.reduce((product, value) => product * value, 1), 6) : null;
+}
+
+/** A layer composition with its shader visibility scaled; the underlay is untouched. */
+export function scaleEchoCompositionOpacity(composition = {}, scale = null) {
+  if (scale === null || scale === undefined) return composition;
+  const opacity = round(clamp(finite(composition.opacity ?? composition.shaderVisibility, 1) * scale), 6);
+  return { ...composition, opacity, shaderVisibility: opacity, opacityScale: round(scale, 6) };
+}
+
 export const DIRECTOR_MODULATION_TIMELINE_SCHEMA = "hapa.director-modulation.timeline.v1";
 export function evaluatePreparedDirectorModulation(timeline, atSeconds, muted = []) {
   if (timeline.schemaVersion !== DIRECTOR_MODULATION_TIMELINE_SCHEMA || !Number.isFinite(atSeconds)) throw new Error("Invalid prepared modulation input");
@@ -1240,6 +1286,7 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { sol
           sourceFingerprint: show.automation.preparedModulation.sourceFingerprint });
       }
     }
+    const opacityScale = echoPreparedVisualizerOpacityScale(preparedModulation, [instance.id, instance.cueId]);
     const presentationModulation = resolvedPresentationModulation(instance, signals);
     const transition = transitionEnvelope(instance, time, window);
     const opacity = clamp(instance.opacity, 0, 1);
@@ -1249,11 +1296,11 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { sol
     // Exact ISF executes the shader's mapped inputs. Proxy-only animation must
     // not apply a second, unrelated opacity/filter envelope to that execution.
     const echoPresentation = instance.liveIsf && instance.echoComposition
-      ? echoVisualizerLayerPresentation({ composition: { ...instance.echoComposition, transitionAlpha: transition.alpha },
+      ? echoVisualizerLayerPresentation({ composition: { ...scaleEchoCompositionOpacity(instance.echoComposition, opacityScale), transitionAlpha: transition.alpha },
           signalFrame: show.stemFrames?.performance ? preparedPresentationSignal(signals.stem?.frame, signals.requestedStem) : signals.stem?.frame,
           recipeMix: visualizerMix }) : null;
     const effectiveOpacity = echoPresentation?.effectiveAlpha
-      ?? round(baseEffectiveOpacity * transition.alpha * (presentationModulation?.opacityMultiplier ?? 1));
+      ?? round(clamp(baseEffectiveOpacity * (opacityScale ?? 1)) * transition.alpha * (presentationModulation?.opacityMultiplier ?? 1));
     const bindingDiagnostics = [
       ...(signals.fallbackUsed ? ["requested-stem-absent-master-frame-used"] : []),
       ...(!signals.stem ? ["stem-and-master-frame-unavailable"] : []),
@@ -1278,6 +1325,7 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { sol
       sourceHash: contract.sourceHash,
       persistent: instance.alwaysOn === true,
       persistentSlotId: instance.persistentSlotId || null,
+      opacityScale,
       locked: instance.locked === true,
       trackId: text(instance.trackId),
       cueIndex: Number.isFinite(Number(instance.cueIndex)) ? Number(instance.cueIndex) : null,

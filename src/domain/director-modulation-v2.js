@@ -1,4 +1,4 @@
-import { DIRECTOR_MODULATION_TIMELINE_SCHEMA, evaluatePreparedDirectorModulation, normalizeHyperFramesStemRole } from "./hyperframes-visualizer-runtime.js";
+import { DIRECTOR_MODULATION_TIMELINE_SCHEMA, echoSectionEnergyLevel, evaluatePreparedDirectorModulation, normalizeHyperFramesStemRole } from "./hyperframes-visualizer-runtime.js";
 export { DIRECTOR_MODULATION_TIMELINE_SCHEMA, evaluatePreparedDirectorModulation } from "./hyperframes-visualizer-runtime.js";
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -11,7 +11,9 @@ function eased(value, name = "linear") {
   return x;
 }
 
-function sourceValue(source = {}, signals = {}, mutedStems = new Set()) {
+function sourceValue(source = {}, signals = {}, mutedStems = new Set(), atSeconds = 0) {
+  // Section energy is a property of the song timeline, not of any stem.
+  if (source.kind === "section_energy") return echoSectionEnergyLevel(source, atSeconds);
   if (source.kind === "stem_signal") {
     const stem = normalizeHyperFramesStemRole(source.stemFocus);
     if (mutedStems.has(stem)) return null;
@@ -53,7 +55,7 @@ export function createDirectorModulationRuntime(bindings = [], options = {}) {
       const outputs = [];
       for (const binding of bindings) {
         const envelope = binding.envelope || {};
-        const raw = sourceValue(binding.source, signals, activeMuted);
+        const raw = sourceValue(binding.source, signals, activeMuted, atSeconds);
         if (raw === null || !Number.isFinite(raw)) continue;
         const bindingHistory = history.get(binding.id) || [];
         bindingHistory.push({ atSeconds, value: raw });

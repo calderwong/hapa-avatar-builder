@@ -4,6 +4,7 @@ import {
   normalizeVisualizerAudioMapping,
   visualizerAudioMappingDepthMode,
   evaluatePreparedDirectorModulation,
+  echoPreparedVisualizerOpacityScale,
 } from "./hyperframes-visualizer-runtime.js";
 
 export const ECHO_ISF_FRAME_RECEIPT_SCHEMA = "hapa.echo.isf-frame-receipt.v1";
@@ -277,7 +278,9 @@ export function normalizeEchoIsfComposition(card = {}, timestampSeconds = 0, ove
   const isFilter = String(shader?.shaderType || "").toLowerCase() === "filter";
   const defaultOpacity = isFilter ? 1 : 0.42;
   const defaultBlend = isFilter ? "normal" : "screen";
-  const opacity = round(clamp(overrides.opacity ?? parameters.opacity ?? layer.opacity ?? defaultOpacity));
+  // A prepared opacity binding (always-on slots follow section energy) scales the authored opacity.
+  const opacityScale = Number.isFinite(Number(overrides.opacityScale)) ? Math.max(0, Number(overrides.opacityScale)) : null;
+  const opacity = round(clamp((overrides.opacity ?? parameters.opacity ?? layer.opacity ?? defaultOpacity) * (opacityScale ?? 1)));
   const mix = round(clamp(overrides.mix ?? parameters.mix ?? layer.mix ?? 1));
   const blend = String(overrides.blend || overrides.blendMode || parameters.blendMode || layer.blend || defaultBlend).toLowerCase();
   const layerOpacity = round(clamp(
@@ -320,6 +323,7 @@ export function normalizeEchoIsfComposition(card = {}, timestampSeconds = 0, ove
     shaderVisibility: plan.shaderVisibility,
     knockoutBlacks: plan.knockoutBlacks,
     effectiveAlpha: plan.effectiveAlpha,
+    ...(opacityScale === null ? {} : { opacityScale: round(opacityScale) }),
   };
 }
 
@@ -426,8 +430,9 @@ export function buildEchoIsfFrameIntent({
     });
   }
 
+  const preparedOutputs = preparedModulation ? evaluatePreparedDirectorModulation(preparedModulation, timestamp) : [];
   if (preparedModulation) {
-    for (const output of evaluatePreparedDirectorModulation(preparedModulation, timestamp)) {
+    for (const output of preparedOutputs) {
       if (output.target?.kind !== "visualizer_uniform" || ![card.id, card.cueId].includes(output.target.visualizerId)) continue;
       const input = byName.get(output.target.uniform);
       if (!input || !["float", "long", "bool"].includes(inputType(input))) continue;
@@ -455,7 +460,8 @@ export function buildEchoIsfFrameIntent({
   const mediaSatisfied = !filterRequiresMedia || (declaredImages.length > 0 && imageBindings.every((binding) => binding.ready));
   const errors = [...validation.errors];
   if (!mediaSatisfied) errors.push("filter-media-input-not-ready");
-  const composition = normalizeEchoIsfComposition(card, timestamp, compositionOverrides, shader);
+  const opacityScale = echoPreparedVisualizerOpacityScale(preparedOutputs, [card.id, card.cueId]);
+  const composition = normalizeEchoIsfComposition(card, timestamp, opacityScale === null ? compositionOverrides : { ...compositionOverrides, opacityScale }, shader);
 
   const cardReceipt = {
     id: String(card.id || ""),

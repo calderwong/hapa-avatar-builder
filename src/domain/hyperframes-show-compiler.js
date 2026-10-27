@@ -4,10 +4,10 @@ import { echoProjectLivingLightCues } from './echo-living-light-cues.js';
 import { assertEchoLivingLightExportSupported } from "./echo-living-light-cues.js";
 import { assertEchoScoreDustLayerExportable, ECHO_SCORE_DUST_COMPOSITE_SCHEMA } from "./echo-score-dust-layer.js";
 import { normalizeEchoIsfComposition } from "./echo-isf-frame-intent.js";
-import { echoVisualizerRecipeMix } from "./hyperframes-visualizer-runtime.js";
+import { echoVisualizerRecipeMix, normalizeEchoVisualizerCardAudioMap } from "./hyperframes-visualizer-runtime.js";
 import { hyperFramesMediaPresentationWindow, hyperFramesMediaOpacityState } from "./echo-media-presentation.js";
 export { hyperFramesMediaPresentationWindow, hyperFramesMediaOpacityState };
-import { upgradeEchoGeneratedVisualizerBindings } from "./echo-recipe-execution.js";
+import { compileEchoCutModulationBindings, upgradeEchoGeneratedVisualizerBindings } from "./echo-recipe-execution.js";
 import { echoLyricBoundary } from "./echo-lyric-time.js";
 import crypto from "node:crypto";
 import path from "node:path";
@@ -23,7 +23,6 @@ import {
   VISUALIZER_AUDIO_REACTIVE_SIGNALS,
   inspectVisualizerAudioMappingEffect,
   normalizeVisualizerAudioInputValue,
-  normalizeVisualizerAudioMapping,
 } from "./hyperframes-visualizer-runtime.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError, evaluateEchoMediaEligibility, evaluateEchoGeneratedMediaEligibility, mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
@@ -738,34 +737,6 @@ function visualizerInputName(input = {}) {
   return String(input.NAME || input.name || "");
 }
 
-function normalizeAudioMapping(value, fallback = null, input = null) {
-  return normalizeVisualizerAudioMapping(value, {
-    fallback,
-    input,
-    generated: typeof value === "string",
-    materializeDepth: true,
-  });
-}
-
-function normalizedVisualizerAudioMap(portable = {}, parameterMappings = {}) {
-  const portableMap = portable.audioMap && typeof portable.audioMap === "object" && !Array.isArray(portable.audioMap)
-    ? portable.audioMap
-    : {};
-  const overrides = parameterMappings && typeof parameterMappings === "object" && !Array.isArray(parameterMappings)
-    ? parameterMappings
-    : {};
-  const inputByName = new Map((portable.inputs || []).map((input) => [visualizerInputName(input), input]).filter(([name]) => name));
-  const names = [...new Set([...Object.keys(portableMap), ...Object.keys(overrides)])].sort();
-  return Object.fromEntries(names.flatMap((name) => {
-    const input = inputByName.get(name) || null;
-    const declared = normalizeAudioMapping(portableMap[name], null, input);
-    const normalized = Object.hasOwn(overrides, name)
-      ? normalizeAudioMapping(overrides[name], declared, input)
-      : declared;
-    return normalized ? [[name, normalized]] : [];
-  }));
-}
-
 function visualizerModulationEffectiveness(portable = {}, controls = {}, audioMap = {}) {
   const inputByName = new Map((portable.inputs || []).map((input) => [visualizerInputName(input), input]).filter(([name]) => name));
   const entries = Object.entries(audioMap).sort(([left], [right]) => left.localeCompare(right)).flatMap(([uniform, mapping]) => {
@@ -1000,7 +971,7 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
   } else assertEchoLivingLightExportSupported(projectBody, showGraph);
   // A Score Dust layer composites only from its bound transparent render.
   const scoreDustTrack = assertEchoScoreDustLayerExportable(projectBody, showGraph);
-  showGraph = upgradeEchoGeneratedVisualizerBindings(showGraph, { project: projectBody });
+  showGraph = upgradeEchoGeneratedVisualizerBindings(compileEchoCutModulationBindings(showGraph, { project: projectBody }), { project: projectBody });
   const eligibility = inspectEchoTimelineMediaEligibility(projectBody.timeline, projectBody.mediaConstraints);
   const rejectedMedia = eligibility.filter(item => !item.eligible);
   if (rejectedMedia.length) throw echoMediaConstraintError(rejectedMedia, { stage: "hyperframes-compile" });
@@ -1083,7 +1054,7 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
         const baseOpacity = Math.max(0, Math.min(1, finite(portable.layer?.opacity, 1)));
         const opacity = Math.max(0, Math.min(1, finite(card.parameters?.opacity, baseOpacity)));
         const controls = { ...(portable.controls || {}), ...(card.parameters?.visualizerControls || {}) };
-        const audioMap = normalizedVisualizerAudioMap(portable, card.parameters?.visualizerMappings);
+        const audioMap = normalizeEchoVisualizerCardAudioMap(portable, card.parameters?.visualizerMappings);
         const modulationEffectiveness = visualizerModulationEffectiveness(portable, controls, audioMap);
         const modulation = presentationModulation(audioMap);
         const declaredAudioSignals = audioSignals({ ...portable, audioMap });

@@ -1,6 +1,6 @@
 import { attachEchoLivingLightTrack } from "./echo-living-light-cues.js";
 import { attachEchoScoreDustTrack } from "./echo-score-dust-layer.js";
-import { upgradeEchoGeneratedVisualizerBindings } from "./echo-recipe-execution.js";
+import { compileEchoCutModulationBindings, upgradeEchoGeneratedVisualizerBindings } from "./echo-recipe-execution.js";
 import { normalizeHyperFramesStemRole, echoSectionCameraBudgetForWindow, ECHO_SECTION_VISUAL_BUDGET_SCHEMA } from "./hyperframes-visualizer-runtime.js";
 import { echoDirectorVisualizerCueId } from "./echo-director-recipes.js";
 import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError, ECHO_MEDIA_ELIGIBILITY_FIELDS } from "./echo-media-eligibility.js";
@@ -993,7 +993,8 @@ export function projectToEditorGraph(project = {}) {
     outputProfile,
     patchLineage: graph.directorV2?.patchLineage || { patches: [], dirtyRanges: [] },
   };
-  return upgradeEchoGeneratedVisualizerBindings(replayMultitrackPatches(applyEchoRecutExecutionToGraph(graph, project), project.director_show_graph_patches || []), { project });
+  // Telemetry compiles from the cut's own cards, so a saved cut never keeps bindings that name another cut's shaders.
+  return upgradeEchoGeneratedVisualizerBindings(compileEchoCutModulationBindings(replayMultitrackPatches(applyEchoRecutExecutionToGraph(graph, project), project.director_show_graph_patches || []), { project }), { project });
 }
 
 export function replayMultitrackPatches(graph, patches = []) {

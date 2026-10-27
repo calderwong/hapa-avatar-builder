@@ -60,7 +60,14 @@ test('replacing a shader cannot inherit a former template modulation target', ()
   assert.equal(card.cueId, 'visualizer:0:isf-replacement');
   const show = compileHyperFramesShow({ showGraph: graph, project, telemetry: { masterMix: { audioHash: performance.masterAudioHash } }, performance, proxyRegistry: { proxies: [proxy] } });
   const preview = buildEchoIsfFrameIntent({ shader: replacement, card, timestampSeconds: .5, signalFrames: echoPreparedPerformanceSignalFrames(performance, .5), preparedModulation: show.automation.preparedModulation });
-  assert.equal(preview.frameReceipt.input.modulationBindings.filter(b => b.status === 'prepared-absolute-modulation').length, 0);
+  // The former shader's envelope (a constant 0.6) is dropped; the replacement's
+  // own audio map compiles its binding instead (IP-9).
+  assert.equal(show.automation.modulationBindings.some(b => b.target.visualizerId === 'visualizer:0:isf-fixture-exact'), false);
+  const own = show.automation.modulationBindings.filter(b => b.target.visualizerId === 'visualizer:0:isf-replacement');
+  assert.deepEqual(own.map(b => [b.id, b.source.signal]), [['visualizer:0:isf-replacement:gain', 'rms']]);
+  assert.notEqual(own[0].envelope.baseValue, 0.6);
+  assert.equal(preview.frameReceipt.input.modulationBindings.filter(b => b.status === 'prepared-absolute-modulation').length, 1);
+  assert.ok(Math.abs(preview.values.gain - 0.6) > 1e-3, 'the former target envelope must not drive the replacement');
 });
 
 test('projection preserves a verified default-bus rebind until the operator changes the requested focus', () => {

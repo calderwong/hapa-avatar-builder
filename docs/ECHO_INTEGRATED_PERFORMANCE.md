@@ -46,7 +46,7 @@ Healthy: use [Song Health Topview](ECHO_SONG_HEALTH.md) for that judgement.
   - Nothing ties a transition to the Atlas event at the boundary.
   - Nothing coordinates transitions across layers.
 - **Telemetry:**
-  - All 1,392 saved show graphs have an empty `modulationBindings` list.
+  - All 1,392 editing graphs stored in saved cuts have an empty `modulationBindings` list. (Corrected 2026-10-27: the per-cut execution graphs that preview and export use do carry bindings, but those are inherited from the song's base compile and almost never name the cut's own shaders. See IP-9 and IP-7 below.)
   - The runtime executes only `visualizer_uniform` and `visual_time` targets. Camera and edit-permission bindings are emitted but not executed.
   - Recompiling the same songs with audio-mapped shaders produces 35–228 executable bindings per script, so the gap is in how cuts are saved, not in the compiler.
 - **Lyrics:** Director projects carry the written lyric lines. Score Dust and
@@ -70,9 +70,9 @@ Status: **done** means met by the generator in this pass, with tests.
 | IP-4 | Visual memory. A repeated motif keeps its media family and shader. A return match-cuts to the media first shown with it, and the shot before it gives way. | Test: return opens on the first-shown media; no two adjacent shots repeat. | done |
 | IP-5 | Only written lyrics. Words are placed only when timing is verified against this master. Lines flagged for review are labelled and never become dust words. | Tests for verified, unverified and flagged lines. | done |
 | IP-6 | Score Dust as a composited layer: a show-graph track bound to a score fingerprint, rendered over media and shaders in HyperFrames and native export, with preview parity. The existing whole-shot render placement stays for dust-led sections. | Compiled graph carries a `scoreDust` track; an export frame matches the preview within tolerance. | **done 2026-10-26** — `scoreDust` track, bound-render export through prepared capture, preview overlay with shared frame clock; results below. Native (`music-viz-native`) export reports a visible loss. |
-| IP-7 | Always-on breathes: per-section opacity/intensity keyframes, or a binding target for persistent-slot opacity. | A slot's opacity follows section energy in the rendered output. | **open** |
+| IP-7 | Always-on breathes: per-section opacity/intensity keyframes, or a binding target for persistent-slot opacity. | A slot's opacity follows section energy in the rendered output. | **done 2026-10-27**: a `visualizer_opacity` binding driven by song-relative section energy, executed in preview and export; results below |
 | IP-8 | Living Light answers the song: an intensity or rate response to telemetry, and final encoding. | A cue's surface intensity follows master intensity; export no longer reports `finalEncoding: unsupported`. | **open** |
-| IP-9 | Saved cuts carry executable telemetry. Bindings are compiled from shader audio maps when a cut is saved, and the runtime executes the camera and edit-permission targets it already emits. | New saved graphs have non-empty `modulationBindings`; runtime tests for camera and accent targets. | **open**; generated graphs carry bindings today |
+| IP-9 | Saved cuts carry executable telemetry. Bindings are compiled from shader audio maps when a cut is saved, and the runtime executes the camera and edit-permission targets it already emits. | New saved graphs have non-empty `modulationBindings`; runtime tests for camera and accent targets. | **bindings done 2026-10-27**: every cut graph compiles its shader bindings from its own cards (results below). Executing the camera and edit-permission targets is still **open** |
 | IP-10 | One shader-readiness answer shared by the catalog, the picker and the compile gate. | Catalog, picker and compile path report the same ready set. | **open** |
 | IP-11 | Integrated plans become saved cuts only through the append-only cut owner, with operator approval and `planId` lineage. | A saved integrated cut reopens identically and names its plan. | **open** (no cut was written in this pass) |
 | IP-12 | Integrated cuts report into Song Health Topview. Generator success never establishes Healthy. | Song Health lists the integrated cut's evidence and gaps. | **open** |
@@ -199,9 +199,9 @@ Command: `node scripts/compile-echo-integrated-performances.mjs --output=data/ec
    - ~~Let the Builder add or adjust a layer on an existing cut~~ (done).
    - Prove Living Light and Score Dust together in one prepared take.
    - Refresh the stale media contract found below.
-2. IP-9 and IP-7: compile bindings when cuts are saved, and give persistent
-   slots an executable opacity target. Those two make "always on" actually
-   follow the song.
+2. Done 2026-10-27: IP-9 bindings and IP-7 (below). Still open from IP-9:
+   execute the camera and edit-permission targets, and re-certify the album's
+   cut graphs so published execution graphs carry the compiled bindings.
 3. IP-11 and IP-13: review the generated treatments in the Director and save
    chosen ones through the cut owner, with lineage.
 4. IP-8, IP-10, IP-12 and IP-15: Living Light response and encoding, one
@@ -406,3 +406,136 @@ The proof used *11:23 Meant to Meet?*: the generator's Dust Chorus cut and a
   - Lesson Card: "seek fixed-rate renders mid-frame".
   - Decision Card: "Score Dust composites from one bound alpha render".
   - Flow-explainer: the five-layer stacking order.
+
+## IP-9 and IP-7 — cut telemetry and breathing always-on slots (2026-10-27)
+
+### What was actually wrong
+
+The 2026-10-26 review read the empty lists in saved cut files as the gap. Those
+are editing copies. Preview and export use each cut's execution graph, which is
+derived from the song's base Director V2 compile. That graph keeps the base
+compile's `modulationBindings`, and a shader binding only executes when its
+`visualizerId` names a card in the cut (`id` or `cueId`). Across the 1,586
+published cut execution graphs:
+
+- 83,919 shader bindings named no card in their cut, so they never executed.
+- Only 1,150 of 19,000 shader cards had a binding that applied.
+- No always-on slot had any opacity binding.
+
+Every shader still reacted to audio through its own card audio map. What was
+missing was the prepared, envelope-shaped telemetry (attack, release, beat
+quantize, safety bounds) that base cuts get.
+
+### What changed
+
+`compileEchoCutModulationBindings` (`src/domain/echo-recipe-execution.js`), run
+beside the existing generated-binding upgrade wherever a cut's graph is built:
+the editor graph (`projectToEditorGraph`), the cut derivation that readiness
+certification and cut detail use (`deriveEchoDirectionVariantProject`), and the
+export compile (`compileHyperFramesShow`).
+
+- **IP-9:** it keeps every binding that still names a card, every non-shader
+  binding and every operator lock, and drops inherited shader bindings that
+  name nothing. Each shader card left without bindings gets them from its own
+  audio map, read exactly as export reads it (portable card map plus the cut's
+  `visualizerMappings`; the normalizer is now shared:
+  `normalizeEchoVisualizerCardAudioMap`).
+- **IP-7:** each always-on slot card gets a `visualizer_opacity` binding. Its
+  source is `section_energy`: the song's section energies made relative
+  (quietest 0, loudest 1), carried in the binding itself, so preview and export
+  need no new signal plumbing. Sections come from the visual budget policy, the
+  cue graph (older compiles), or the song edit map (a cut not yet certified).
+  Section maps leave gaps (often instrumental passages); a gap holds the level
+  of the last section that started.
+  The scale runs from 0.5× to 1.3× the slot's authored opacity, with a 0.6 s
+  rise, a 1.2 s fall and at most 0.8×/s change. It scales the shader's
+  visibility only; the slot's underlay dimming is unchanged.
+- The modulation runtime evaluates `section_energy` at each instant; stem solo
+  leaves it alone. Preview applies the scale in the frame intent, export in the
+  HyperFrames runtime; both report `opacityScale`.
+- Locks are respected: a `shader-treatment` lock leaves the graph alone; a
+  locked card, binding or slot row (`shader`, `opacity` or `treatment`) keeps
+  what it had. A song whose sections have no energy contrast keeps fixed slot
+  opacity (`sectionEnergy: "unavailable"`).
+- The result is deterministic and idempotent, and the graph records a
+  `cutModulation` receipt.
+
+### Results
+
+Compiling all 1,586 published cut execution graphs:
+
+| | Before | After |
+|---|---|---|
+| Shader cards with bindings that apply | 1,150 of 19,000 | 12,506 of 19,000 |
+| Shader bindings naming no card | 83,919 | 0 |
+| Always-on slot cards that follow section energy | 0 of 1,823 | 1,817 of 1,823 (906 graphs) |
+
+The other 6,494 shader cards have no audio map in their card or cut, so export
+has nothing to bind them to; they keep their own clock. Three graphs have no
+section energy contrast.
+
+On the saved Score Dust cut of *11:23 Meant to Meet?*:
+
+- **Certification:** the Builder's own readiness run republished all 41
+  certifiable cut execution graphs of the song through the new compile. Every
+  shader binding names the cut's own cards (54 of 54), and each graph has both
+  slot opacity bindings and a `cutModulation` receipt. The base cut's graph is
+  published as the album compile itself and gets slot opacity when the editor
+  graph or export show is built. Six other cuts of the song stay blocked by a
+  `variant-parent-source-hash-mismatch` that the committed code reports too.
+- **Live preview** (prepared song timing), always-on slot 1, authored alpha
+  0.0864:
+
+  | Time | Section | Opacity scale | Painted alpha |
+  |---|---|---|---|
+  | 5 s | intro (quiet) | 0.52 | 0.045 |
+  | 30 s | energy 0.53 | 0.94 | 0.081 |
+  | 47 s | loudest | 1.27 | 0.110 |
+  | 55 s, 58.3 s | gap after the loudest section | 1.30 | 0.112 |
+  | 66 s | energy 0.54 | 0.97 | 0.084 |
+  | 150.5 s | outro (quiet) | 0.52 | 0.045 |
+
+  The first preview pass found the gap: 55 s fell between sections and played
+  at authored opacity. The gap rule above fixed it.
+
+Tests: `tests/echo-cut-modulation.test.mjs` (9), including an end-to-end export
+through `compileHyperFramesShow` and `evaluateHyperFramesVisualizers`.
+`tests/echo-modulation-target-projection.test.mjs` now states the new contract:
+a replaced shader never inherits the former shader's envelope, and gets its own
+binding compiled from its own audio map.
+
+### Not done
+
+- Published execution graphs change only when readiness re-certifies each cut.
+  Any change to these renderer files already requires that. So far one song's
+  cuts were re-certified.
+- Preview telemetry needs the song's prepared performance (**Prepare song
+  timing**); without it the preview runs no graph telemetry, as before.
+- A cut whose execution graph is still preparing previews without any graph
+  telemetry at all (no active show graph), as before.
+- Camera and edit-permission targets are emitted but still not executed.
+- No full render was made, and no one has looked at a breathing slot by eye.
+
+### Turn-to-Lore reflection (IP-9 and IP-7)
+
+- **Objective:** saved cuts execute telemetry for their own shaders, and
+  always-on slots follow the song's shape, in preview and export alike.
+- **Reused:** the recipe binding builder, the generated-binding upgrade
+  pattern and its lock rules, the prepared modulation timeline, the frame
+  intent and HyperFrames runtime opacity paths, the cue-graph sections and the
+  Builder's own readiness certification.
+- **New:** one compile step and one binding target (`visualizer_opacity` with
+  a `section_energy` source). No new signal sampler, store or worker.
+- **Misunderstood at first:** the empty lists in saved cut files were the
+  editing copy, not what plays. The real defect was inherited bindings naming
+  other cuts' shaders.
+- **Found by running it:** a card set limited to portable cards dropped valid
+  bindings (caught by the recut parity test); 1,440 older graphs keep sections
+  only in the cue graph; uncertified cuts preview from the song edit map; and
+  section maps have gaps that the first preview pass exposed.
+- **Guardrails:** a binding is only evidence when it names a card in the
+  graph that plays; measure the album, not one graph; verify preview with
+  prepared timing on.
+- **Candidates:** Lesson Card "inherited telemetry must name the cut's own
+  cards"; Decision Card "always-on opacity follows song-relative section
+  energy, 0.5×–1.3×".

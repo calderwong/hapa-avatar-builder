@@ -4197,6 +4197,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                 persistentShaderLayers: layerPresentations.map((layer) => ({
                   cardId: layer.card.id,
                   persistentSlotId: layer.card.persistentSlotId || null,
+                  opacityScale: layer.composition?.opacityScale ?? null,
+                  effectiveAlpha: layer.composition?.effectiveAlpha ?? null,
                   requestedShaderId: layer.requestedShaderId,
                   presentedShaderId: layer.presentedShaderId,
                   status: layer.namedStatus,

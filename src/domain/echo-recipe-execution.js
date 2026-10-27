@@ -1,4 +1,4 @@
-import { PREPARED_VISUALIZER_MAPPED_SIGNAL } from "./hyperframes-visualizer-runtime.js";
+import { PREPARED_VISUALIZER_MAPPED_SIGNAL, echoVisualizerRecipeMix, normalizeEchoVisualizerCardAudioMap } from "./hyperframes-visualizer-runtime.js";
 import {resolveNativeVisualizerRoute} from './native-visualizer-route.js';
 import {echoMediaEligibilityFields} from './echo-media-eligibility.js';
 import {directorStemRole} from './echo-stem-binding-repair.js';
@@ -118,6 +118,100 @@ export function upgradeEchoGeneratedVisualizerBindings(graph, { project = {} } =
     modulationValueSpaceUpgrade: { schemaVersion: "hapa.echo.modulation-value-space-upgrade.v1", sourceContract: "legacy-recipe-normalized-envelope", upgradedBindingIds: upgraded, storedSourceMutated: false } } } : graph;
 }
 
+
+export const ECHO_CUT_MODULATION_SCHEMA = "hapa.echo.cut-modulation.v1";
+/** Always-on slot opacity follows section energy between these multiples of its authored opacity. */
+export const ECHO_SLOT_OPACITY_RANGE = Object.freeze([0.5, 1.3]);
+
+/** Section energies relative to the song (quietest 0, loudest 1) as a modulation
+ * source, or null when the song has no contrast to follow. */
+export function echoSectionEnergySource(sections = []) {
+  const rows = (Array.isArray(sections) ? sections : [])
+    .map(section => ({ startSeconds: Number(section.startSeconds ?? section.start), endSeconds: Number(section.endSeconds ?? section.end), energy: Number(section.energy) }))
+    .filter(row => Number.isFinite(row.startSeconds) && row.endSeconds > row.startSeconds && Number.isFinite(row.energy))
+    .sort((left, right) => left.startSeconds - right.startSeconds);
+  if (rows.length < 2) return null;
+  const low = Math.min(...rows.map(row => row.energy)), high = Math.max(...rows.map(row => row.energy));
+  if (!(high - low > 1e-6)) return null;
+  return { kind: "section_energy", basis: "song-relative",
+    sections: rows.map(row => ({ startSeconds: round(row.startSeconds), endSeconds: round(row.endSeconds), level: round((row.energy - low) / (high - low)) })) };
+}
+
+function slotOpacityBinding(card, visualizerId, source) {
+  const [floor, ceiling] = ECHO_SLOT_OPACITY_RANGE;
+  return {
+    id: `slot-opacity:${card.persistentSlotId || visualizerId}`,
+    source,
+    target: { kind: "visualizer_opacity", visualizerId, property: "opacity", valueSpace: "opacity-scale" },
+    envelope: { depth: round(ceiling - floor), baseValue: floor, attackSeconds: 0.6, releaseSeconds: 1.2, smoothingSeconds: 0.25,
+      easing: "sine.inOut", clamp: [floor, ceiling], quantize: "frame", quantizeStep: 0, gate: { threshold: 0, floor: 0 },
+      delaySeconds: 0, polarity: "positive", safetyBounds: { min: floor, max: ceiling, maxDeltaPerSecond: 0.8 } },
+  };
+}
+
+/** Compile a cut's executable telemetry from its own cards (IP-9, IP-7).
+ * Saved cuts inherit their song's compiled bindings, which name that compile's
+ * shaders; a binding that names no card in this cut never executes. Bindings
+ * that still name a card, every non-shader binding and every operator lock are
+ * kept; inherited uniform bindings that name nothing are dropped; each shader
+ * card without bindings gets them from its own audio map; and each always-on
+ * slot gets an opacity binding that follows section energy. Deterministic and
+ * idempotent, so the editor, cut projection and export compile agree. */
+export function compileEchoCutModulationBindings(graph, { project = {} } = {}) {
+  const director = graph?.directorV2;
+  if (!director || !Array.isArray(graph.tracks)) return graph;
+  const locks = director.locks || [];
+  const locked = id => Boolean(id) && locks.some(lock => (lock.targetId || lock.target) === id);
+  if (locked("shader-treatment")) return graph;
+  // Every shader layer may be named by a binding; only a card with its own audio map can compile new ones.
+  const cards = graph.tracks.filter(track => track.role !== "accent")
+    .flatMap(track => (track.cards || []).filter(card => (track.role === "visualizer" || card.visualization) && card.disabled !== true));
+  const cardKey = card => String(card.cueId || card.id || "");
+  const keys = new Set(cards.flatMap(card => [card.id, card.cueId].filter(Boolean)));
+  const rowFor = card => card.persistentSlotId ? (project.persistent_shader_slots || []).find(row => row.id === card.persistentSlotId)
+    : (project.visualizer_timeline || [])[card.sourceCueIndex];
+  const frozen = (card, kind) => {
+    const row = rowFor(card);
+    return card.locked === true || locked(card.id) || locked(card.cueId) || row?.locked === true || locked(row?.id)
+      || (row?.locks || []).some(lock => [kind, "treatment"].includes(lock));
+  };
+  const keep = binding => {
+    const kind = binding.target?.kind;
+    if (binding.locked || locked(binding.id)) return true;
+    if (kind === "visualizer_uniform") return keys.has(binding.target.visualizerId);
+    return kind !== "visualizer_opacity";
+  };
+  const previous = director.modulationBindings || [];
+  const kept = previous.filter(keep);
+  const droppedNow = previous.filter(binding => !keep(binding) && binding.target?.kind === "visualizer_uniform").length;
+  const covered = kind => new Set(kept.filter(binding => binding.target?.kind === kind).map(binding => binding.target.visualizerId));
+  const coveredUniforms = covered("visualizer_uniform"), coveredOpacity = covered("visualizer_opacity");
+  const recipe = { visualizerMix: echoVisualizerRecipeMix(graph) };
+  const compiled = cards.filter(card => card.visualization?.card && !coveredUniforms.has(cardKey(card)) && !coveredUniforms.has(card.id) && !frozen(card, "shader")).flatMap(card => {
+    const portable = card.visualization.card;
+    const audioMap = normalizeEchoVisualizerCardAudioMap(portable, card.parameters?.visualizerMappings);
+    return buildEchoRecipeModulationBindings([{ id: cardKey(card), audioMap, stemFocus: portable.stemFocus || card.parameters?.stemFocus || "master" }], recipe)
+      .filter(binding => binding.target.kind === "visualizer_uniform");
+  });
+  // Older compiles keep the same cue-graph sections without a visual budget policy; a cut
+  // previewed before its graph is certified reads the song edit map they were derived from.
+  const energy = echoSectionEnergySource(director.visualBudgetPolicy?.sections || director.cueGraph?.sections || project.song_edit_map?.sections);
+  const slots = energy ? cards.filter(card => (card.persistentSlotId || card.alwaysOn === true) && !coveredOpacity.has(cardKey(card)) && !frozen(card, "opacity"))
+    .map(card => slotOpacityBinding(card, cardKey(card), energy)) : [];
+  const modulationBindings = [...kept, ...compiled, ...slots];
+  if (!previous.length && !modulationBindings.length) return graph;
+  const prior = director.cutModulation || {};
+  const bound = card => modulationBindings.some(binding => binding.target?.kind === "visualizer_uniform" && [card.id, card.cueId].includes(binding.target.visualizerId));
+  return { ...graph, directorV2: { ...director, modulationBindings, cutModulation: {
+    schemaVersion: ECHO_CUT_MODULATION_SCHEMA,
+    droppedInheritedBindings: (prior.droppedInheritedBindings || 0) + droppedNow,
+    shaderCards: cards.length,
+    cardsWithUniformBindings: cards.filter(bound).length,
+    cardsWithoutAudioMap: cards.filter(card => !bound(card) && !frozen(card, "shader")).length,
+    slotOpacityBindings: modulationBindings.filter(binding => binding.target?.kind === "visualizer_opacity").map(binding => binding.id),
+    sectionEnergy: energy ? energy.basis : "unavailable",
+  } } };
+}
 
 const strings=input=>Object.fromEntries(Object.entries(input).map(([key,value])=>[key,String(value??'')]));
 export function buildEchoRecipeAccentCards({cueGraph,recipe,resolveMediaAt}) {
