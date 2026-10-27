@@ -13,7 +13,8 @@
 // saves a cut, renders or mints. An intent the runtime cannot execute yet is
 // kept in the plan and marked executable: false, never presented as working.
 
-import { composeEchoVisualScore, validateEchoVisualScore, ECHO_MUSICAL_TIMELINE_SCHEMA } from "./echo-visual-score.js";
+import { composeEchoVisualScore, validateEchoVisualScore, normalizeDustPlaySettings, ECHO_MUSICAL_TIMELINE_SCHEMA } from "./echo-visual-score.js";
+import { planEchoScoreDustLayer } from "./echo-score-dust-layer.js";
 import { validateEchoLivingLightCues, ECHO_LIVING_LIGHT_CUE_SCHEMA } from "./echo-living-light-cues.js";
 import { ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA } from "./echo-persistent-shader-slots.js";
 
@@ -33,28 +34,28 @@ export const ECHO_INTEGRATED_TREATMENTS = Object.freeze({
     intent: "The song's media carries the story; shaders and dust underline it, Living Light opens up the climax and the way out.",
     barsPerShot: { calm: 4, middle: 4, high: 2 }, shaderOpacity: [0.14, 0.34], alwaysOnOpacity: 0.14,
     livingLightScenes: ["climax", "break", "release"], livingLightTransitions: ["lift", "build"],
-    dust: { show: "hooks", direction: { lyrics: { pick: "hooks", max: 4, font: "serif" }, maxDensity: 0.7 } },
+    dust: { show: "hooks", direction: { lyrics: { pick: "hooks", max: 4, font: "serif" }, maxDensity: 0.7 }, layer: { opacity: 0.85, blend: "over" } },
   }),
   "tunnel-journey": Object.freeze({
     id: "tunnel-journey", label: "Tunnel Journey", lead: "living-light", recipe: "visualizer-forward",
     intent: "Living Light leads: the song is a journey through tunnels and surfaces, with media as remembered windows along the way.",
     barsPerShot: { calm: 8, middle: 8, high: 4 }, shaderOpacity: [0.08, 0.22], alwaysOnOpacity: 0.12,
     livingLightScenes: ["arrival", "statement", "passage", "return", "climax", "break", "release"], livingLightTransitions: ["lift", "build", "fall", "break", "change", "return"],
-    dust: { show: "motes", direction: { lyrics: { pick: "off" }, maxDensity: 0.45, eventResponses: { lift: "gather", change: "none" } } },
+    dust: { show: "motes", direction: { lyrics: { pick: "off" }, maxDensity: 0.45, eventResponses: { lift: "gather", change: "none" } }, layer: { opacity: 0.75, blend: "screen" } },
   }),
   "dust-chorus": Object.freeze({
     id: "dust-chorus", label: "Dust Chorus", lead: "score-dust", recipe: "kinetic",
     intent: "Score Dust leads every return and the climax, writing the sung words; media tells the verses between them.",
     barsPerShot: { calm: 4, middle: 4, high: 4 }, shaderOpacity: [0.12, 0.3], alwaysOnOpacity: 0.16,
     livingLightScenes: ["climax"], livingLightTransitions: ["lift"],
-    dust: { show: "returns", direction: { lyrics: { pick: "hooks", max: 8, wordByWord: true, textCase: "upper" }, maxDensity: 0.95 } },
+    dust: { show: "returns", direction: { lyrics: { pick: "hooks", max: 8, wordByWord: true, textCase: "upper" }, maxDensity: 0.95 }, layer: { opacity: 1, blend: "over" } },
   }),
   "telemetry-pulse": Object.freeze({
     id: "telemetry-pulse", label: "Telemetry Pulse", lead: "shader", recipe: "kinetic",
     intent: "Audio-mapped shaders lead and every layer answers the measured song: cuts on downbeats, dust on events, Living Light only in transitions.",
     barsPerShot: { calm: 2, middle: 2, high: 1 }, shaderOpacity: [0.3, 0.62], alwaysOnOpacity: 0.2,
     livingLightScenes: [], livingLightTransitions: ["lift", "build", "change"],
-    dust: { show: "events", direction: { lyrics: { pick: "off" }, maxDensity: 0.85, eventResponses: { change: "kick", build: "gather" } } },
+    dust: { show: "events", direction: { lyrics: { pick: "off" }, maxDensity: 0.85, eventResponses: { change: "kick", build: "gather" } }, layer: { opacity: 0.9, blend: "over" } },
   }),
 });
 
@@ -338,7 +339,7 @@ function mergeWindows(windows) {
   return out.map((w) => ({ start: round(w.start, 4), end: round(w.end, 4) }));
 }
 
-function planScoreDust(timeline, sections, lyrics, lyricAudioHash, treatment) {
+function planScoreDust(timeline, sections, lyrics, lyricAudioHash, treatment, songId) {
   const direction = structuredClone(treatment.dust.direction);
   const score = composeEchoVisualScore(timeline, direction, { lyricLines: lyrics?.verified ? lyrics.lines : null, lyricAudioHash: lyrics?.verified ? lyricAudioHash : null });
   const validation = validateEchoVisualScore(score, { timeline });
@@ -347,13 +348,23 @@ function planScoreDust(timeline, sections, lyrics, lyricAudioHash, treatment) {
     : treatment.dust.show === "returns" ? [...sections.filter((s) => ["return", "climax"].includes(s.role)).map((s) => ({ start: s.start, end: s.end })), ...score.phrases.map((p) => ({ start: p.start, end: p.end }))]
     : treatment.dust.show === "events" ? score.events.filter((e) => e.response !== "none").map((e) => ({ start: Math.max(0, e.at - 0.25), end: Math.min(d, e.at + 1.5) }))
     : [...score.phrases.map((p) => ({ start: Math.max(0, p.start - 0.5), end: Math.min(d, p.end + 0.5) })), ...score.events.filter((e) => e.response === "shock").map((e) => ({ start: e.at, end: Math.min(d, e.at + 2) }))];
+  const visibleWindows = mergeWindows(windows), withLyrics = Boolean(lyrics?.verified);
+  // One composited layer spans the dust's visible extent; the score itself
+  // decides what is visible inside it. It is bound to this exact score and seed.
+  const layer = validation.ok && visibleWindows.length && timeline.source?.runId ? planEchoScoreDustLayer({
+    songId, atlasRunId: timeline.source.runId, direction, playSettings: null, lyricLines: withLyrics ? "project" : null,
+    scoreFingerprint: score.fingerprint, seed: normalizeDustPlaySettings(direction.playSettings || {}, timeline).seed,
+    startSeconds: visibleWindows[0].start, endSeconds: Math.min(d, visibleWindows.at(-1).end), ...treatment.dust.layer,
+  }) : null;
   return {
-    status: validation.ok ? "composed" : "invalid", compositeExportSupported: false, runtime: "score-dust-preview",
-    notice: "Score Dust reaches a Director cut only as a published browser render that replaces whole media shots (echo-score-dust-cut.js); it is not composited over the other layers in export. Elsewhere it is a preview layer.",
-    direction, fingerprint: score.fingerprint, timelineFingerprint: timeline.fingerprint,
+    status: validation.ok ? "composed" : "invalid", compositeExportSupported: Boolean(layer), runtime: layer ? "score-dust-layer" : "score-dust-preview",
+    notice: layer
+      ? "Score Dust composites as a Director layer (media → shaders → Living Light → Score Dust → lyrics) from one transparent render bound to this score. Render it once with “Render layer” in the Builder preview and save the cut; final export refuses the cut until then."
+      : "No composited Score Dust layer: the score is invalid, has no visible windows, or has no Atlas run.",
+    layer, direction, fingerprint: score.fingerprint, timelineFingerprint: timeline.fingerprint,
     phraseSource: score.phraseSource, phrases: score.phrases.map((p) => ({ text: p.text, start: p.start, end: p.end, lineIndex: p.source?.lineIndex ?? null })),
     motifs: score.motifs.map((m) => ({ repeatGroup: m.repeatGroup, family: m.family })), events: score.events.map((e) => ({ kind: e.kind, at: e.at, response: e.response })),
-    visibleWindows: mergeWindows(windows), validation: { ok: validation.ok, errors: validation.errors.length, warnings: validation.warnings.length },
+    visibleWindows, validation: { ok: validation.ok, errors: validation.errors.length, warnings: validation.warnings.length },
     score,
   };
 }
@@ -387,7 +398,7 @@ export function planEchoIntegratedPerformance({ song, timeline, lyrics = null, l
   const shaders = planShaders(sections, transitions, shaderPool, t, seed);
   const alwaysOn = planAlwaysOn(shaderPool, t, seed, durationSeconds);
   const livingLightLayer = planLivingLight(sections, transitions, livingLight, t, { ...song, durationSeconds });
-  const dust = planScoreDust(timeline, sections, lyrics, lyricAudioHash, t);
+  const dust = planScoreDust(timeline, sections, lyrics, lyricAudioHash, t, song.songId);
   const llAt = (s) => livingLightLayer.cues.filter((c) => c.window.startUs < s.end * 1e6 && c.window.endUs > s.start * 1e6);
   const dustShare = (s) => dust.visibleWindows.reduce((sum, w) => sum + Math.max(0, Math.min(w.end, s.end) - Math.max(w.start, s.start)), 0) / Math.max(1e-6, s.end - s.start);
   for (const section of sections) {
@@ -407,8 +418,8 @@ export function planEchoIntegratedPerformance({ song, timeline, lyrics = null, l
     };
     section.transitionIn = transitions.find((tr) => tr.toSection === section.id)?.id || null;
   }
-  // Where dust leads, an existing route works today: a published Score Dust
-  // render replaces exactly those media shots. It needs a browser render first.
+  // Alternative route where dust leads: a published opaque Score Dust render
+  // replaces exactly those media shots (echo-score-dust-cut.js).
   const dustShots = shots.filter((shot) => sections.find((s) => s.id === shot.sectionId)?.lead === "score-dust");
   dust.renderPlacement = { route: "score-dust-render-media", status: dustShots.length ? "needs-render" : "not-used",
     shots: dustShots.map((shot) => shot.id), windows: mergeWindows(dustShots.map((shot) => ({ start: shot.start, end: shot.end }))) };
@@ -480,8 +491,9 @@ export function projectEchoIntegratedPerformance(plan, baseProject = {}, mediaPo
     persistent_shader_slots_schema: ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
     persistent_shader_slots: structuredClone(plan.layers.alwaysOn),
     living_light_cues: structuredClone(plan.layers.livingLight.cues),
+    ...(plan.layers.scoreDust.layer ? { score_dust_layer: structuredClone(plan.layers.scoreDust.layer) } : {}),
     integrated_performance: { schemaVersion: plan.schemaVersion, planId: plan.planId, treatment: plan.treatment,
-      scoreDust: { fingerprint: plan.layers.scoreDust.fingerprint, compositeExportSupported: false, visibleWindows: plan.layers.scoreDust.visibleWindows, renderPlacement: plan.layers.scoreDust.renderPlacement } },
+      scoreDust: { fingerprint: plan.layers.scoreDust.fingerprint, compositeExportSupported: plan.layers.scoreDust.compositeExportSupported, layerStatus: plan.layers.scoreDust.layer ? "render-required" : "absent", visibleWindows: plan.layers.scoreDust.visibleWindows, renderPlacement: plan.layers.scoreDust.renderPlacement } },
   };
 }
 
@@ -516,9 +528,12 @@ export function renderEchoIntegratedPerformanceScript(plan, { compiled = null } 
   out.push("## Living Light cues", "");
   if (!L.livingLight.cues.length) out.push(`- ${L.livingLight.reason || "Not used in this treatment."}`);
   for (const cue of L.livingLight.cues) out.push(`- ${cue.role} ${clock(cue.window.startUs / 1e6)}–${clock(cue.window.endUs / 1e6)} — ${L.livingLight.reasons.find((r) => r.cueId === cue.cueId)?.why || ""}`);
-  out.push("", "## Score Dust", "", `- ${L.scoreDust.notice}`, L.scoreDust.renderPlacement.shots.length
-    ? `- Render placement: a Score Dust render covering ${L.scoreDust.renderPlacement.windows.map((w) => `${clock(w.start)}–${clock(w.end)}`).join(", ")} would replace ${L.scoreDust.renderPlacement.shots.length} dust-led shots (needs a browser render first).`
-    : "- Render placement: no dust-led shots in this treatment.", `- Score \`${L.scoreDust.fingerprint}\` · ${L.scoreDust.motifs.length} motifs · ${L.scoreDust.phrases.length} lyric phrases (${typeof L.scoreDust.phraseSource === "object" ? L.scoreDust.phraseSource.status : L.scoreDust.phraseSource}) · ${L.scoreDust.visibleWindows.length} visible windows`);
+  const dustLayer = L.scoreDust.layer;
+  out.push("", "## Score Dust", "", `- ${L.scoreDust.notice}`, dustLayer
+    ? `- Layer: ${clock(dustLayer.window.startUs / 1e6)}–${clock(dustLayer.window.endUs / 1e6)} · ${dustLayer.blend} at ${Math.round(dustLayer.opacity * 100)}% · seed ${dustLayer.binding.seed} · ${compiled?.scoreDustLayer ? `graph track ${compiled.scoreDustLayer}` : "render required"}${compiled?.scoreDustBinding ? ` · binding ${compiled.scoreDustBinding}` : ""}`
+    : "- Layer: none.", L.scoreDust.renderPlacement.shots.length
+    ? `- Alternative whole-shot route: an opaque render covering ${L.scoreDust.renderPlacement.windows.map((w) => `${clock(w.start)}–${clock(w.end)}`).join(", ")} could replace ${L.scoreDust.renderPlacement.shots.length} dust-led shots.`
+    : "- Alternative whole-shot route: no dust-led shots in this treatment.", `- Score \`${L.scoreDust.fingerprint}\` · ${L.scoreDust.motifs.length} motifs · ${L.scoreDust.phrases.length} lyric phrases (${typeof L.scoreDust.phraseSource === "object" ? L.scoreDust.phraseSource.status : L.scoreDust.phraseSource}) · ${L.scoreDust.visibleWindows.length} visible windows`);
   out.push("", "## Telemetry bindings", "");
   for (const m of plan.modulation) out.push(`- ${m.executable ? "✓" : m.executable === false ? "✗ not executable yet:" : "–"} ${m.title ? `${m.title} (${m.layer} uniforms)` : `${m.id} (${m.layer})`} ← ${m.source.join(", ") || "no mapped signals"} — ${m.via}`);
   out.push("");

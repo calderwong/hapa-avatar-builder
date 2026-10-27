@@ -15,7 +15,7 @@ Healthy: use [Song Health Topview](ECHO_SONG_HEALTH.md) for that judgement.
 | L1 Hapa Media | The song's cast media shots (video loops, stills, generated media) | cut `timeline` → Director V2 track A, media preflight |
 | L2 Echo shaders | Changing ISF shaders per section | cut `visualizer_timeline` → Director V2 visualizer cards, gated ISF manifest |
 | L3 Living Light | Native 3D tunnels and surfaces from a saved Journey | `living_light_cues` → `livingLight` track ([LIVING_LIGHT_INTEGRATION.md](LIVING_LIGHT_INTEGRATION.md)) |
-| L4 Score Dust | Particle visual score composed from the Atlas timeline and the verified lyrics | Atlas visual score ([ECHO_SCORE_DUST.md](ECHO_SCORE_DUST.md)); reaches a cut only as a published render that replaces whole shots |
+| L4 Score Dust | Particle visual score composed from the Atlas timeline and the verified lyrics | `score_dust_layer` → `scoreDust` track, executed from one bound transparent render (IP-6, [ECHO_SCORE_DUST.md](ECHO_SCORE_DUST.md)); the whole-shot render placement remains for dust-led shots |
 
 ## Review: what exists (measured 2026-10-26)
 
@@ -38,7 +38,7 @@ Healthy: use [Song Health Topview](ECHO_SONG_HEALTH.md) for that judgement.
   - It reaches a Director cut only one way: a browser export (WebM) is
     published as video media and replaces the media shots it fully covers
     (`echo-score-dust-cut.js`).
-  - It is never composited over the other layers in export.
+  - It is never composited over the other layers in export (true at review time; IP-6 below adds the composited layer).
   - No saved cut uses a Score Dust render yet.
   - It is the only layer that already writes the sung words as performance.
 - **Transitions:**
@@ -69,7 +69,7 @@ Status: **done** means met by the generator in this pass, with tests.
 | IP-3 | One transition grammar keyed to the Atlas event at each boundary (lift, build, fall, break, change, return, plain boundary). It covers media, shader, always-on, Living Light and dust together. | Every boundary records kind, snap, the grammar for all layers, and why. | done in plan; dust/always-on reactions **open** at render (IP-6, IP-7) |
 | IP-4 | Visual memory. A repeated motif keeps its media family and shader. A return match-cuts to the media first shown with it, and the shot before it gives way. | Test: return opens on the first-shown media; no two adjacent shots repeat. | done |
 | IP-5 | Only written lyrics. Words are placed only when timing is verified against this master. Lines flagged for review are labelled and never become dust words. | Tests for verified, unverified and flagged lines. | done |
-| IP-6 | Score Dust as a composited layer: a show-graph track bound to a score fingerprint, rendered over media and shaders in HyperFrames and native export, with preview parity. The existing whole-shot render placement stays for dust-led sections. | Compiled graph carries a `scoreDust` track; an export frame matches the preview within tolerance. | **open** (largest gap); dust-led sections can use the existing render placement today |
+| IP-6 | Score Dust as a composited layer: a show-graph track bound to a score fingerprint, rendered over media and shaders in HyperFrames and native export, with preview parity. The existing whole-shot render placement stays for dust-led sections. | Compiled graph carries a `scoreDust` track; an export frame matches the preview within tolerance. | **done 2026-10-26** — `scoreDust` track, bound-render export through prepared capture, preview overlay with shared frame clock; results below. Native (`music-viz-native`) export reports a visible loss. |
 | IP-7 | Always-on breathes: per-section opacity/intensity keyframes, or a binding target for persistent-slot opacity. | A slot's opacity follows section energy in the rendered output. | **open** |
 | IP-8 | Living Light answers the song: an intensity or rate response to telemetry, and final encoding. | A cue's surface intensity follows master intensity; export no longer reports `finalEncoding: unsupported`. | **open** |
 | IP-9 | Saved cuts carry executable telemetry. Bindings are compiled from shader audio maps when a cut is saved, and the runtime executes the camera and edit-permission targets it already emits. | New saved graphs have non-empty `modulationBindings`; runtime tests for camera and accent targets. | **open**; generated graphs carry bindings today |
@@ -137,10 +137,12 @@ attaches the Living Light track. It generates the HyperFrames script and writes:
 - An intent the runtime cannot execute is listed as **not executable yet**:
   always-on opacity by energy, Living Light rate, and dust density outside
   the preview. A shader without an audio map is shown as moving on its own clock.
-- Score Dust is always `compositeExportSupported: false` until IP-6 lands.
-  Where dust leads, `renderPlacement` lists the exact shots that a published
-  Score Dust render would replace. That route works today, after a browser
-  render.
+- Every dust plan carries a `score_dust_layer` with `render: null`. Its
+  binding matches the score the Builder's **Render layer** composes, and each
+  script records this as `scoreDustBinding`. The compiled track is
+  `render-required`, and final export refuses the cut until a render is bound.
+  `renderPlacement` still lists the dust-led shots the whole-shot route could
+  replace.
 - The written lyric text is kept exactly, spacing included.
 
 ## Results — 2026-10-26 album pass
@@ -192,10 +194,11 @@ Command: `node scripts/compile-echo-integrated-performances.mjs --output=data/ec
 
 ## Next actions, in order
 
-1. IP-6: make Score Dust a composited Director layer. Of the five layers, it
-   is the only one that cannot sit over the others in export. Until then,
-   render and place dust for the Dust Chorus dust-led shots through the
-   existing render-media route.
+1. Done 2026-10-26: IP-6, Score Dust as a composited Director layer. Its
+   follow-ups:
+   - Let the Builder add or adjust a layer on an existing cut.
+   - Prove Living Light and Score Dust together in one prepared take.
+   - Refresh the stale media contract found below.
 2. IP-9 and IP-7: compile bindings when cuts are saved, and give persistent
    slots an executable opacity target. Those two make "always on" actually
    follow the song.
@@ -241,5 +244,123 @@ Command: `node scripts/compile-echo-integrated-performances.mjs --output=data/ec
   - Never present a declared intent as executed.
 - **Candidates:**
   - Lesson Card: "project file bodies are wrapped".
-  - Decision Card: "until IP-6, Score Dust enters a cut only as whole-shot render media".
+  - Decision Card: "until IP-6, Score Dust enters a cut only as whole-shot render media" (superseded by IP-6 below).
   - Flow-explainer: the transition grammar table.
+
+## IP-6 — Score Dust as a composited Director layer (2026-10-26)
+
+How it works is described in [ECHO_SCORE_DUST.md](ECHO_SCORE_DUST.md)
+(*Score Dust as a composited Director layer*). The code is in
+`src/domain/echo-score-dust-layer.js`. In short:
+
+1. A cut declares `score_dust_layer`, bound to an exact score: run,
+   direction, lyric source, fingerprint and seed.
+2. Director V2 turns it into a `scoreDust` show-graph track.
+3. One transparent render is bound to the track.
+4. Final export paints that render over media, shaders and Living Light,
+   under lyrics, through the prepared capture route.
+5. The preview overlay paints the same render frame with the same functions.
+
+### Evidence (real song, real render)
+
+The proof used *11:23 Meant to Meet?*: the generator's Dust Chorus cut and a
+12 s layer (3.465–15.465 s) on the same binding (`fnv1a:43672718`, seed
+2219433332).
+
+- **Render and bind (UI):** the real `EchoScoreDustLayerOverlay` was mounted
+  and **Render layer** clicked.
+  - The layer's score was recomposed, and the fingerprint matched.
+  - The window was rendered as 360 transparent VP9 frames at 1920×1080
+    (`alpha_mode=1`), saved to Recordings and published.
+  - The render was bound in the working copy with its sha256, which matched
+    the published bytes.
+- **Bind (CLI):** `bind-layer` with the same recording and receipt produced
+  the identical render record.
+- **Preview parity:** the overlay canvas and the export page's paint path were
+  compared on 44 frames, 40 inside the window, including both window edges.
+  The difference was 0 on every channel.
+- **Export:**
+  - The cut was compiled from its real Director V2 graph (media and three
+    shader cues in the window) into a bounded 16 s HyperFrames package. Every
+    gate passed: lint, inspect, media, visualizer and shader fidelity, with
+    prepared capture required.
+  - The prepared Electron capture encoded all 480 frames. Every frame receipt
+    was checked, and all 360 in-window frames report `painted` for source
+    frames 0–359.
+  - A control take used the same package with layer opacity 0.
+  - Export frame vs. control composited "over" with the decoded alpha frame:
+    mean error 3.5–4.6 on dust pixels, against 11–56 if no dust had been
+    painted. Over the whole frame the error is 1.4–1.8, the H.264 noise floor.
+    Out-of-window frames in the same GOP differ from the control by 1.3–1.5,
+    and frame 60 by 0.0.
+- **Album pass with layers** (`data/echo-integrated-performances/2026-10-26-ip6`):
+  - 209 songs, 836 scripts, none skipped.
+  - 824 carry a `render-required` layer. Each binding was checked against
+    `atlas.visualScore` with the layer's own direction and lyric source, and
+    all 824 report `matches-builder-score`.
+  - The other 12 are the Story Arc scripts with no dust windows, the same 12
+    as before.
+  - All 836 still have their cast preserved, media preflight OK, a Living
+    Light track and 0 shader repairs.
+
+### Found while proving it
+
+- **Seek landing:** Chromium landed one seek 2 µs short (4.168334 →
+  4.168332 s). The shared media runtime's 1 µs landing check then waited until
+  its timeout. The layer now chooses its source frame by index and seeks to the
+  middle of that frame, in both preview and export.
+- **Lint:** the HyperFrames linter treats any static `<video>` as a clip or as
+  the root composition. The export page now creates the alpha video at
+  runtime.
+- **Page setup order:** the page setup must read `window.HAPA_EXECUTABLE_SHOW`
+  because it runs before the page's `S` is declared. A test guards this.
+- **Stale media contract:** the media
+  `folder-video-0e470451f48076ac` is a symlink in `data/media` to a source
+  file outside the repository. That file now hashes `bd4613…` against the
+  declared `0e4704…`. The prepared route refuses
+  it, so any Living Light or Score Dust export of a cut that uses it fails
+  until the contract is refreshed. The proof recast that one shot with the
+  first shot's verified clip.
+
+### Not proven
+
+- Living Light and Score Dust together in one prepared take. Both use the
+  same route, and the receipt checks combine, but there is no pixel proof yet.
+- A full-length Song Card render with a layer.
+- The Builder cannot yet add or edit a layer on an existing cut. Only the
+  generator and the CLI write layers.
+- The dust in this direction is subtle over busy footage: the brightest alpha
+  is 107/255. That is a creative tuning question, not a compositing one.
+
+### Turn-to-Lore reflection (IP-6)
+
+- **Objective:** Score Dust joins the picture instead of replacing it, with
+  the same frames in preview and export.
+- **Reused:**
+  - The deterministic transparent export and the Recordings and publish-render
+    routes.
+  - The Living Light track pattern (attach, validator, export refusal).
+  - The prepared Electron capture owner, frame receipts and pixel proof.
+  - The Atlas visual-score query.
+  - The cut save path.
+- **New:** one import-free layer module, shared by the Builder, the compilers
+  and the export page, plus one preview overlay. A live Score Dust simulation
+  in the export page was rejected: it would need the audio decode, motif
+  images and fonts packaged under the page's `connect-src 'none'` policy.
+- **What worked:**
+  - Proving on real data. The page-order bug, the lint conflict and the seek
+    landing never showed in unit tests.
+  - Comparing against a control with zero opacity isolated the compositing
+    math from codec noise.
+- **Misunderstood at first:**
+  - The layer's lyric source matters. Atlas adds verified lyrics only when
+    asked (`lyricLines=project`), so the layer records it.
+  - Seconds-based seeks are not exact on millisecond WebM timestamps.
+- **Guardrails:**
+  - Bind to the score the Builder will actually compose.
+  - Seek fixed-rate renders by frame index.
+  - Never drop a declared layer from export.
+- **Candidates:**
+  - Lesson Card: "seek fixed-rate renders mid-frame".
+  - Decision Card: "Score Dust composites from one bound alpha render".
+  - Flow-explainer: the five-layer stacking order.

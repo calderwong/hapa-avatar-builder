@@ -43,7 +43,7 @@ import {
 } from "./stem-registry-lineage-preflight.mjs";
 import { ensureHyperFramesLoopCoverage } from "./hyperframes-loop-coverage.mjs";
 
-import {prepareSongCardLivingLight,preparedSongCardCompilerReady,preparedSongCardPixelProof} from './song-card-living-light.mjs';
+import {prepareSongCardLivingLight,preparedSongCardCompilerReady,preparedSongCardPixelProof,preparedScoreDustPixelProof} from './song-card-living-light.mjs';
 import {runPreparedRender} from './prepared-render-owner.mjs';
 const execFile = promisify(execFileCallback);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -3223,6 +3223,8 @@ async function defaultPipeline({
     );
   }
   const executableShow = await readJson(path.join(packageDirectory, "executable-show.json"));
+  // Living Light and Score Dust layers both render through the prepared capture route.
+  const preparedRoute = Boolean(livingLight || executableShow.scoreDust);
   if (!preparedSongCardCompilerReady(compilerReport, executableShow, livingLight?.snapshot)) {
     throw createSongCardCompilerError(compilerReport, { reportPath: compilerReportPath });
   }
@@ -3248,7 +3250,7 @@ async function defaultPipeline({
   report("loop-coverage", 32, livingLight ? "Preparing exact source-frame seeking for the saved Journey and media." : "Filling packaged loop handles so every selected video covers its complete render window.");
   // Prepared capture seeks/loops each source itself and verifies original bytes.
   // Upstream-only loop expansion rewrites those bytes and is ineligible here.
-  const loopCoverage = livingLight ? {ok:true, route:'prepared-source-frame-seeking'} : await ensureHyperFramesLoopCoverage({
+  const loopCoverage = preparedRoute ? {ok:true, route:'prepared-source-frame-seeking'} : await ensureHyperFramesLoopCoverage({
     projectDirectory: packageDirectory,
     fps: outputProfile.fps,
     signal,
@@ -3272,7 +3274,7 @@ async function defaultPipeline({
   const pixelReportPath = path.join(qaDirectory, "pixel-capture-report.json");
   await fsp.rm(pixelReportPath, { force: true });
   let pixelReport;
-  if (requestedVisualizerCueCount === 0 && !lyricPixelVerificationRequired && !livingLight) {
+  if (requestedVisualizerCueCount === 0 && !lyricPixelVerificationRequired && !preparedRoute) {
     report("pixel-qa", 34, "No shader cues were requested; pixel verification is not applicable.");
     pixelReport = {
       schemaVersion: "hapa.hyperframes.pixel-capture.v2",
@@ -3335,11 +3337,12 @@ async function defaultPipeline({
   }
   const rendererTruth = inspectSongCardExecutedRendererTruth(showGraph, compilerReport, pixelReport);
   if (livingLight) rendererTruth.livingLight = preparedSongCardPixelProof(executableShow, pixelReport);
+  if (executableShow.scoreDust) rendererTruth.scoreDust = preparedScoreDustPixelProof(executableShow, pixelReport);
 
   const renderedMasterPath = path.join(renderDirectory, "master.mp4");
   report("render", 40, "Rendering the final MP4 locally. This is the long step.");
   try {
-    if (livingLight) {
+    if (preparedRoute) {
       const takeDirectory = path.join(renderDirectory, 'prepared-' + crypto.randomUUID());
       let log = '', pending = '';
       try {
@@ -3351,8 +3354,8 @@ async function defaultPipeline({
               report('render',45+Math.floor(progress.frames/progress.total*40),`Rendering frame ${progress.frames} of ${progress.total}.`,{completed:progress.frames,total:progress.total});
           }
         }});
-        if(capture.result.showHash!==executableShow.showHash||capture.result.snapshotDigest!==livingLight.snapshot.snapshotDigest)throw Error('Prepared capture belongs to another cut');
-        rendererTruth.livingLight.capture={...capture, resultPath:path.join(takeDirectory,'render-result.json')};
+        if(capture.result.showHash!==executableShow.showHash||livingLight&&capture.result.snapshotDigest!==livingLight.snapshot.snapshotDigest)throw Error('Prepared capture belongs to another cut');
+        for(const owner of [rendererTruth.livingLight,rendererTruth.scoreDust])if(owner)owner.capture={...capture, resultPath:path.join(takeDirectory,'render-result.json')};
         await fsp.copyFile(path.join(takeDirectory,'cut.mp4'),renderedMasterPath);
       } finally { await fsp.writeFile(path.join(qaDirectory,'prepared-render.log'),log,{mode:0o600}); }
     } else await runHyperFramesRender([

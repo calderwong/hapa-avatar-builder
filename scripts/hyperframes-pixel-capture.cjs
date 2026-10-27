@@ -231,7 +231,7 @@ app.setPath("userData", path.join("/tmp", `hapa-hyperframes-pixel-capture-${proc
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 
-const videoDecodePolicy=configurePreparedVideoDecode(app,{prepared:fs.existsSync(manifestPath)&&JSON.parse(fs.readFileSync(manifestPath,'utf8')).livingLight?.requiresPreparedFrames===true});
+const videoDecodePolicy=configurePreparedVideoDecode(app,{prepared:fs.existsSync(manifestPath)&&(manifest=>manifest.livingLight?.requiresPreparedFrames===true||manifest.scoreDust?.requiresPreparedFrames===true)(JSON.parse(fs.readFileSync(manifestPath,'utf8')))});
 console.log(`[lyric-capture] boot pid=${process.pid}`);
 app.whenReady().then(async () => {
   const { echoLyricTemplateFrameState } = await import("../src/domain/echo-lyric-template-runtime.js");
@@ -328,7 +328,7 @@ app.whenReady().then(async () => {
       const captureState = await win.webContents.executeJavaScript(`(async () => {
         const timeline = window.__timelines.main;
         if (typeof timeline.pause === "function") timeline.pause();
-        const preparedFrame = window.HAPA_EXECUTABLE_SHOW.livingLight
+        const preparedFrame = window.HAPA_EXECUTABLE_SHOW.livingLight || window.HAPA_EXECUTABLE_SHOW.scoreDust
           ? await window.HAPA_RENDER_FRAME_AT(${JSON.stringify(Math.round(timestamp * manifest.fps))}) : null;
         if (!preparedFrame) {
           if (typeof window.HAPA_PREPARE_MEDIA_AT === "function") await window.HAPA_PREPARE_MEDIA_AT(${JSON.stringify(timestamp)});
@@ -400,7 +400,7 @@ app.whenReady().then(async () => {
           })(),
         };
       })()`, true);
-      if(manifest.livingLight) checkFrameReceipt(captureState?.preparedFrame,Math.round(timestamp*manifest.fps),manifest);
+      if(manifest.livingLight || manifest.scoreDust) checkFrameReceipt(captureState?.preparedFrame,Math.round(timestamp*manifest.fps),manifest);
       const renderState = captureState?.renderState || null;
       const image = await win.capturePage();
       const png = image.toPNG();

@@ -42,12 +42,25 @@ export async function prepareSongCardLivingLight({project,owner,root,cacheRoot,r
  }finally{await fs.rm(temporary,{recursive:true,force:true});}
 }
 export function preparedSongCardCompilerReady(report,show,snapshot){
- if(!snapshot)return report?.ok===true&&report?.validation?.showcaseReady===true;
- validateLivingLightRenderSnapshot(snapshot);
- return report?.ok===true&&report?.showHash===show?.showHash&&show?.livingLight?.snapshotDigest===snapshot.snapshotDigest
-  &&show.livingLight.captureRoute==='hapa-prepared-electron-v1'&&show.livingLight.requiresPreparedFrames===true
+ const scoreDustPrepared=!show?.scoreDust||show.scoreDust.captureRoute==='hapa-prepared-electron-v1'&&show.scoreDust.requiresPreparedFrames===true&&/^sha256:[0-9a-f]{64}$/.test(show.scoreDust.compiledSha256||'')&&show.scoreDust.compiledSha256===show.scoreDust.source?.sha256;
+ if(!snapshot&&!show?.scoreDust)return report?.ok===true&&report?.validation?.showcaseReady===true;
+ if(snapshot)validateLivingLightRenderSnapshot(snapshot);
+ return report?.ok===true&&report?.showHash===show?.showHash&&scoreDustPrepared
+  &&(!snapshot||show?.livingLight?.snapshotDigest===snapshot.snapshotDigest&&show.livingLight.captureRoute==='hapa-prepared-electron-v1'&&show.livingLight.requiresPreparedFrames===true)
   &&report.validation?.preparedCapture==='requires-hapa-prepared-electron-v1'
   &&['lint','inspect','cueCoverage','mediaPreflight','mediaOffline','visualizerPreflight','visualizerOffline','shaderFidelity'].every(k=>report.validation[k]==='pass');
+}
+/** Every Score Dust layer window inside the take has visible, painted dust pixels. */
+export function preparedScoreDustPixelProof(show,report){
+ if(!show?.scoreDust)return null;
+ const frames=report?.frames||[],window=show.scoreDust.layer.window;let painted=0;
+ if(report?.showHash!==show.showHash||!frames.length)fail('The Score Dust layer has no matching prepared pixel proof.');
+ for(const frame of frames){
+  const index=Math.round(frame.timestamp*show.fps);encoding.checkFrameReceipt(frame.preparedFrame,index,show);
+  if(frame.preparedFrame.scoreDust.active){if(!frame.metrics?.nonBlank)fail('A Score Dust layer frame has no visible pixel proof.');painted++;}
+ }
+ if(window.startUs<show.duration*1e6&&!painted)fail('The Score Dust layer was omitted from prepared pixel verification.');
+ return {ok:true,captureRoute:show.scoreDust.captureRoute,renderSha256:show.scoreDust.compiledSha256,recordingId:show.scoreDust.layer.render.recordingId,paintedSamples:painted,sampleCount:frames.length};
 }
 export function preparedSongCardPixelProof(show,report){
  if(!show?.livingLight)return null;

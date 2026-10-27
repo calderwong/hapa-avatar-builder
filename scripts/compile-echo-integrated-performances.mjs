@@ -117,6 +117,16 @@ for (const file of projectFiles) {
     Object.assign(entry, { atlasRunId: run.run.id, lyricTiming: lyrics.status, cuts: cuts.length, mediaPool: media.pool.length, mediaDropped: media.dropped.length, livingLightJourney: livingLight?.journeyRef?.journeyId || null, livingLightMapping: livingLight ? (livingLight.durationUs >= Math.floor(durationSeconds * 1000) * 1000 ? "song-clocked" : "entered-late") : null });
     for (const treatment of treatments) {
       const plan = planEchoIntegratedPerformance({ song: { songId, title: entry.title, durationSeconds }, timeline, lyrics, lyricAudioHash: verdict.lyricAudioHash, mediaPool: media.pool, shaderPool, livingLight, treatment, seed });
+      // The layer must name the score the Builder will render: the same Atlas
+      // visual-score composition the preview's "Render layer" requests.
+      let scoreDustBinding = null;
+      const dustLayer = plan.layers.scoreDust.layer;
+      if (dustLayer) {
+        const builderScore = atlas.visualScore(run.run.id, { direction: dustLayer.source.direction, ...(dustLayer.source.lyricLines ? { lyricLines: dustLayer.source.lyricLines } : {}) });
+        const binding = { scoreFingerprint: builderScore.score.fingerprint, seed: builderScore.playSettings.seed };
+        scoreDustBinding = binding.scoreFingerprint === dustLayer.binding.scoreFingerprint && binding.seed === dustLayer.binding.seed ? "matches-builder-score" : "rebound-to-builder-score";
+        if (scoreDustBinding !== "matches-builder-score") plan.layers.scoreDust.layer = { ...dustLayer, binding };
+      }
       // The plan casts only ready shaders; the shared repair still runs so a
       // quarantined cue can never reach the compiler.
       const { project, shaderRepair } = repairEchoProjectShaders(projectEchoIntegratedPerformance(plan, baseProject, media.pool), manifest);
@@ -126,7 +136,7 @@ for (const file of projectFiles) {
       const showGraph = attachEchoLivingLightTrack(artifacts.showGraph, project);
       const hyperframe = generateEchoHyperframeScript({ ...project, director_show_graph: showGraph });
       const compiled = { tracks: showGraph.tracks.length, modulationBindings: (showGraph.directorV2?.modulationBindings || []).filter((b) => b.target?.kind === "visualizer_uniform").length,
-        livingLight: Boolean(showGraph.livingLight), shaderRepairs: shaderRepair.replacementCount, mediaPreflight: preflight.ok ? "ok" : `${preflight.failures.length} unresolved`,
+        livingLight: Boolean(showGraph.livingLight), scoreDustLayer: showGraph.scoreDust?.status || null, scoreDustBinding, shaderRepairs: shaderRepair.replacementCount, mediaPreflight: preflight.ok ? "ok" : `${preflight.failures.length} unresolved`,
         // The compiled picture track must be the plan's cast, shot for shot.
         castPreserved: JSON.stringify((showGraph.tracks.find((t) => t.id === "track-a")?.cards || []).map((c) => c.media?.id)) === JSON.stringify(plan.layers.media.map((s) => s.mediaId)) };
       const dir = path.join(output, songId, treatment);

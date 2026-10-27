@@ -605,6 +605,59 @@ keep layering above it with their own blend modes: that is how Score Dust
 mixes with shaders. Verified in the real Echos view: a "Current shot" export
 was placed on its 30–45 s shot, and the timeline names it "Score Dust render".
 
+**Score Dust as a composited Director layer** (IP-6,
+`src/domain/echo-score-dust-layer.js`). A cut can also carry one
+`score_dust_layer`. It is a song window bound to an exact score: the Atlas run,
+the direction, whether verified written lyrics were used (`lyricLines:
+"project"`), the score fingerprint and the seed. That direction, sent to
+`visual-score`, recomposes the same fingerprint. The layer runs from one
+**transparent (alpha) render** of that score. The stacking order is the same
+everywhere:
+
+media → shaders → Living Light → **Score Dust** → lyrics.
+
+- **Show graph:** Director V2, the editor graph and saved-cut projections
+  attach a `scoreDust` track (`hapa.echo.score-dust-track.v1`) with status
+  `render-required` or `bound`. It is part of the cut's variant identity. The
+  compiled-graph validator reports `score_dust_track_mismatch`. The capability
+  matrix declares `scoreDust` exact for `hyperframes` and the Builder, and a
+  visible loss elsewhere.
+- **Binding:** `bindEchoScoreDustLayerRender` accepts only a transparent,
+  loop-free render whose receipt has the bound fingerprint and seed and covers
+  the window. Anything else is refused by code (`score_dust_render_*`).
+- **Export:** `compileHyperFramesShow` refuses an unbound layer
+  (`score_dust_render_required`) and a graph whose track differs from the cut
+  (`score_dust_graph_mismatch`). It never drops a layer silently.
+  - The compiler packages the render byte-exact.
+  - The export page creates the alpha video at runtime, outside the
+    composition. It seeks with `seekEchoScoreDustLayerVideo` and paints with
+    `paintEchoScoreDustLayer` after shaders and Living Light, before lyrics.
+  - Frames are chosen by index and sought at the middle of the source frame.
+    WebM timestamps are whole milliseconds, and Chromium can land a seek a few
+    microseconds short (seen at 4.168334 → 4.168332 s). A boundary-exact seek
+    with the shared media runtime's 1 µs check therefore timed out.
+  - Upstream capture swaps videos for opaque stills, so a layer requires the
+    prepared Electron route, as Living Light does. Frame receipts and pixel
+    proof check that every in-window frame was painted.
+  - The Song Card renderer takes the prepared route when the show has a layer.
+- **Preview:** `EchoScoreDustLayerOverlay` sits over the Director preview
+  canvas and Living Light and under the lyrics. It follows the song clock with
+  the same `echoScoreDustLayerFrame` (same source frame, same seek target) and
+  paints with the same function. When paused, it shows exactly the export
+  frame; while playing, it stays within two frames of the song clock. An unbound layer
+  shows its status and a **Render layer** button, which:
+  1. requests the layer's own score and refuses if its fingerprint changed;
+  2. renders the window transparent at the cut's size with `exportScoreDustVideo`;
+  3. saves the render to Recordings and publishes it;
+  4. binds the render in the working copy (save the cut to keep it).
+- **CLI:**
+  - `node cli/score-dust.mjs layer-status PROJECT.json`
+  - `node cli/score-dust.mjs bind-layer RECORDING_ID --project=PROJECT.json --receipt=RECEIPT.json`
+    publishes the render, binds it, and backs up the project file first.
+- **Not available:** the Builder cannot yet add a layer to an existing cut;
+  `compile-echo-integrated-performances.mjs` writes layers into generated
+  projects. The whole-shot render placement above remains for dust-led shots.
+
 ### P2 batch 4
 
 **Dense GPU tier** (P2 item 16; Look and timing → **Detail → Dense (GPU)**,

@@ -1,4 +1,5 @@
 import { echoProjectLivingLightCues } from "../src/domain/echo-living-light-cues.js";
+import { echoProjectScoreDustLayer } from "../src/domain/echo-score-dust-layer.js";
 import { attachEchoOutputProfile } from "../src/domain/echo-output-profile.js";
 
 export const ECHO_PROJECT_DELIVERY_ONLY_FIELDS = Object.freeze([
@@ -16,6 +17,7 @@ export const ECHO_PROJECT_DELIVERY_ONLY_FIELDS = Object.freeze([
 
 export function prepareEchoProjectForPersistence(project = {}) {
   echoProjectLivingLightCues(project);
+  echoProjectScoreDustLayer(project);
   const persisted = attachEchoOutputProfile(project);
   for (const field of ECHO_PROJECT_DELIVERY_ONLY_FIELDS) delete persisted[field];
   if (Array.isArray(persisted.direction_script_variants)) {

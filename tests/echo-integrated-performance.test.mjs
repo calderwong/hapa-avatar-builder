@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildEchoMusicalTimelineFromAtlas } from "../src/domain/echo-visual-score.js";
 import { validateEchoLivingLightCues } from "../src/domain/echo-living-light-cues.js";
 import { normalizeEchoPersistentShaderSlots } from "../src/domain/echo-persistent-shader-slots.js";
+import { validateEchoScoreDustLayer, compileEchoScoreDustTrack } from "../src/domain/echo-score-dust-layer.js";
 import {
   ECHO_INTEGRATED_TREATMENTS, echoIntegratedMediaPool, echoIntegratedShaderPool, planEchoIntegratedPerformance,
   projectEchoIntegratedPerformance, renderEchoIntegratedPerformanceScript,
@@ -123,9 +124,18 @@ test("only written lyrics with verified timing reach the script and the dust", (
   assert.match(renderEchoIntegratedPerformanceScript(unverified), /Lyrics: not placed \(no master hash\)/);
 });
 
-test("intents the runtime cannot execute are labelled, and Score Dust is never claimed as a composited export", () => {
+test("intents the runtime cannot execute are labelled, and Score Dust composites only through a bound layer", () => {
   const p = plan("telemetry-pulse");
-  assert.equal(p.layers.scoreDust.compositeExportSupported, false);
+  const layer = p.layers.scoreDust.layer;
+  assert.equal(p.layers.scoreDust.compositeExportSupported, true);
+  assert.equal(validateEchoScoreDustLayer(layer, { songId: song.songId, durationUs: Math.round(song.durationSeconds * 1e6) }), layer);
+  assert.equal(layer.render, null, "a plan never claims a render it has not made");
+  assert.equal(layer.binding.scoreFingerprint, p.layers.scoreDust.fingerprint);
+  assert.equal(layer.source.atlasRunId, timeline.source.runId);
+  assert.equal(layer.source.lyricLines, "project", "the score used verified written lyric timing");
+  assert.equal(layer.window.startUs, Math.ceil(p.layers.scoreDust.visibleWindows[0].start * 1e3) * 1e3);
+  assert.equal(plan("tunnel-journey").layers.scoreDust.layer.blend, "screen");
+  assert.equal(plan("dust-chorus").layers.scoreDust.layer.opacity, 1);
   assert.equal(p.layers.scoreDust.renderPlacement.status, "not-used", "telemetry never lets dust lead");
   const chorus = plan("dust-chorus").layers.scoreDust.renderPlacement;
   assert.equal(chorus.status, "needs-render");
@@ -148,7 +158,10 @@ test("the projection is a saved-cut-shaped project the compiler and slots accept
   assert.equal(project.timeline[0].section_type, "verse", "the base project's section labels are reused");
   assert.equal(normalizeEchoPersistentShaderSlots(project).filter((s) => s.enabled).length, 2);
   validateEchoLivingLightCues(project.living_light_cues, { songId: song.songId });
-  assert.equal(project.integrated_performance.scoreDust.compositeExportSupported, false);
+  assert.equal(project.integrated_performance.scoreDust.compositeExportSupported, true);
+  assert.equal(project.integrated_performance.scoreDust.layerStatus, "render-required");
+  assert.deepEqual(project.score_dust_layer, p.layers.scoreDust.layer);
+  assert.equal(compileEchoScoreDustTrack(project).status, "render-required");
   assert.throws(() => projectEchoIntegratedPerformance(p, base, mediaPool.slice(0, 1)), /not in the pool/);
   const wrapped = projectEchoIntegratedPerformance(p, { music_video_project: base }, mediaPool);
   assert.equal(wrapped.music_video_project, undefined, "a wrapped Director project file projects its body");

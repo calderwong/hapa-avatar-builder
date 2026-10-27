@@ -1,4 +1,5 @@
 import { attachEchoLivingLightTrack } from "./echo-living-light-cues.js";
+import { attachEchoScoreDustTrack } from "./echo-score-dust-layer.js";
 import { upgradeEchoGeneratedVisualizerBindings } from "./echo-recipe-execution.js";
 import { normalizeHyperFramesStemRole, echoSectionCameraBudgetForWindow, ECHO_SECTION_VISUAL_BUDGET_SCHEMA } from "./hyperframes-visualizer-runtime.js";
 import { echoDirectorVisualizerCueId } from "./echo-director-recipes.js";
@@ -986,6 +987,7 @@ export function projectToEditorGraph(project = {}) {
   mergeVisualizerTimeline(graph, project.visualizer_timeline || project.visualizerTimeline);
   mergePersistentShaderSlots(graph, project);
   attachEchoLivingLightTrack(graph, project);
+  attachEchoScoreDustTrack(graph, project);
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
     outputProfile,

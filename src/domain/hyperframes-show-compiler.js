@@ -2,6 +2,7 @@ import { resolveEchoReferenceMediaUriSync } from "../../server/echo-reference-me
 import { validateLivingLightRenderSnapshot } from './echo-living-light-render-snapshot.js';
 import { echoProjectLivingLightCues } from './echo-living-light-cues.js';
 import { assertEchoLivingLightExportSupported } from "./echo-living-light-cues.js";
+import { assertEchoScoreDustLayerExportable, ECHO_SCORE_DUST_COMPOSITE_SCHEMA } from "./echo-score-dust-layer.js";
 import { normalizeEchoIsfComposition } from "./echo-isf-frame-intent.js";
 import { echoVisualizerRecipeMix } from "./hyperframes-visualizer-runtime.js";
 import { hyperFramesMediaPresentationWindow, hyperFramesMediaOpacityState } from "./echo-media-presentation.js";
@@ -997,6 +998,8 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
       durationUs: Math.round(showGraph.song?.durationSeconds * 1e6) });
     if (hash(showGraph.livingLight?.cues) !== hash(cues)) throw new Error('Living Light graph cues differ from the exact cut. Recompile the Show Graph.');
   } else assertEchoLivingLightExportSupported(projectBody, showGraph);
+  // A Score Dust layer composites only from its bound transparent render.
+  const scoreDustTrack = assertEchoScoreDustLayerExportable(projectBody, showGraph);
   showGraph = upgradeEchoGeneratedVisualizerBindings(showGraph, { project: projectBody });
   const eligibility = inspectEchoTimelineMediaEligibility(projectBody.timeline, projectBody.mediaConstraints);
   const rejectedMedia = eligibility.filter(item => !item.eligible);
@@ -1230,6 +1233,16 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
       snapshotDigest: livingLightSnapshot.snapshotDigest,
       songId: livingLightSnapshot.songId, durationUs: livingLightSnapshot.durationUs,
       cues: structuredClone(livingLightSnapshot.cues),
+      captureRoute: 'hapa-prepared-electron-v1', requiresPreparedFrames: true,
+    } } : {}),
+    ...(scoreDustTrack ? { scoreDust: {
+      schemaVersion: ECHO_SCORE_DUST_COMPOSITE_SCHEMA,
+      layer: structuredClone(scoreDustTrack.layer),
+      order: [...scoreDustTrack.order],
+      source: { uri: scoreDustTrack.layer.render.uri, sha256: scoreDustTrack.layer.render.sha256 },
+      compiledUri: null, compiledSha256: null,
+      // Upstream capture swaps videos for extracted (opaque) stills; the alpha
+      // render must be decoded by the browser, so only the prepared route runs it.
       captureRoute: 'hapa-prepared-electron-v1', requiresPreparedFrames: true,
     } } : {}),
     deterministicPolicy: { runtimeDecisionCalls: false, runtimeAudioAnalysis: false, randomCalls: false, wallClockCalls: false, networkCalls: false, creativeInputsPinned: true },

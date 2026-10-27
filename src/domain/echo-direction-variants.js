@@ -1,4 +1,5 @@
 import { validateEchoLivingLightCues, attachEchoLivingLightTrack } from "./echo-living-light-cues.js";
+import { validateEchoScoreDustLayer, attachEchoScoreDustTrack } from "./echo-score-dust-layer.js";
 import { applyEchoMediaEvidenceProjection } from "./unified-media-catalog.js";
 import { projectToEditorGraph, reframeEchoShowGraphOutputProfile } from "./multitrack-editor.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
@@ -74,6 +75,7 @@ const VARIANT_PROJECT_PATCH_FIELDS = Object.freeze([
   "human_taste_memory",
   "persistent_shader_slots_schema",
   "persistent_shader_slots",
+  "score_dust_layer",
 ]);
 
 function object(value) {
@@ -480,6 +482,7 @@ export function pickEchoDirectionVariantProjectPatch(project = {}) {
     .filter((key) => project[key] !== undefined)
     .map((key) => [key, clone(project[key])]));
   if (patch.living_light_cues !== undefined) validateEchoLivingLightCues(patch.living_light_cues);
+  if (patch.score_dust_layer !== undefined) validateEchoScoreDustLayer(patch.score_dust_layer);
   if (patch.output_profile !== undefined) patch.output_profile = resolveEchoOutputProfile(patch.output_profile);
   return patch;
 }
@@ -611,7 +614,7 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
     : !durationProjectionApplied && certifiedSelectedGraph
       ? clone(baseProject.director_show_graph)
       : projectToEditorGraph({ ...projected, director_show_graph: baseProject.director_show_graph });
-  const graph = attachEchoLivingLightTrack(reframeEchoShowGraphOutputProfile(sourceGraph, projected.output_profile), projected);
+  const graph = attachEchoScoreDustTrack(attachEchoLivingLightTrack(reframeEchoShowGraphOutputProfile(sourceGraph, projected.output_profile), projected), projected);
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
     variantId: id,

@@ -28,6 +28,7 @@ import { createEchoProxySourcePrefetch } from "../domain/echo-proxy-frame-decode
 import { createEchoPreviewProxySchedule, applyEchoPreviewProjection, echoPreviewHistoryMediaCue, ECHO_PREVIEW_QUALITY_PRESETS, normalizeEchoPreviewQuality, echoPreviewShaderSize, echoPreviewShaderLayers } from "../domain/echo-preview-projection.js";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 const EchoLivingLightPreview = lazy(() => import("./EchoLivingLightPreview.jsx"));
+const EchoScoreDustLayerOverlay = lazy(() => import("./EchoScoreDustLayerOverlay.jsx"));
 const LivingLightWorkspace = lazy(() => import("./LivingLightWorkspace.jsx"));
 import { createPortal } from "react-dom";
 import { createEchoPanelLoader } from "../domain/echo-panel-loader.js";
@@ -7811,6 +7812,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                     currentTime={currentTime} active={activeWorkbenchTab==='preview'&&powerMode!=='hidden'}
                                     audioReceipt={audioPlaybackReceipt} preparedPerformance={activePreparedPerformance}
                                     mediaSources={livingLightMediaSources} captureRef={livingLightRecordingRef}/></Suspense>}
+
+                                  {/* Score Dust layer: over media, shaders and Living Light, under the lyrics — the export's order. */}
+                                  {activeProject.score_dust_layer&&<Suspense fallback={null}><EchoScoreDustLayerOverlay project={activeProject} audioRef={audioRef} clockRef={currentTimeRef}
+                                    active={activeWorkbenchTab==='preview'&&powerMode!=='hidden'} clean={cleanPreviewMode} apiBase={API_BASE} resolveUri={resolveMediaUri}
+                                    outputProfile={activeOutputProfile} editingDisabled={directorEditingLocked||!activeDirectionVariant}
+                                    onLayerChange={layer=>handleUpdateProjectSettings({score_dust_layer:layer})}/></Suspense>}
 
                                   {/* Neon HUD Overlay */}
                                   {/* Telemetry badges on the picture; hidden in Clean Preview mode. */}

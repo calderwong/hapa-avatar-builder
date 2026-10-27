@@ -1,4 +1,5 @@
 import { compileEchoLivingLightTrack } from "./echo-living-light-cues.js";
+import { compileEchoScoreDustTrack } from "./echo-score-dust-layer.js";
 import {projectToEditorGraph} from './multitrack-editor.js';
 import {echoRecipeOperatorLocks,hasEchoRecipeTreatmentLocks,preserveEchoCompiledRecipeLocks} from './echo-recipe-recut-treatment.js';
 import {buildEchoRecipeModulationBindings,buildEchoRecipeEventTracks,buildEchoRecipeAccentCards,echoRecipeBaseOpacity,echoRecipeOpacity,echoRecipeLyrics} from './echo-recipe-execution.js';
@@ -834,6 +835,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
   const visualizers = visualizerRows.flatMap((row) => row.visualizer ? [row.visualizer] : []);
   const visualizerReceipts = visualizerRows.map((row) => row.receipt);
   const livingLight = compileEchoLivingLightTrack({ ...project, duration });
+  const scoreDust = compileEchoScoreDustTrack({ ...project, duration });
   const base = {
     schemaVersion: TREATMENT_SCHEMA,
     compilerVersion: DIRECTOR_V2_COMPILER_VERSION,
@@ -849,6 +851,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
     visualizers,
     visualizerReceipts,
     ...(livingLight ? { livingLight } : {}),
+    ...(scoreDust ? { scoreDust } : {}),
     persistentShaderSlots,
     inputHashes: {
       song: contentHash({ songId: project.song_id, registryTrackId: project.registry_track_id || project.audio_id, duration: project.duration }),
@@ -864,6 +867,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
       }),
       mediaAffordances: contentHash(mediaSlots),
       ...(livingLight ? { livingLight: contentHash(livingLight) } : {}),
+      ...(scoreDust ? { scoreDust: contentHash(scoreDust) } : {}),
       visualizerCatalog: contentHash(visualizers),
       persistentShaderSlots: contentHash(persistentShaderSlots),
       canon: contentHash(project.canon_affordance_graph || null),
@@ -1296,6 +1300,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
   });
   const graphBase = {
     ...(treatment.livingLight ? { livingLight: structuredClone(treatment.livingLight) } : {}),
+    ...(treatment.scoreDust ? { scoreDust: structuredClone(treatment.scoreDust) } : {}),
     schemaVersion: NATIVE_SHOW_GRAPH_SCHEMA,
     ok: true,
     createdAt: String(source.provenance?.generatedAt || "source-time-unavailable"),

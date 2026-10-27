@@ -41,12 +41,16 @@ app.whenReady().then(async()=>{
   await fsp.mkdir(output);ownsOutput=true;await fsp.writeFile(path.join(output,'capture-started.json'),JSON.stringify({captureId:process.env.HAPA_PREPARED_CAPTURE_ID,pid:process.pid}),{flag:'wx'}); // Refuse overwriting an earlier take or failed evidence.
   deadline=setTimeout(()=>void finish(1,Error('Prepared render exceeded 30 minutes')),1800e3);
   const show=JSON.parse(await fsp.readFile(path.join(root,'executable-show.json'),'utf8')),plan=encodingPlan(show,root,output);
-  const {verifyLivingLightPackageMedia}=await import('./lib/hyperframes-living-light-package.mjs');
-  const snapshot=JSON.parse(await fsp.readFile(path.join(root,'assets/data/living-light.json'),'utf8'));
-  if(snapshot.snapshotDigest!==show.livingLight.snapshotDigest)throw Error('Compiled Living Light snapshot changed');
-  await verifyLivingLightPackageMedia(snapshot,root);
-  checkPreparedSoundtrack(snapshot,plan.audio);
-  const assets=[plan.audio,...show.instances.media.filter(m=>m.source?.compiledUri).map(m=>({uri:m.source.compiledUri,sha256:m.source.compiledSha256}))];
+  let snapshot=null;
+  if(show.livingLight){
+    const {verifyLivingLightPackageMedia}=await import('./lib/hyperframes-living-light-package.mjs');
+    snapshot=JSON.parse(await fsp.readFile(path.join(root,'assets/data/living-light.json'),'utf8'));
+    if(snapshot.snapshotDigest!==show.livingLight.snapshotDigest)throw Error('Compiled Living Light snapshot changed');
+    await verifyLivingLightPackageMedia(snapshot,root);
+    checkPreparedSoundtrack(snapshot,plan.audio);
+  }
+  const assets=[plan.audio,...show.instances.media.filter(m=>m.source?.compiledUri).map(m=>({uri:m.source.compiledUri,sha256:m.source.compiledSha256})),
+    ...(show.scoreDust?[{uri:show.scoreDust.compiledUri,sha256:show.scoreDust.compiledSha256}]:[])];
   for(const asset of assets){const file=await fsp.realpath(path.join(root,asset.uri));if(!file.startsWith(root+path.sep)||await hashFile(file)!==asset.sha256)throw Error('Compiled media bytes changed');}
   server=http.createServer(async(req,res)=>{
     try{const uri=decodeURIComponent(new URL(req.url,'http://127.0.0.1').pathname),file=await fsp.realpath(path.join(root,uri==='/'?'index.html':uri.slice(1)));
@@ -90,6 +94,6 @@ app.whenReady().then(async()=>{
   encoder.stdin.end();await bounded(encoderExit,120000,'Encoder completion');if(exitResult.code!==0)throw Error('Encoder failed: '+stderr);
   if(browserErrors.length)throw Error('Browser errors during prepared render: '+browserErrors.slice(0,3).join('; '));
   const cleanup=await win.webContents.executeJavaScript('window.HAPA_DISPOSE_RENDER()');
-  const result={ok:true,stage:'encoded-awaiting-media-and-creative-acceptance',videoDecodePolicy,showHash:show.showHash,snapshotDigest:snapshot.snapshotDigest,frames,fps:plan.fps,width:plan.width,height:plan.height,duration:plan.duration,masterAudio:plan.audio,sha256:await hashFile(path.join(output,'cut.mp4')),cleanup};
+  const result={ok:true,stage:'encoded-awaiting-media-and-creative-acceptance',videoDecodePolicy,showHash:show.showHash,snapshotDigest:snapshot?.snapshotDigest||null,frames,fps:plan.fps,width:plan.width,height:plan.height,duration:plan.duration,masterAudio:plan.audio,sha256:await hashFile(path.join(output,'cut.mp4')),cleanup};
   await fsp.writeFile(path.join(output,'render-result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));await finish(0);
 }).catch(error=>void finish(1,error));

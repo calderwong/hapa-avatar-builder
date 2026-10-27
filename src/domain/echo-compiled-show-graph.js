@@ -1,4 +1,5 @@
 import { compileEchoLivingLightTrack } from "./echo-living-light-cues.js";
+import { compileEchoScoreDustTrack } from "./echo-score-dust-layer.js";
 import { contentHash } from "./echo-director-v2.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 
@@ -92,6 +93,12 @@ export function validateEchoCompiledShowGraph({ project = {}, sourceProject = un
     if (contentHash(graph.livingLight ?? null) !== contentHash(expectedLivingLight)) reasons.push("living_light_cues_mismatch");
   } catch {
     reasons.push("living_light_cues_invalid");
+  }
+  try {
+    const expectedScoreDust = compileEchoScoreDustTrack(validationProject);
+    if (contentHash(graph.scoreDust ?? null) !== contentHash(expectedScoreDust)) reasons.push("score_dust_track_mismatch");
+  } catch {
+    reasons.push("score_dust_layer_invalid");
   }
   if (hasExplicitSourceProject && text(lineageProject.song_id) !== text(validationProject.song_id)) {
     reasons.push("source_project_song_identity_mismatch");
