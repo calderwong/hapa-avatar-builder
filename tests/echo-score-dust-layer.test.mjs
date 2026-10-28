@@ -251,11 +251,11 @@ test('rebinding points the layer at the current score and releases the old rende
 test('the editor binds with the exact score request the render step makes', async () => {
   const { buildEchoMusicalTimelineFromAtlas, composeEchoVisualScore, normalizeDustPlaySettings } = await import('../src/domain/echo-visual-score.js');
   const { atlasFixture } = await import('./echo-score-dust-fixture.mjs');
-  const { currentEchoScoreDustSongScore, loadEchoScoreDustLayerScore, echoScoreDustLayerScoreRoute } = await import('../src/components/echo-score-dust-layer-client.js');
+  const { currentEchoScoreDustSongScore, loadEchoScoreDustLayerScore, echoScoreDustLayerScoreRequest } = await import('../src/components/echo-score-dust-layer-client.js');
   const timeline = buildEchoMusicalTimelineFromAtlas(atlasFixture()), direction = { maxDensity: 0.6, colour: { preset: 'album', album: { hue: 200 } } };
-  const score = composeEchoVisualScore(timeline, direction), routes = [];
-  const client = { request: async (route) => {
-    routes.push(route);
+  const score = composeEchoVisualScore(timeline, direction), routes = [], bodies = [];
+  const client = { request: async (route, options = {}) => {
+    routes.push(route); bodies.push(options.body ? JSON.parse(options.body) : null);
     if (route.startsWith('/visual-score-run')) return { run: { id: 'run:1' }, basis: 'beats-and-sections' };
     return { score, timeline, direction, direction_source: 'saved:r3', validation: { ok: true }, playSettings: {}, lyric_timing: { status: 'verified' } };
   } };
@@ -264,8 +264,13 @@ test('the editor binds with the exact score request the render step makes', asyn
   assert.equal(current.scoreFingerprint, score.fingerprint);
   assert.equal(current.seed, normalizeDustPlaySettings({}, timeline).seed);
   assert.deepEqual([current.directionSource, current.lyricTiming], ['saved:r3', 'verified']);
-  assert.deepEqual(routes, ['/visual-score-run?songId=song-fixture', '/jobs/run%3A1/query?op=visual-score&lyricLines=project', echoScoreDustLayerScoreRoute(current.source)]);
-  assert.match(routes[2], /direction=.*&lyricLines=project$/);
+  assert.deepEqual(routes, ['/visual-score-run?songId=song-fixture', '/jobs/run%3A1/query?op=visual-score&lyricLines=project', echoScoreDustLayerScoreRequest(current.source).route]);
+  assert.equal(routes[2], '/jobs/run%3A1/visual-score', 'the direction travels in a POST body, never the URL');
+  assert.deepEqual(bodies[2], { direction, lyricLines: 'project' });
+  // A plan-driven direction (a piece per shot with picture and colours) stays out of the URL however large it is.
+  const large = { ...direction, sections: { cues: Object.fromEntries(Array.from({ length: 64 }, (_, i) => [`cue-${i}`, { density: 0.5, image: { assetId: `media:${'x'.repeat(80)}${i}`, url: `/media/${'y'.repeat(120)}-${i}.jpg` } }])) } };
+  const request = echoScoreDustLayerScoreRequest({ ...current.source, direction: large });
+  assert.ok(request.route.length < 200 && request.options.body.length > 16 * 1024);
   const planned = planEchoScoreDustLayer({ songId: 'song-fixture', ...current.source, scoreFingerprint: current.scoreFingerprint, seed: current.seed, startSeconds: 0, endSeconds: 10 });
   const again = await loadEchoScoreDustLayerScore({ source: planned.source, client });
   assert.deepEqual([again.scoreFingerprint, again.seed], [planned.binding.scoreFingerprint, planned.binding.seed]);

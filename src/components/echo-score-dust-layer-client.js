@@ -5,17 +5,23 @@
 import { createAtlasClient } from "../domain/audio-atlas-ui.js";
 import { normalizeDustPlaySettings } from "../domain/echo-visual-score.js";
 
-/** The Atlas query for a layer source: its run, direction, play settings and lyric source. */
-export function echoScoreDustLayerScoreRoute(source) {
-  const params = new URLSearchParams({ op: "visual-score", direction: JSON.stringify(source.direction) });
-  if (source.playSettings) params.set("playSettings", JSON.stringify(source.playSettings));
-  if (source.lyricLines) params.set("lyricLines", source.lyricLines);
-  return `/jobs/${encodeURIComponent(source.atlasRunId)}/query?${params}`;
+/**
+ * The Atlas request for a layer source: its run, direction, play settings and
+ * lyric source. A read-only POST: a plan-driven direction (a dust piece per
+ * shot, with its picture and colours) is far larger than a URL may carry, and an
+ * over-long query is refused by the HTTP server before the Atlas sees it.
+ */
+export function echoScoreDustLayerScoreRequest(source) {
+  return {
+    route: `/jobs/${encodeURIComponent(source.atlasRunId)}/visual-score`,
+    options: { method: "POST", body: JSON.stringify({ direction: source.direction, ...(source.playSettings ? { playSettings: source.playSettings } : {}), ...(source.lyricLines ? { lyricLines: source.lyricLines } : {}) }) },
+  };
 }
 
 /** Compose a layer source's score → { value, scoreFingerprint, seed, settings }. */
 export async function loadEchoScoreDustLayerScore({ source, client = null, apiBase = "", signal } = {}) {
-  const value = await (client || createAtlasClient(apiBase)).request(echoScoreDustLayerScoreRoute(source), { signal });
+  const { route, options } = echoScoreDustLayerScoreRequest(source);
+  const value = await (client || createAtlasClient(apiBase)).request(route, { ...options, signal });
   if (!value?.score || !value.validation?.ok) throw new Error(value?.message || "This Score Dust direction does not compose a valid score.");
   const settings = normalizeDustPlaySettings(value.playSettings || {}, value.timeline);
   return { value, scoreFingerprint: value.score.fingerprint, seed: settings.seed, settings };
