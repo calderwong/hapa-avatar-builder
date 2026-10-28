@@ -780,3 +780,32 @@ was cross-origin and the Atlas refused song timing (and with it Score Dust).
 `desktopApiBase` now gives the window its own origin as API base when the
 configured base names the Builder it started from. The guard is unchanged. A
 running desktop window keeps the old base until the app is relaunched.
+
+## Durable Score Dust layer renders (2026-10-27)
+
+Three failures cost whole renders on the same day:
+
+1. **Render layer sent the direction in the URL.** A plan-driven direction
+   reached 16,442 characters; Node refused it (431, empty body) and the page
+   reported "Unexpected end of JSON input". It now uses the read-only
+   `POST /jobs/:id/visual-score` with the direction in the body.
+2. **The render lived in the preview panel.** Switching workbench tab (or
+   anything that unmounted the overlay) orphaned a running render: its progress
+   and result vanished and Render layer started over. Renders now run in a
+   page-level registry (`echo-score-dust-render-jobs.js`) keyed by the layer's
+   exact score; any panel showing the layer reattaches to the running job, a
+   finished render is bound the next time the layer is shown, and a duplicate
+   cannot start. A failed save keeps the rendered frames and offers **Retry
+   save** instead of a re-render. Publishing with the receipt records the
+   render (`score-dust-renders/<id>.json`), and `GET /api/echos/score-dust/renders`
+   finds it again, so after a reload the layer offers **Use finished render**.
+3. **Recordings had a 128 MiB upload cap.** The upload was read whole into the
+   server's memory, so the cap protected the process. A whole-song transparent
+   render runs about 0.8 MB/s (Miss Spelling's Pride ≈ 220 MB), so every long
+   song was refused (413) after rendering. Uploads now stream to disk
+   (`stageUpload`, hashed as they arrive, adopted by rename) and the cap is gone.
+   Verified on the live Builder: a 300 MB upload is accepted.
+
+Not done: a render interrupted mid-way (window closed, crash) still restarts
+from frame 0. Score Dust is a sequential simulation, so resuming needs
+saved simulation checkpoints.

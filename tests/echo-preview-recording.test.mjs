@@ -373,10 +373,10 @@ const cliSource = fs.readFileSync(new URL("cli/avatar-builder.mjs", repoRoot), "
 const viewSource = fs.readFileSync(new URL("src/components/HapaEchosView.jsx", repoRoot), "utf8");
 const domainSource = fs.readFileSync(new URL("src/domain/echo-preview-recording.js", repoRoot), "utf8");
 
-test("api registers admin-gated preview recording routes with a bounded raw upload", () => {
+test("api registers admin-gated preview recording routes with a streamed upload and no size cap", () => {
   assert.match(apiSource, /import \{ createPreviewRecordingStore, PreviewRecordingStoreError \} from ".\/preview-recording-store\.mjs";/);
   assert.match(apiSource, /const PREVIEW_RECORDING_DIR = process\.env\.HAPA_PREVIEW_RECORDING_DIR \|\| path\.join\(MEDIA_DIR, "echo-preview-recordings"\);/);
-  assert.match(apiSource, /PREVIEW_RECORDING_MAX_UPLOAD_BYTES = Math\.max\(1 \* 1024 \* 1024, Math\.min\(512 \* 1024 \* 1024, Number\(process\.env\.HAPA_PREVIEW_RECORDING_MAX_UPLOAD_BYTES\) \|\| 128 \* 1024 \* 1024\)/);
+  assert.doesNotMatch(apiSource, /PREVIEW_RECORDING_MAX_UPLOAD_BYTES/, "recordings stream to disk, so no upload cap");
   assert.match(apiSource, /pathname === "\/api\/echo\/preview-recordings" && req\.method === "GET"/);
   assert.match(apiSource, /pathname === "\/api\/echo\/preview-recordings" && req\.method === "POST"/);
   assert.ok(apiSource.includes("const previewRecordingItemMatch = pathname.match("), "item route matcher must exist");
@@ -385,7 +385,9 @@ test("api registers admin-gated preview recording routes with a bounded raw uplo
   const routeSection = apiSource.slice(apiSource.indexOf('"/api/echo/preview-recordings"'), apiSource.indexOf('"/api/echos/director-project" && req.method === "POST"'));
   const adminGates = (routeSection.match(/requireAdmin\(req, res\)/g) || []).length;
   assert.ok(adminGates >= 3, `expected at least 3 admin gates in the preview recording routes, found ${adminGates}`);
-  assert.match(routeSection, /readRawBody\(req, PREVIEW_RECORDING_MAX_UPLOAD_BYTES\)/);
+  assert.match(routeSection, /upload = await previewRecordingStore\.stageUpload\(req\)/);
+  assert.match(routeSection, /previewRecordingStore\.add\(\{\s*upload,/);
+  assert.match(routeSection, /if \(upload\) await rm\(upload\.path, \{ force: true \}\)/, "a failed upload never leaves a staging file");
   assert.match(routeSection, /Content-Range/);
   assert.match(routeSection, /Accept-Ranges/);
   assert.match(routeSection, /Content-Disposition/);
@@ -735,4 +737,26 @@ test('incomplete capture status, reason and source cut survive store reopening',
   const reopened=createPreviewRecordingStore({mediaRoot:root});const record=await reopened.get(saved.id);
   assert.equal(record.captureStatus,'incomplete');assert.equal(record.captureFailure,'A painted clip is unavailable.');assert.equal(record.cutId,'cut:exact');
  }finally{await fsp.rm(root,{recursive:true,force:true});}
+});
+
+test("uploads stream to disk with no size cap and are adopted by rename; bad or empty staging is refused", async () => {
+  const { Readable } = await import("node:stream");
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "hapa-preview-stream-"));
+  try {
+    // A tiny in-memory budget proves the streamed path does not use it.
+    const store = createPreviewRecordingStore({ mediaRoot: root, maxFileBytes: 16 });
+    const chunks = Array.from({ length: 64 }, (_, i) => Buffer.alloc(64 * 1024, i));
+    const upload = await store.stageUpload(Readable.from(chunks));
+    assert.equal(upload.sizeBytes, 64 * 64 * 1024);
+    assert.equal(upload.sha256, crypto.createHash("sha256").update(Buffer.concat(chunks)).digest("hex"));
+    const record = await store.add({ upload, mimeType: "video/webm", metadata: { songTitle: "Long Song", durationMs: "283200" } });
+    assert.equal(record.sizeBytes, 64 * 64 * 1024);
+    assert.equal(fs.existsSync(upload.path), false, "the staging file became the recording");
+    const opened = await store.openFile(record.id);
+    assert.equal((await fs.promises.stat(opened.filePath)).size, 64 * 64 * 1024);
+    const empty = await store.stageUpload(Readable.from([]));
+    await assert.rejects(store.add({ upload: empty, mimeType: "video/webm" }), (error) => error.code === "preview_recording_empty");
+    assert.equal(fs.existsSync(empty.path), false, "an empty staging file is removed");
+    await assert.rejects(store.add({ upload: { path: path.join(os.tmpdir(), "elsewhere.tmp"), sizeBytes: 4, sha256: "a".repeat(64) }, mimeType: "video/webm" }), (error) => error.code === "preview_recording_upload_invalid");
+  } finally { await fs.promises.rm(root, { recursive: true, force: true }); }
 });

@@ -11,8 +11,11 @@
 // semantics. They can be played back, downloaded, and deleted at any time.
 
 import crypto from "node:crypto";
+import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 import {
   ECHO_PREVIEW_RECORDING_SCHEMA,
@@ -231,13 +234,40 @@ export function createPreviewRecordingStore({
       return validateEchoPreviewSignals(JSON.parse(bytes), { identity: record.captureIdentity });
     },
 
-    async add({ buffer, mimeType, metadata = {} }) {
-      const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer ?? []);
-      if (!bytes.length) {
+    /**
+     * Stream an upload straight to a staging file beside the recordings,
+     * hashing as it goes: a recording of any length never sits in memory, so
+     * no size cap is needed. Pass the result to add({ upload }).
+     * → { path, sizeBytes, sha256 }
+     */
+    async stageUpload(stream) {
+      await fsp.mkdir(root, { recursive: true });
+      const stagingPath = path.join(root, `.upload-${process.pid}-${crypto.randomUUID()}.tmp`);
+      const hash = crypto.createHash("sha256");
+      let sizeBytes = 0;
+      const count = new Transform({ transform(chunk, _encoding, done) { sizeBytes += chunk.length; hash.update(chunk); done(null, chunk); } });
+      try {
+        await pipeline(stream, count, fs.createWriteStream(stagingPath, { flags: "wx" }));
+      } catch (error) {
+        await fsp.unlink(stagingPath).catch(() => {});
+        throw error;
+      }
+      return { path: stagingPath, sizeBytes, sha256: hash.digest("hex") };
+    },
+
+    async add({ buffer, upload = null, mimeType, metadata = {} }) {
+      // An upload staged by stageUpload is adopted by rename; a buffer is held in memory, so it keeps a budget.
+      const bytes = upload ? null : Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer ?? []);
+      const sizeBytes = upload ? Number(upload.sizeBytes) : bytes.byteLength;
+      if (upload && (!upload.path || path.dirname(path.resolve(upload.path)) !== root || !/^[0-9a-f]{64}$/.test(String(upload.sha256 || "")))) {
+        throw storeError("preview_recording_upload_invalid", "A staged upload must come from this store.", 400);
+      }
+      if (!sizeBytes) {
+        if (upload) await fsp.unlink(upload.path).catch(() => {});
         throw storeError("preview_recording_empty", "A preview recording upload must not be empty.", 400);
       }
-      if (bytes.byteLength > Number(maxFileBytes) || bytes.byteLength > 512 * 1024 * 1024) {
-        throw storeError("preview_recording_too_large", "The preview recording exceeds the storage budget.", 413, {
+      if (!upload && (bytes.byteLength > Number(maxFileBytes) || bytes.byteLength > 512 * 1024 * 1024)) {
+        throw storeError("preview_recording_too_large", "The preview recording exceeds the in-memory budget; stream it with stageUpload.", 413, {
           sizeBytes: bytes.byteLength,
           maxFileBytes: Number(maxFileBytes),
         });
@@ -262,11 +292,11 @@ export function createPreviewRecordingStore({
         height: safeNumber(metadata.height, { min: 16, max: 16384, integer: true, fallback: 0 }) || 0,
         fps: safeNumber(metadata.fps, { min: 1, max: 120, fallback: 0 }) || 0,
         durationMs: safeNumber(metadata.durationMs, { min: 0, max: 12 * 60 * 60 * 1000, integer: true, fallback: 0 }) || 0,
-        sizeBytes: bytes.byteLength,
+        sizeBytes,
         mimeType: normalizedMime,
         contentType: echoPreviewRecordingContentType(normalizedMime),
         extension,
-        sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+        sha256: upload ? upload.sha256 : crypto.createHash("sha256").update(bytes).digest("hex"),
         createdAt,
       };
 
@@ -297,8 +327,11 @@ export function createPreviewRecordingStore({
         const filePath = path.join(root, fileName);
         const tmpPath = path.join(root, `.${fileName}.${process.pid}.${Date.now()}.tmp`);
         await fsp.mkdir(root, { recursive: true });
-        await fsp.writeFile(tmpPath, bytes);
-        await fsp.rename(tmpPath, filePath);
+        if (upload) await fsp.rename(upload.path, filePath);
+        else {
+          await fsp.writeFile(tmpPath, bytes);
+          await fsp.rename(tmpPath, filePath);
+        }
         if (existing) {
           await fsp.unlink(path.join(root, safeId + ".signals.json")).catch(() => {});
           index.recordings = index.recordings.filter((row) => row.id !== safeId);

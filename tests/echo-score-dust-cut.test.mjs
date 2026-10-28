@@ -7,7 +7,7 @@ import { scoreDustShotPlacements } from "../src/domain/echo-score-dust-cut.js";
 import { cutMediaAt } from "../src/components/echo-score-dust-composite.js";
 import { hyperFramesMediaSourceCandidates } from "../src/domain/hyperframes-show-compiler.js";
 import { createPreviewRecordingStore } from "../server/preview-recording-store.mjs";
-import { publishScoreDustRender } from "../server/echo-score-dust-loops.mjs";
+import { listScoreDustRenders, publishScoreDustRender } from "../server/echo-score-dust-loops.mjs";
 
 const timeline = [
   { start_sec: 0, end_sec: 10, media_id: "intro", media_uri: "/media/intro.mp4", characterIds: ["ava"], media_contract: { type: "video", runtimeUri: "/media/intro.mp4" } },
@@ -48,5 +48,28 @@ test("publishing copies the recording into the public media root and reports its
     assert.deepEqual([value.width, value.height, value.durationSeconds, value.sizeBytes], [1280, 720, 32, bytes.length]);
     assert.deepEqual(fs.readFileSync(path.join(mediaDir, "score-dust-renders", `${record.id}.webm`)), bytes);
     await assert.rejects(publishScoreDustRender({ recordings, mediaDir }, { recordingId: "../x" }), (e) => e.statusCode === 400);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a layer render published with its receipt is found again for the same score, seed and present video", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hapa-score-dust-render-record-"));
+  try {
+    const mediaDir = path.join(root, "media"), recordings = createPreviewRecordingStore({ mediaRoot: path.join(mediaDir, "echo-preview-recordings") });
+    const add = () => recordings.add({ buffer: Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(512, 2)]), mimeType: "video/webm", metadata: { songId: "song-trip", width: "1920", height: "1080", durationMs: "16000" } });
+    const receipt = { schemaVersion: "hapa.echo.score-dust.export.v1", scoreFingerprint: "fnv1a:abc", seed: 7, width: 1920, height: 1080, fps: 30, frames: 480, startSeconds: 4, durationSeconds: 16, loopBridgeSeconds: 0, background: "transparent", codec: "vp09", nested: { ignored: true } };
+    const first = await add(), second = await add(), other = await add();
+    assert.equal((await publishScoreDustRender({ recordings, mediaDir }, { recordingId: first.id, receipt, layerId: "layer:1" })).recorded, true);
+    await publishScoreDustRender({ recordings, mediaDir }, { recordingId: second.id, receipt: { ...receipt, seed: 8 } });
+    await publishScoreDustRender({ recordings, mediaDir }, { recordingId: other.id, receipt: { ...receipt, scoreFingerprint: "fnv1a:other" } });
+    assert.equal((await publishScoreDustRender({ recordings, mediaDir }, { recordingId: (await add()).id })).recorded, undefined, "no receipt, no record");
+    const found = await listScoreDustRenders({ mediaDir }, { scoreFingerprint: "fnv1a:abc", seed: 7 });
+    assert.deepEqual(found.map((row) => row.recordingId), [first.id]);
+    assert.equal(found[0].layerId, "layer:1");
+    assert.equal(found[0].receipt.durationSeconds, 16);
+    assert.equal(found[0].receipt.nested, undefined, "only flat receipt fields are kept");
+    assert.equal((await listScoreDustRenders({ mediaDir }, { scoreFingerprint: "fnv1a:abc" })).length, 2, "without a seed every seed of the score is listed");
+    fs.rmSync(path.join(mediaDir, "score-dust-renders", `${first.id}.webm`));
+    assert.deepEqual(await listScoreDustRenders({ mediaDir }, { scoreFingerprint: "fnv1a:abc", seed: 7 }), [], "a record whose video is gone is not offered");
+    await assert.rejects(listScoreDustRenders({ mediaDir }, {}), (e) => e.statusCode === 400);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

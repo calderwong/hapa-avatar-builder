@@ -47,11 +47,47 @@ async function publishRecording(deps, recordingId, folder) {
   return { record, artifact, uri: `/media/${folder}/${fileName}` };
 }
 
-/** Publish a Score Dust export as ordinary video media for the Director cut. */
+export const SCORE_DUST_RENDER_RECORD_SCHEMA = 'hapa.echo.score-dust.render-record.v1';
+const RENDER_RECORD_KEYS = [...RECEIPT_KEYS, 'schemaVersion'];
+
+/** Publish a Score Dust export as ordinary video media for the Director cut.
+ * With its export receipt, a small record is kept beside the video so the
+ * render can be found again for the same score (seed, window) after a reload. */
 export async function publishScoreDustRender(deps, body = {}) {
   const { record, artifact, uri } = await publishRecording(deps, body.recordingId, 'score-dust-renders');
-  return { schemaVersion: 'hapa.echo.score-dust.render-media.v1', recordingId: body.recordingId, uri, sha256: artifact.sha256 || null, sizeBytes: artifact.sizeBytes,
+  const published = { schemaVersion: 'hapa.echo.score-dust.render-media.v1', recordingId: body.recordingId, uri, sha256: artifact.sha256 || null, sizeBytes: artifact.sizeBytes,
     width: Number(record?.width) || null, height: Number(record?.height) || null, durationSeconds: Number(record?.durationMs) > 0 ? Number(record.durationMs) / 1000 : null, songId: record?.songId || null };
+  if (body.receipt && typeof body.receipt === 'object' && typeof body.receipt.scoreFingerprint === 'string') {
+    const receipt = Object.fromEntries(RENDER_RECORD_KEYS.filter((k) => body.receipt[k] !== undefined && body.receipt[k] !== null && typeof body.receipt[k] !== 'object').map((k) => [k, body.receipt[k]]));
+    const entry = { schemaVersion: SCORE_DUST_RENDER_RECORD_SCHEMA, recordingId: body.recordingId, uri, sha256: published.sha256, sizeBytes: published.sizeBytes, songId: published.songId,
+      layerId: typeof body.layerId === 'string' ? body.layerId.slice(0, 256) : null, receipt, publishedAt: new Date().toISOString() };
+    const file = path.join(deps.mediaDir, 'score-dust-renders', `${body.recordingId}.json`);
+    const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    await fsp.writeFile(temp, `${JSON.stringify(entry, null, 2)}\n`);
+    await fsp.rename(temp, file);
+    published.recorded = true;
+  }
+  return published;
+}
+
+/** Published layer renders of one score (and seed), newest first; only those whose video is still present. */
+export async function listScoreDustRenders(deps, { scoreFingerprint, seed } = {}) {
+  if (typeof scoreFingerprint !== 'string' || !scoreFingerprint) throw fail('scoreFingerprint is required', 400);
+  const dir = path.join(deps.mediaDir, 'score-dust-renders');
+  const names = await fsp.readdir(dir).catch((error) => { if (error.code === 'ENOENT') return []; throw error; });
+  const rows = [];
+  for (const name of names.filter((n) => n.endsWith('.json'))) {
+    try {
+      const entry = JSON.parse(await fsp.readFile(path.join(dir, name), 'utf8'));
+      if (entry.schemaVersion !== SCORE_DUST_RENDER_RECORD_SCHEMA || entry.receipt?.scoreFingerprint !== scoreFingerprint) continue;
+      if (seed !== undefined && seed !== null && seed !== '' && Number(entry.receipt.seed) !== Number(seed)) continue;
+      if (!SAFE_ID.test(String(entry.recordingId || ''))) continue;
+      const video = await fsp.stat(path.join(dir, `${entry.recordingId}.webm`)).catch(() => null);
+      if (!video || (entry.sizeBytes && video.size !== entry.sizeBytes)) continue;
+      rows.push(entry);
+    } catch { /* An unreadable record is skipped; the video stays where it is. */ }
+  }
+  return rows.sort((a, b) => String(b.publishedAt).localeCompare(String(a.publishedAt)));
 }
 
 /**

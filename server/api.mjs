@@ -6,7 +6,7 @@ import { createSongAudioUpload } from './song-audio-upload.mjs';
 import { createAudioAtlas } from './audio-atlas.mjs';
 import { handleAudioAtlas } from './audio-atlas-routes.mjs';
 import { createScoreDustSessionStore, handleScoreDustSessions, handleScoreDustGuests } from './echo-score-dust-sessions.mjs';
-import { attachScoreDustLoop, publishScoreDustRender } from './echo-score-dust-loops.mjs';
+import { attachScoreDustLoop, listScoreDustRenders, publishScoreDustRender } from './echo-score-dust-loops.mjs';
 import { verifyEchoPlaybackAudioReceipt } from './echo-playback-audio.mjs';
 import { readSongCardPlanRequest } from './song-card-plan-request.mjs';
 import { readEchoPlaybackProxyFrameIndex } from './echo-playback-proxy.mjs';
@@ -843,10 +843,9 @@ const echoMediaEvidenceReader = createEchoMediaEvidenceReader({
 });
 
 const PREVIEW_RECORDING_DIR = process.env.HAPA_PREVIEW_RECORDING_DIR || path.join(MEDIA_DIR, "echo-preview-recordings");
-const PREVIEW_RECORDING_MAX_UPLOAD_BYTES = Math.max(1 * 1024 * 1024, Math.min(512 * 1024 * 1024, Number(process.env.HAPA_PREVIEW_RECORDING_MAX_UPLOAD_BYTES) || 128 * 1024 * 1024));
+// Uploads stream to disk (stageUpload), so recordings have no size cap.
 const previewRecordingStore = createPreviewRecordingStore({
   mediaRoot: PREVIEW_RECORDING_DIR,
-  maxFileBytes: PREVIEW_RECORDING_MAX_UPLOAD_BYTES,
 });
 const AVATAR_LIKENESS_DIR = process.env.HAPA_AVATAR_LIKENESS_DIR || path.join(ROOT, "data/avatar-likeness");
 const avatarLikenessStore = createAvatarLikenessStore({ dir: AVATAR_LIKENESS_DIR });
@@ -2726,6 +2725,17 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === '/api/echos/score-dust/renders' && req.method === 'GET') {
+    // Published layer renders for one score, so a finished render is reused after a reload.
+    if (!requireAdmin(req, res)) return;
+    try {
+      sendJson(res, 200, { ok: true, renders: await listScoreDustRenders({ mediaDir: MEDIA_DIR }, { scoreFingerprint: url.searchParams.get('scoreFingerprint'), seed: url.searchParams.get('seed') }) });
+    } catch (error) {
+      sendJson(res, error.statusCode || 500, { ok: false, error: 'score_dust_render_list_failed', message: error.message });
+    }
+    return;
+  }
+
   if (pathname === '/api/echos/score-dust/loops' && req.method === 'POST') {
     // Attach a Score Dust loop export to a Tarot card's loops or a Song Card's media.
     if (!requireAdmin(req, res)) return;
@@ -3894,13 +3904,15 @@ async function route(req, res) {
 
   if (pathname === "/api/echo/preview-recordings" && req.method === "POST") {
     if (!requireAdmin(req, res)) return;
+    let upload = null;
     try {
-      const body = await readRawBody(req, PREVIEW_RECORDING_MAX_UPLOAD_BYTES);
+      // Streamed to disk as it arrives: a whole-song render of any length never sits in memory, so there is no size cap.
+      upload = await previewRecordingStore.stageUpload(req);
       let captureIdentity = null;
       try { captureIdentity = url.searchParams.get("captureIdentity") ? JSON.parse(url.searchParams.get("captureIdentity")) : null; }
       catch { throw new PreviewRecordingStoreError("preview_signals_invalid_identity", "Capture identity must be JSON.", 400); }
       const record = await previewRecordingStore.add({
-        buffer: body,
+        upload,
         mimeType: String(req.headers["content-type"] || "video/webm"),
         metadata: {
           captureIdentity,
@@ -3918,8 +3930,10 @@ async function route(req, res) {
           durationMs: url.searchParams.get("durationMs") || undefined,
         },
       });
+      upload = null;
       sendJson(res, 201, { ok: true, recording: record });
     } catch (error) {
+      if (upload) await rm(upload.path, { force: true }).catch(() => {});
       sendPreviewRecordingError(res, error);
     }
     return;
