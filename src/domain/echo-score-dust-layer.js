@@ -37,7 +37,7 @@ export const ECHO_SCORE_DUST_SEGMENT_RAMP_US = 250000;
 const MAX_SEGMENTS = 256;
 const SOURCE_FIELDS = ["atlasRunId", "direction", "playSettings", "lyricLines"];
 const BINDING_FIELDS = ["scoreFingerprint", "seed"];
-const RENDER_FIELDS = ["recordingId", "uri", "sha256", "width", "height", "fps", "startSeconds", "durationSeconds", "background", "scoreFingerprint", "seed", "loopBridgeSeconds", "codec", "particles", "finalStateFingerprint"];
+const RENDER_FIELDS = ["recordingId", "uri", "sha256", "width", "height", "fps", "startSeconds", "durationSeconds", "background", "scoreFingerprint", "seed", "loopBridgeSeconds", "codec", "particles", "exposure", "finalStateFingerprint"];
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 // A render may start/end within half an output frame of the window.
 const COVER_TOLERANCE_SECONDS = 1 / 60;
@@ -324,6 +324,11 @@ export function rebindEchoScoreDustLayer(layer, score) {
 export function bindEchoScoreDustLayerRender(layer, { recordingId, uri, sha256, receipt } = {}) {
   validateEchoScoreDustLayer(layer);
   if (!isObject(receipt)) fail("score_dust_render_receipt", "receipt", "Binding needs the render's export receipt.");
+  // The frames depend on the layer's play settings too: a render made with a
+  // different swarm size or exposure is a different picture of the same score.
+  const play = layer.source.playSettings || {};
+  if (Number.isSafeInteger(receipt.particles) && receipt.particles !== Math.min(20000, Math.max(500, Math.floor(Number(play.particleCount) || 6000)))) fail("score_dust_render_play_settings", "receipt.particles", "This render used a different particle count than the layer asks for.");
+  if ((receipt.exposure ?? 1) !== (Number.isFinite(play.exposure) ? Math.min(4, Math.max(0.25, play.exposure)) : 1)) fail("score_dust_render_play_settings", "receipt.exposure", "This render used a different exposure than the layer asks for.");
   const hex = String(sha256 || "").replace(/^sha256:/, "");
   const render = {
     recordingId, uri, sha256: `sha256:${hex}`,
@@ -333,6 +338,7 @@ export function bindEchoScoreDustLayerRender(layer, { recordingId, uri, sha256, 
     loopBridgeSeconds: receipt.loopBridgeSeconds ?? 0,
     ...(receipt.codec ? { codec: String(receipt.codec) } : {}),
     ...(Number.isSafeInteger(receipt.particles) ? { particles: receipt.particles } : {}),
+    ...(Number.isFinite(receipt.exposure) && receipt.exposure !== 1 ? { exposure: receipt.exposure } : {}),
     ...(typeof receipt.finalStateFingerprint === "string" ? { finalStateFingerprint: receipt.finalStateFingerprint } : {}),
   };
   return validateEchoScoreDustLayer({ ...JSON.parse(JSON.stringify(layer)), render });

@@ -363,12 +363,20 @@ const DUST_CAMERA = [[/push|zoom-in|dolly-in|punch/u, "push"], [/orbit|rotate|sp
 const SIGNAL_STEM = Object.freeze({ beat: "drums", onset: "drums", high: "drums", bass: "bass", low: "bass", mid: "harmony", rms: "vocals", peak: "vocals" });
 
 /** Dust density for a plan section: the lead roles carry it, the others recede under the picture. */
+// The layer render: twice the default swarm so pictures read solid, and three
+// times the light per particle, since the dust lies over lit media rather than
+// on black. Play settings stay outside the score and its binding.
+const DUST_LAYER_PLAY_SETTINGS = Object.freeze({ particleCount: 12000, exposure: 3 });
+
 function dustDensityFor(section, treatment) {
   const leads = treatment.dust.show === "returns" ? ["return", "climax"] : treatment.dust.show === "motes" ? [] : ["climax"];
-  if (leads.includes(section.role)) return { density: 0.95, busy: [0.55, 1] };
-  if (section.role === "break") return { density: 0.12, busy: [0, 0.2] };
-  const density = round(0.18 + 0.4 * section.relEnergy, 2);
-  return { density, busy: [0, round(Math.min(0.6, density + 0.15), 2)] };
+  // Density is the share of particles that are lit at all, so it is the dust's
+  // presence: it stays readable through every section (a picture needs most of
+  // the swarm to read) and swells with energy; breaks thin it, never empty it.
+  if (leads.includes(section.role)) return { density: 1, busy: [0.55, 1] };
+  if (section.role === "break") return { density: 0.4, busy: [0, 0.2] };
+  const density = round(0.6 + 0.35 * section.relEnergy, 2);
+  return { density, busy: [0, round(0.3 + 0.3 * section.relEnergy, 2)] };
 }
 
 /**
@@ -401,6 +409,8 @@ export function echoIntegratedDustDirection({ timeline, sections, transitions, s
   const poolFields = new Map(mediaPool.map((m) => [m.mediaId, { fields: m.fields || {}, kind: m.kind }]));
   const posterOf = (mediaId) => {
     const entry = poolFields.get(mediaId), url = entry?.fields.media_thumbnail || (entry?.kind === "image" ? entry.fields.media_uri : null);
+    // The dust forms the shot's picture as a card in the middle of the frame: a
+    // frame-filling copy would lie exactly over the shot itself and vanish into it.
     return typeof url === "string" && url.startsWith("/") ? { assetId: `media:${mediaId}`, url } : null;
   };
   for (const section of sections) {
@@ -448,8 +458,9 @@ export function echoIntegratedDustSegments({ sections, shots, mediaLuma = {}, tr
     const span = own.reduce((sum, shot) => sum + (shot.end - shot.start), 0);
     const luma = span > 0 ? own.reduce((sum, shot) => sum + mediaLuma[shot.mediaId] * (shot.end - shot.start), 0) / span : null;
     const lead = leads.includes(section.role);
-    const opacity = lead ? 1 : section.role === "break" ? 0.4 : round(0.55 + 0.35 * section.relEnergy, 2);
-    const blend = luma === null ? (lead ? "screen" : "over") : luma < 0.42 ? (lead ? "lighter" : "screen") : "over";
+    const opacity = lead ? 1 : section.role === "break" ? 0.65 : round(0.8 + 0.2 * section.relEnergy, 2);
+    // Light dust only adds to dark pictures; over anything brighter it is laid on top, or it vanishes.
+    const blend = luma === null ? "over" : luma < 0.3 ? (lead ? "lighter" : "screen") : "over";
     return { startUs: Math.ceil(section.start * 1e3) * 1e3, endUs: Math.floor(section.end * 1e3) * 1e3, opacity, blend };
   }).filter((segment) => segment.endUs > segment.startUs);
 }
@@ -476,7 +487,9 @@ export function echoIntegratedPaletteFromHistogram(histogram = {}, levels = 6) {
     if (d < 0.08) continue; // greys and blacks carry no hue
     const h = d === 0 ? 0 : max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
     const s = d / (1 - Math.abs(2 * l - 1));
-    const colour = { h: round((h * 60) % 360, 1), s: round(Math.min(1, Math.max(0.45, s)), 3), l: round(Math.min(0.78, Math.max(0.55, l + 0.15)), 3) };
+    // Rich, mid-light colours: dust is additive light in its trails, so pale
+    // colours pile up to white; saturated ones keep the picture's hue.
+    const colour = { h: round((h * 60) % 360, 1), s: round(Math.min(1, Math.max(0.75, s)), 3), l: round(Math.min(0.62, Math.max(0.48, l + 0.08)), 3) };
     if (!colours.some((c) => Math.min(Math.abs(c.h - colour.h), 360 - Math.abs(c.h - colour.h)) < 18)) colours.push(colour);
     if (colours.length === 4) break;
   }
@@ -495,7 +508,7 @@ function planScoreDust(timeline, sections, lyrics, lyricAudioHash, treatment, so
   // One composited layer spans the dust's visible extent; the score itself
   // decides what is visible inside it. It is bound to this exact score and seed.
   const layer = validation.ok && visibleWindows.length && timeline.source?.runId ? planEchoScoreDustLayer({
-    songId, atlasRunId: timeline.source.runId, direction, playSettings: null, lyricLines: withLyrics ? "project" : null,
+    songId, atlasRunId: timeline.source.runId, direction, playSettings: DUST_LAYER_PLAY_SETTINGS, lyricLines: withLyrics ? "project" : null,
     scoreFingerprint: score.fingerprint, seed: normalizeDustPlaySettings(direction.playSettings || {}, timeline).seed,
     // Plan-driven dust is present all song long: each section's density and look
     // decide how much it shows, so the layer spans the whole song, not only the
@@ -591,7 +604,7 @@ export function planEchoIntegratedPerformance({ song, timeline, lyrics = null, l
   const layersUsed = [alwaysOn.some((s) => s.enabled), media.length > 0, shaders.length > 0, livingLightLayer.cues.length > 0, dust.status === "composed" && dust.visibleWindows.length > 0];
   const planInput = { song: song.songId, treatment: t.id, seed, timeline: timeline.fingerprint, lyricAudioHash: lyrics?.verified ? lyricAudioHash : null, media: mediaPool.map((m) => m.mediaId), shaders: shaderPool.map((s) => s.id),
     journey: livingLight?.journeyRef ? { ...livingLight.journeyRef, sourceBindingRef: livingLight.sourceBindingRef ?? null } : null,
-    palettes: Object.keys(mediaPalettes).sort().map((id) => [id, mediaPalettes[id]]), luma: Object.keys(mediaLuma).sort().map((id) => [id, mediaLuma[id]]), dustDirection: "plan-driven-v3-whole-song" };
+    palettes: Object.keys(mediaPalettes).sort().map((id) => [id, mediaPalettes[id]]), luma: Object.keys(mediaLuma).sort().map((id) => [id, mediaLuma[id]]), dustDirection: "plan-driven-v7-rich-dust" };
   return {
     schemaVersion: ECHO_INTEGRATED_PERFORMANCE_SCHEMA,
     planId: `integrated:${song.songId}:${t.id}:${hex(planInput)}`,

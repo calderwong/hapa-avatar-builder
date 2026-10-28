@@ -163,7 +163,7 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
   const paintAt = async (t, extra = {}) => {
     const { state } = performance.advanceTo(t, { bandsAt: bandHook, stemsAt });
     await drawBackground(t, null, 0, state);
-    painter.paint(ctx, { performance, state, t, width: w, height: h, frameSeconds: 1 / fps, ...extra });
+    painter.paint(ctx, { performance, state, t, width: w, height: h, frameSeconds: 1 / fps, exposure: settings.exposure ?? 1, ...extra });
     return state;
   };
   // Lead-in before the first frame: warms trails, and (for loops) records the
@@ -188,7 +188,7 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
         for (let i = 0; i < live.count; i++) { view.visibility[i] = live.visibility[i] + (target.view.visibility[i] - live.visibility[i]) * weight; view.band[i] = live.band[i] + (target.view.band[i] - live.band[i]) * weight; }
         const blendCamera = Object.fromEntries(Object.keys(camera).map((key) => [key, camera[key] + (target.camera[key] - camera[key]) * weight]));
         await drawBackground(t, t - length, weight, state);
-        painter.paint(ctx, { performance, state, t, width: w, height: h, frameSeconds: 1 / fps, view, camera: blendCamera });
+        painter.paint(ctx, { performance, state, t, width: w, height: h, frameSeconds: 1 / fps, exposure: settings.exposure ?? 1, view, camera: blendCamera });
       } else await paintAt(t);
       const timing = { timestamp: Math.round((k * 1e6) / fps), duration: Math.round(1e6 / fps) }, keyFrame = k % (fps * 2) === 0;
       if (transparent) {
@@ -235,7 +235,7 @@ export async function exportScoreDustVideo({ playback, settings = {}, audio = nu
   onProgress({ phase: "done", frame: frameCount, frames: frameCount });
   return {
     blob: new Blob([bytes], { type: "video/webm" }), mimeType: "video/webm",
-    receipt: { schemaVersion: SCORE_DUST_EXPORT_SCHEMA, scoreFingerprint: playback.score.fingerprint, seed: performance.swarm.seed, particles: count, codec,
+    receipt: { schemaVersion: SCORE_DUST_EXPORT_SCHEMA, scoreFingerprint: playback.score.fingerprint, seed: performance.swarm.seed, particles: count, ...(settings.exposure !== undefined && settings.exposure !== 1 ? { exposure: settings.exposure } : {}), codec,
       width: w, height: h, fps, frames: frameCount, startSeconds: start, durationSeconds: length, loopBridgeSeconds: bridge, bitrate,
       audio: audio ? { codec: "opus", blocks: audioBlocks, bands: "pcm-spectrum" } : null, stems: stems?.available || [], background: compositor ? "cut" : transparent ? "transparent" : "score", scoreBackground: playback.score.background?.kind || "black", ...(transparent ? { alpha: { mode: "webm-block-additional", keyframeMismatches: alphaKeyMismatches } } : {}), media, bytes: bytes.length, finalStateFingerprint: performance.swarm.fingerprint() },
   };

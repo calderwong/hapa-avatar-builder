@@ -368,7 +368,9 @@ export function normalizeDustPlaySettings(input = {}, timeline = null) {
   const identity = timeline?.source?.sourceSha256 || timeline?.fingerprint || "hapa-echo-dust";
   const pulse = ECHO_VISUAL_SCORE_PULSES.includes(input.pulse) ? input.pulse : "normal";
   return { schemaVersion: ECHO_DUST_PLAY_SETTINGS_SCHEMA, seed: Number.isSafeInteger(input.seed) && input.seed >= 0 ? input.seed >>> 0 : seedFromString(identity),
-    particleCount: Math.min(20000, Math.max(500, Math.floor(Number(input.particleCount) || 6000))), pulse, prerollSeconds: finite(input.prerollSeconds) ? clamp(input.prerollSeconds, 0, 5) : 1.5,
+    particleCount: Math.min(20000, Math.max(500, Math.floor(Number(input.particleCount) || 6000))),
+    // Light per particle, after the count normalisation: dust spread over a whole frame needs more.
+    exposure: finite(input.exposure) ? clamp(input.exposure, 0.25, 4) : 1, pulse, prerollSeconds: finite(input.prerollSeconds) ? clamp(input.prerollSeconds, 0, 5) : 1.5,
     // Comfort: reduced motion, and bright flashes capped at 3 per second (can only go lower).
     reducedMotion: input.reducedMotion === true,
     flashLimitPerSecond: finite(input.flashLimitPerSecond) ? clamp(Math.floor(input.flashLimitPerSecond), 0, DUST_FLASH_LIMIT_PER_SECOND) : DUST_FLASH_LIMIT_PER_SECOND,
@@ -563,6 +565,7 @@ export function selectEchoScorePhrases(lines, timeline, { lyricAudioHash = null,
 export function imageRefProblem(ref) {
   if (!ref || typeof ref !== "object" || Array.isArray(ref) || typeof ref.assetId !== "string" || !ref.assetId) return "needs an assetId.";
   if (ref.url !== undefined && typeof ref.url !== "string") return "url must be a string.";
+  if (ref.fill !== undefined && typeof ref.fill !== "boolean") return "fill must be true or false.";
   if (ref.kind === "text") return typeof ref.text === "string" && ref.text.trim() && ref.text.length <= 24 ? null : "text logos need 1–24 characters.";
   if (ref.kind === "model") return typeof ref.url === "string" && ref.url ? null : "3D models need a url.";
   if (ref.kind === "svg") return /^data:image\/svg\+xml[;,]/.test(ref.url || "") && ref.url.length <= 32 * 1024 ? null : "SVG logos must be an inline data:image/svg+xml URL of at most 32 KiB.";

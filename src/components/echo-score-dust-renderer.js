@@ -44,6 +44,22 @@ export function rasterizePhraseTargets(phrase, count, seed, surfaceFactory = def
   return sampleDustTargetsFromPixels(ctx.getImageData(0, 0, 512, 160), { count, seed, threshold: 0.4, scale: 3.4 });
 }
 
+// The picture plane as the default camera frames it (distance 4.4, vertical
+// field 0.9 rad: about 4.25 × 7.55 units at 16:9), with a small margin.
+const DUST_PICTURE_FRAME = Object.freeze({ width: 7.1, height: 4.0 });
+const DUST_PICTURE_SCALE = 2.4;
+
+/**
+ * Target scale (the picture's longer side, in scene units) for a w × h picture:
+ * a centred card by default; with `fill` it spans the frame as the shot does,
+ * landscape pictures to the frame's width, portrait ones to its height.
+ */
+export function dustPictureScale(width, height, fill = false) {
+  if (!fill || !(width > 0) || !(height > 0)) return DUST_PICTURE_SCALE;
+  const aspect = width / height;
+  return Math.round((aspect >= 1 ? Math.min(DUST_PICTURE_FRAME.width, DUST_PICTURE_FRAME.height * aspect) : DUST_PICTURE_FRAME.height) * 1000) / 1000;
+}
+
 /** Load an atlas cell (or whole image, or SVG), or rasterise a text logo, into targets. */
 export function loadImageTargets(ref, count, seed, surfaceFactory = defaultSurface) {
   if (ref?.kind === "text") return Promise.resolve(rasterizePhraseTargets({ text: ref.text, font: ref.font }, count, seed, surfaceFactory));
@@ -63,7 +79,7 @@ export function loadImageTargets(ref, count, seed, surfaceFactory = defaultSurfa
         const ctx = surface?.getContext("2d", { willReadFrequently: true });
         if (!ctx) return resolve(null);
         ctx.drawImage(image, cell[0] * w, cell[1] * h, w, h, 0, 0, surface.width, surface.height);
-        resolve(sampleDustTargetsFromPixels(ctx.getImageData(0, 0, surface.width, surface.height), { count, seed, threshold: ref.threshold ?? 0.3, scale: 2.4, mode: ref.kind === "svg" ? "logo" : "auto" }));
+        resolve(sampleDustTargetsFromPixels(ctx.getImageData(0, 0, surface.width, surface.height), { count, seed, threshold: ref.threshold ?? 0.3, scale: dustPictureScale(w, h, ref.fill === true), mode: ref.kind === "svg" ? "logo" : "auto" }));
       } catch { resolve(null); }
     };
     image.src = ref.url;
@@ -83,7 +99,7 @@ export function createScoreDustPainter(surfaceFactory = defaultSurface) {
     }
   }
   /** `view` and `camera` override what is drawn (used by the loop bridge). */
-  function paint(ctx, { performance, state, t, width, height, frameSeconds = 1 / 60, drawFraction = 1, glow: glowOn = true, label = "", view = null, camera: cameraOverride = null }) {
+  function paint(ctx, { performance, state, t, width, height, frameSeconds = 1 / 60, drawFraction = 1, glow: glowOn = true, label = "", view = null, camera: cameraOverride = null, exposure: gain = 1 }) {
     ensure(width, height);
     const swarm = view || performance.swarm, camera = cameraOverride || performance.camera(t, state);
     projected = projectDustSwarm(swarm, { width, height, ...camera }, projected);
@@ -104,7 +120,8 @@ export function createScoreDustPainter(surfaceFactory = defaultSurface) {
     target.globalCompositeOperation = "lighter";
     const stride = Math.max(1, Math.round(1 / clamp(drawFraction, 0.1, 1)));
     // Additive light scales with particle count; normalise so 4k and 12k read alike.
-    const exposure = Math.min(1, Math.sqrt(2500 / swarm.count)), boost = Math.min(1.6, stride) * exposure;
+    // The play setting's exposure brightens dust spread wide over media.
+    const exposure = Math.min(1, Math.sqrt(2500 / swarm.count)), boost = Math.min(1.6, stride) * exposure * gain;
     // Per-particle colour from the shared colour module, grouped into 4-bit
     // RGB buckets so the canvas changes fill colour only once per bucket.
     const live = performance.swarm, n = live.count;
@@ -179,7 +196,7 @@ export function createImageTargetCache(surfaceFactory = defaultSurface) {
   function targetsFor(motif, count, seed) {
     const ref = motif?.imageRef;
     if (!ref?.url && ref?.kind !== "text") return null;
-    const key = `${ref.kind || "image"}:${ref.url || `${ref.text}|${ref.font || ""}`}:${count}:${seed}:${(ref.cell || []).join(",")}`;
+    const key = `${ref.kind || "image"}:${ref.url || `${ref.text}|${ref.font || ""}`}:${count}:${seed}:${(ref.cell || []).join(",")}:${ref.fill === true ? "fill" : ""}`;
     if (!images.has(key)) {
       images.set(key, null);
       loadImageTargets(ref, count, seed, surfaceFactory).then((points) => { images.set(key, points); });
@@ -192,7 +209,7 @@ export function createImageTargetCache(surfaceFactory = defaultSurface) {
 /** Live Echo preview host with an adaptive draw budget. */
 export function createEchoScoreDustRenderer() {
   const painter = createScoreDustPainter(), bands = new Float32Array(DUST_BAND_COUNT), images = createImageTargetCache();
-  let performanceHost = null, source = "reflex-only", previousBeatFlash = 0, lastWall = null, stemsAt = null;
+  let performanceHost = null, source = "reflex-only", previousBeatFlash = 0, lastWall = null, stemsAt = null, exposure = 1;
   let level = 0, ema = 8, over = 0, under = 0;
 
   const targetsFor = images.targetsFor;
@@ -201,6 +218,7 @@ export function createEchoScoreDustRenderer() {
   function setPlayback(playback, settings = null, nextSource = "reflex-only", { stems = null } = {}) {
     source = playback ? nextSource : "reflex-only";
     stemsAt = playback && stems ? (t) => stems.at(t) : null;
+    exposure = settings?.exposure ?? 1;
     const live = { ...(settings || {}), particleCount: Math.min(LIVE_PARTICLE_CAP, settings?.particleCount || LIVE_PARTICLE_CAP) };
     performanceHost = createScoreDustPerformance({ playback: playback || reflexPlayback(), settings: live, targetsFor, phraseTargets: (phrase, count, seed) => rasterizePhraseTargets(phrase, count, seed) });
   }
@@ -217,7 +235,7 @@ export function createEchoScoreDustRenderer() {
     paintScoreBackground(ctx, performanceHost, t, state, width, height);
     const budget = BUDGET_LEVELS[level];
     const next = state?.nextEvent ? ` · next ${state.nextEvent.kind} ${state.nextEvent.in.toFixed(1)}s` : "";
-    const visible = painter.paint(ctx, { performance: performanceHost, state, t, width, height, frameSeconds: wallDt || 1 / 60, ...budget,
+    const visible = painter.paint(ctx, { performance: performanceHost, state, t, width, height, frameSeconds: wallDt || 1 / 60, exposure, ...budget,
       label: `SCORE DUST · ${source}${source === "reflex-only" ? " · live reflex only" : ` · ${state.cue.id} · ${performanceHost.swarm.formation}`}${next}${level ? ` · budget ${Math.round(budget.drawFraction * 100)}%` : ""}` });
     // Step the draw budget down under sustained strain and back up when relaxed.
     ema = ema * 0.9 + (now() - started) * 0.1;
@@ -272,7 +290,7 @@ export function createEchoScoreDustOfflineRenderer({ width, height, fps = 30, du
     const t = songUs / 1e6, { state } = performanceHost.advanceTo(t, { bandsAt });
     context.clearRect(0, 0, width, height);
     paintScoreBackground(context, performanceHost, t, state, width, height);
-    const visible = painter.paint(context, { performance: performanceHost, state, t, width, height, frameSeconds: 1 / fps, label: labels ? `${state.cue.id} · ${performanceHost.swarm.formation}` : "" });
+    const visible = painter.paint(context, { performance: performanceHost, state, t, width, height, frameSeconds: 1 / fps, exposure: settings.exposure ?? 1, label: labels ? `${state.cue.id} · ${performanceHost.swarm.formation}` : "" });
     lastFrame = frameIndex;
     prepared = { schemaVersion: "hapa.echo.score-dust.offline-frame.v1", frameIndex, songUs, width, height, fps, cueId: state.cue.id, formation: performanceHost.swarm.formation, visible, stateFingerprint: performanceHost.swarm.fingerprint() };
     return structuredClone(prepared);

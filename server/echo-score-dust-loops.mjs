@@ -9,7 +9,7 @@ import { attachTarotCardMedia, normalizeTarotStore } from '../src/domain/tarot.j
 
 export const SCORE_DUST_LOOP_SCHEMA = 'hapa.echo.score-dust.loop-attachment.v1';
 const SAFE_ID = /^[A-Za-z0-9_-]{8,64}$/;
-const RECEIPT_KEYS = ['scoreFingerprint', 'seed', 'particles', 'codec', 'width', 'height', 'fps', 'frames', 'startSeconds', 'durationSeconds', 'loopBridgeSeconds', 'background', 'scoreBackground', 'finalStateFingerprint'];
+const RECEIPT_KEYS = ['scoreFingerprint', 'seed', 'particles', 'exposure', 'codec', 'width', 'height', 'fps', 'frames', 'startSeconds', 'durationSeconds', 'loopBridgeSeconds', 'background', 'scoreBackground', 'finalStateFingerprint'];
 const fail = (message, statusCode = 422) => Object.assign(new Error(`Score Dust loop: ${message}`), { statusCode });
 
 export function parseLoopAttachment(body = {}) {

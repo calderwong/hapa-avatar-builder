@@ -809,3 +809,38 @@ Three failures cost whole renders on the same day:
 Not done: a render interrupted mid-way (window closed, crash) still restarts
 from frame 0. Score Dust is a sequential simulation, so resuming needs
 saved simulation checkpoints.
+
+## Visible, persistent dust (2026-10-27)
+
+Miss Spelling's Pride with its whole-song render bound still read as "dust
+showed up once". Measured on that render, the dust covered 0–5% of the frame
+(mostly under 3%) at a mean alpha near 0.01. Five things kept it out of sight:
+
+1. **Density is presence.** A section's density is the share of particles that
+   are lit at all. The plan used 0.18–0.36 outside leads, so a fifth to a third
+   of the swarm existed. Now 0.6 + 0.35 × relative energy (breaks 0.4, leads 1).
+2. **Layer opacity** multiplied that down again (0.55–0.9, breaks 0.4). Now
+   0.8–1 (breaks 0.65).
+3. **The swarm and its light.** Layer renders use 12,000 particles and
+   `exposure: 3` (`source.playSettings`). The painter divides light by particle
+   count, which suits a dense shape on black, not dust over lit media. Exposure
+   is a play setting outside the score, kept in the export receipt and the
+   render record, and a render binds only to a layer with the same particle
+   count and exposure.
+4. **Pale colours.** Shot palettes were pastel (saturation ≥ 0.45, lightness
+   0.55–0.78) and additive trails summed them to white. Now saturation ≥ 0.75,
+   lightness 0.48–0.62, so the picture keeps its hue.
+5. **Screen blend over bright shots.** Light dust screened onto a bright
+   picture vanishes. Screen/lighter is kept for dark shots (luma < 0.3); every
+   other section lays the dust over.
+
+Tried and reverted: pictures filling the frame (`imageRef.fill`, still
+supported by the renderer). A frame-sized dust copy of a shot lies exactly over
+that shot and disappears into it; the centred card reads as its own object.
+Planner identity: `plan-driven-v7-rich-dust`. On the same 95–125 s window the
+coverage rose from 2–4% to 13–17%, and the dust card is visible in its shot's
+colours over every shot checked.
+
+**Score Dust preview no longer hides the cut.** The old preview toggle draws
+live dust in place of the cut's shaders and media. On a cut with its own layer
+it left only dust on screen, so it is now off and locked there.

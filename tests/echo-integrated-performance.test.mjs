@@ -150,6 +150,8 @@ test("intents the runtime cannot execute are labelled, and Score Dust composites
   assert.equal(layer.window.startUs, Math.ceil(p.sections[0].start * 1e3) * 1e3, "plan-driven dust spans the song; its sections set how much shows");
   assert.equal(plan("tunnel-journey").layers.scoreDust.layer.blend, "screen");
   assert.equal(plan("dust-chorus").layers.scoreDust.layer.opacity, 1);
+  // The layer renders a dense swarm with more light per particle, over lit media.
+  assert.deepEqual(plan("dust-chorus").layers.scoreDust.layer.source.playSettings, { particleCount: 12000, exposure: 3 });
   assert.equal(p.layers.scoreDust.renderPlacement.status, "not-used", "telemetry never lets dust lead");
   const chorus = plan("dust-chorus").layers.scoreDust.renderPlacement;
   assert.equal(chorus.status, "needs-render");
@@ -265,8 +267,10 @@ test("Score Dust follows the plan: plan boundaries, a piece per shot coloured by
   // Dust leads returns and the climax and recedes under the rest.
   const densityAt = (section) => score.cues.find((c) => c.start >= section.start - 0.01 && c.start < section.end).density;
   for (const section of p.sections) {
+    // Density is how much of the swarm is lit: the dust stays present everywhere.
     if (["return", "climax"].includes(section.role)) assert.ok(densityAt(section) >= 0.9, section.role);
-    else assert.ok(densityAt(section) <= 0.6, section.role);
+    else if (section.role === "break") assert.equal(densityAt(section), 0.4, section.role);
+    else assert.ok(densityAt(section) >= 0.6 && densityAt(section) <= 0.95, section.role);
   }
   assert.deepEqual(Object.keys(dir.eventResponses).sort(), [...new Set(p.transitions.map((t) => t.kind).filter((k) => ["lift", "fall", "break", "build", "change"].includes(k)))].sort());
   assert.ok(Object.values(dir.stemResponses).every((v) => v >= 0.3 && v <= 1) && dir.stemResponses.vocals >= 0.8, "dust writes the sung words, so it follows the vocals");
@@ -281,7 +285,7 @@ test("dust colours come from the picture's hues, lifted to read over it; greys g
   const colours = echoIntegratedPaletteFromHistogram({ bins: [{ bin: bin(0, 0, 0), weight: 0.5 }, { bin: bin(5, 1, 0), weight: 0.2 }, { bin: bin(0, 1, 5), weight: 0.1 }, { bin: bin(5, 2, 0), weight: 0.05 }, { bin: bin(3, 3, 3), weight: 0.1 }] });
   assert.equal(colours.length, 2, "black and grey carry no hue; two oranges are one colour");
   assert.ok(colours[0].h < 30 && colours[1].h > 200 && colours[1].h < 240);
-  assert.ok(colours.every((c) => c.l >= 0.55 && c.l <= 0.78 && c.s >= 0.45));
+  assert.ok(colours.every((c) => c.l >= 0.48 && c.l <= 0.62 && c.s >= 0.75), "rich colours keep their hue as additive light");
   assert.equal(echoIntegratedPaletteFromHistogram({ bins: [{ bin: bin(2, 2, 2), weight: 1 }] }), null);
 });
 
@@ -305,8 +309,8 @@ test("the dust forms each shot's picture and its layer takes a look per section 
   p.sections.forEach((section, i) => {
     const segment = segments[i];
     if (["return", "climax"].includes(section.role)) assert.equal(segment.opacity, 1);
-    else if (section.role === "break") assert.equal(segment.opacity, 0.4);
-    else assert.ok(segment.opacity >= 0.55 && segment.opacity <= 0.9);
+    else if (section.role === "break") assert.equal(segment.opacity, 0.65);
+    else assert.ok(segment.opacity >= 0.8 && segment.opacity <= 1);
     assert.ok(["over", "screen", "lighter"].includes(segment.blend));
   });
   const dark = planEchoIntegratedPerformance({ song, timeline, mediaPool: pool, shaderPool, livingLight, treatment: "dust-chorus", seed: "test", lyrics: { verified: true, lines, status: "verified" }, lyricAudioHash: MASTER, mediaLuma: Object.fromEntries(pool.map((m) => [m.mediaId, 0.1])) });

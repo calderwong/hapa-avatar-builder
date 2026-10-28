@@ -56,7 +56,7 @@ test("a layer render published with its receipt is found again for the same scor
   try {
     const mediaDir = path.join(root, "media"), recordings = createPreviewRecordingStore({ mediaRoot: path.join(mediaDir, "echo-preview-recordings") });
     const add = () => recordings.add({ buffer: Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(512, 2)]), mimeType: "video/webm", metadata: { songId: "song-trip", width: "1920", height: "1080", durationMs: "16000" } });
-    const receipt = { schemaVersion: "hapa.echo.score-dust.export.v1", scoreFingerprint: "fnv1a:abc", seed: 7, width: 1920, height: 1080, fps: 30, frames: 480, startSeconds: 4, durationSeconds: 16, loopBridgeSeconds: 0, background: "transparent", codec: "vp09", nested: { ignored: true } };
+    const receipt = { schemaVersion: "hapa.echo.score-dust.export.v1", scoreFingerprint: "fnv1a:abc", seed: 7, width: 1920, height: 1080, fps: 30, frames: 480, startSeconds: 4, durationSeconds: 16, loopBridgeSeconds: 0, background: "transparent", codec: "vp09", particles: 12000, exposure: 2, nested: { ignored: true } };
     const first = await add(), second = await add(), other = await add();
     assert.equal((await publishScoreDustRender({ recordings, mediaDir }, { recordingId: first.id, receipt, layerId: "layer:1" })).recorded, true);
     await publishScoreDustRender({ recordings, mediaDir }, { recordingId: second.id, receipt: { ...receipt, seed: 8 } });
@@ -66,6 +66,7 @@ test("a layer render published with its receipt is found again for the same scor
     assert.deepEqual(found.map((row) => row.recordingId), [first.id]);
     assert.equal(found[0].layerId, "layer:1");
     assert.equal(found[0].receipt.durationSeconds, 16);
+    assert.deepEqual([found[0].receipt.particles, found[0].receipt.exposure], [12000, 2], "the play settings a render was made with are kept, so it binds again");
     assert.equal(found[0].receipt.nested, undefined, "only flat receipt fields are kept");
     assert.equal((await listScoreDustRenders({ mediaDir }, { scoreFingerprint: "fnv1a:abc" })).length, 2, "without a seed every seed of the score is listed");
     fs.rmSync(path.join(mediaDir, "score-dust-renders", `${first.id}.webm`));
