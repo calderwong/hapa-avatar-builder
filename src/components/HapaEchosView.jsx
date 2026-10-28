@@ -2324,6 +2324,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   const [scoreDustPreview, setScoreDustPreview] = useState(false);
   const scoreDustPreviewRef = useRef(false);
   useEffect(() => { scoreDustPreviewRef.current = scoreDustPreview; }, [scoreDustPreview]);
+  // The preview draws dust in place of the cut's shaders and media. A cut with
+  // its own Score Dust layer already plays dust over everything else, so there
+  // the preview would only hide the rest of the cut: it is switched off.
+  const cutHasScoreDustLayer = Boolean(activeProject?.score_dust_layer);
+  useEffect(() => { if (cutHasScoreDustLayer) setScoreDustPreview(false); }, [cutHasScoreDustLayer]);
   const usesScoreDust = useMemo(() => scoreDustPreview || (activeProject?.visualizer_timeline || []).some((item) => item?.visualizer_id === "builtin:score-dust"), [activeProject, scoreDustPreview]);
   const scoreDust = useEchoScoreDust({
     // Lyric words come from the server-verified timing, not the cut's timed_lyrics.
@@ -7894,7 +7899,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
 
                                 <div role="status" style={{ fontSize: 13, padding: 8 }}>
                                   <label>Audio visuals <select aria-label="Audio visuals" value={audioVisualMode} disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current} onChange={event => setAudioVisualMode(event.target.value)}><option value="prepared">Prepared song timing</option><option value="live">Live monitoring</option>{recordedSignalReplay && <option value="replay">Recorded signals</option>}</select></label>{" "}
-                                  <label title="Prepares missing Atlas beats and sections locally, loads stems and chooses a song direction. Saved cuts stay unchanged."><input type="checkbox" data-testid="echo-score-dust-toggle" checked={scoreDustPreview} disabled={previewRecordingActiveRef.current} onChange={event => { setScoreDustPreview(event.target.checked); if (event.target.checked) setAudioVisualMode("prepared"); }} /> Score Dust preview</label>{" "}
+                                  <label title={cutHasScoreDustLayer ? "This cut has its own Score Dust layer, which plays over its media, shaders and Living Light. The preview would replace those with dust only." : "Draws Score Dust in place of the cut's shaders and media to audition it. Prepares missing Atlas beats and sections locally, loads stems and chooses a song direction. Saved cuts stay unchanged."}><input type="checkbox" data-testid="echo-score-dust-toggle" checked={scoreDustPreview && !cutHasScoreDustLayer} disabled={previewRecordingActiveRef.current || cutHasScoreDustLayer} onChange={event => { setScoreDustPreview(event.target.checked); if (event.target.checked) setAudioVisualMode("prepared"); }} /> {cutHasScoreDustLayer ? "Score Dust preview (off: this cut has its own dust layer)" : "Score Dust preview (dust only)"}</label>{" "}
                                   {audioVisualMode === "prepared" ? activePreparedPerformance ? "Prepared signals ready. Seeking reuses cached timing." : preparedAudio.message || "Loading prepared timing…" : audioVisualMode === "replay" ? activeRecordedSignalReplay ? `Recorded signals: ${activeRecordedSignalReplay.startSeconds.toFixed(2)}–${activeRecordedSignalReplay.endSeconds.toFixed(2)}s. Outside this interval signals are silent.` : "Select the original song and cut to replay these signals." : "Live monitoring depends on playback history."}
                                   {audioVisualMode === "live" && <label><input type="checkbox" checked={captureLiveSignals} disabled={previewRecordingActiveRef.current} onChange={event => setCaptureLiveSignals(event.target.checked)} /> Save replayable signals with recording (64 MB limit)</label>}
                                   {activePreparedPerformance?.missingData?.unverifiedOrigins?.length > 0 && <span> Stem alignment pending review.</span>}
