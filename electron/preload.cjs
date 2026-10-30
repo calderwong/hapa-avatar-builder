@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 async function invokeOvercardLifecycle(channel) {
   const result = await ipcRenderer.invoke(channel);
@@ -102,4 +102,17 @@ contextBridge.exposeInMainWorld("hapaEchoTarotCoupleLoops", Object.freeze({
   resume: () => ipcRenderer.invoke("hapa-echo-tarot-couple-loops:resume"),
   review: (payload) => ipcRenderer.invoke("hapa-echo-tarot-couple-loops:review", payload),
   asset: (payload) => ipcRenderer.invoke("hapa-echo-tarot-couple-loops:asset", payload)
+}));
+
+contextBridge.exposeInMainWorld("hapaHellWeek", Object.freeze({
+  filePath: file => webUtils.getPathForFile(file),
+  prepareMore: payload => ipcRenderer.invoke("hapa-hell-week:prepareMore", payload),
+  avatars: () => ipcRenderer.invoke("hapa-hell-week:avatars"),
+  avatarOptions: payload => ipcRenderer.invoke("hapa-hell-week:avatarOptions", payload),
+  create: payload => ipcRenderer.invoke("hapa-hell-week:create", payload),
+  start: payload => ipcRenderer.invoke("hapa-hell-week:start", payload),
+  pause: payload => ipcRenderer.invoke("hapa-hell-week:pause", payload),
+  status: payload => ipcRenderer.invoke("hapa-hell-week:status", payload),
+  asset: payload => ipcRenderer.invoke("hapa-hell-week:asset", payload),
+  reconcile: payload => ipcRenderer.invoke("hapa-hell-week:reconcile", payload),
 }));

@@ -166,3 +166,13 @@ UI: Builder → Voice & Scripts. Shared service: `server/avatar-voice.mjs`; auth
 ## Whole-song compliance Topview — October 25, 2026
 
 Echo Album’s Song Health panel, authenticated `/api/echos/audio-atlas/song-health` routes and `cli/echo-song-health.mjs` share the same collector, compliance rules and repair coordinator. Read-only CLI audits cannot certify live graph delivery. Repairs use the running Builder owner; no alternate writer or transcription engine is introduced. The explicit first-pass specialist-adapter and playback-proof limits are in [Song Health](ECHO_SONG_HEALTH.md).
+
+## Hell Week native OpenAI creation — October 29, 2026
+
+The desktop Create lane and `cli/hell-week.cjs` share `electron/hell-week-generation.cjs` and the versioned contract in `electron/hell-week-contract.cjs`. Both prepare exact source spans, execute LEO → Thor → artwork sequentially, pause/resume durable runs, and register candidates through existing Builder media/custody/Items APIs. The trusted preload bridge exposes create/start/pause/status/asset; ordinary browser creation is explicitly unavailable because saved credentials stay in Electron main. No remote paid-generation HTTP route is added. The existing Dev Proto library and handoff remain separate. See [Hell Week Builder](HELL_WEEK_BUILDER.md) for limits, CLI commands, recovery and acceptance evidence.
+
+
+Hell Week Avatar foundations (2026-10-30): native searchable multi-select and per-Avatar image/text-only choices share the engine's `avatarSelections` preparation contract with CLI `avatars`, `avatar-options ID`, `create --avatars=ID,ID` / `--avatar-selections=FILE`. Trusted IPC adds `avatars` and `avatarOptions`; canonical HTTP discovery reuses paginated Avatar index/attach packs. Runs freeze profiles and image digests; Cards retain selected-versus-used lineage and used `connections.avatarIds` before custody. Ordinary-browser paid creation remains unavailable. See the owning Hell Week protocol for limits, recovery and verification.
+
+
+Hell Week semantic v2 (2026-10-30): new native/CLI runs index original files incrementally, discover zero/many Cards with paged continuation, retain repeated-source evidence and optionally pause after discovery or an image batch. IPC adds `prepareMore`; CLI adds `prepare ID`, `--design-only`, and `--images=COUNT`; `--max-cards` is retired. Status returns bounded Card pages (24 default, 48 maximum) and 25 recent runs (50 maximum); known run IDs remain directly addressable. V1 runs stay on the legacy router. External run records share the existing registered store cap; no raw-source/media mirror, new paid HTTP route, or automatic background resume.

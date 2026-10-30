@@ -109,14 +109,17 @@ Universal Hapa Card Plane v1 is released. Avatar/Item JSON stores remain authori
 - Every new fork/worker path must have: an explicit execution-argument policy, a recursion/role marker, child creation inside the owner's cleanup boundary, bounded graceful shutdown, `SIGTERM` fallback, `SIGKILL` fallback, and a regression test for the process boundary.
 - Treat mass process creation as an incident, not as ordinary cold-load latency. Record the triggering command, owning code path, process count, containment action, and learning delta before resuming feature work.
 
-## Completion Commit Protocol
+## Completion Commit Protocol — updated October 30, 2026
 
-- A source or documentation task is not complete until its scoped changes have passed the required verification and are recorded in a focused commit.
+- A source or documentation task must end with a focused commit of its scoped changes after running the applicable verification. Calder explicitly authorized this policy update on October 30, 2026: fix failing tests or commit the new work with failures documented; failing checks alone must not leave completed work indefinitely uncommitted.
 - Before committing, inspect `git status` and the staged diff. Stage only intended source, documentation, tests, and approved fixtures; never sweep unrelated or pre-existing work into the commit.
 - Never commit credentials, runtime state, local databases or logs, generated media or build outputs, private source payloads, or workstation-specific paths.
 - Use a commit message that names the completed capability and verification. Preserve the repository's configured identity and never rewrite global Git identity.
 - A commit does not authorize a push, merge, deployment, or other external side effect. Those actions still require operator authorization.
-- If verification fails or a safe focused commit cannot be created, the task is not done: leave the affected work uncommitted and report the blocker explicitly.
+- Investigate failing checks and fix failures caused by the scoped change when feasible. Preserve unrelated work; do not expand into unrelated repairs merely to make a commit possible. Do not disable tests, weaken assertions or hide failures to obtain a green result.
+- If failures remain, commit the scoped work anyway with an explicit verification record: commands/results, failing checks, whether causality is established or uncertain, affected behavior/limitations, and follow-up repair work. Reuse current verification evidence when only documentation or commit bookkeeping changes; rerun affected checks when code changes invalidate it.
+- A commit with known failures is a recorded development checkpoint, not a clean release or a claim that the full repository passed. Report remaining failures in the handoff. Push, merge, deployment and publication retain their existing authorization gates.
+- If a safe focused commit itself cannot be created (for example, unresolved ownership, secrets, conflicting concurrent edits or a Git error), preserve the work and report that concrete blocker. A failed test alone is not such a blocker.
 
 ## Verification
 
@@ -181,3 +184,11 @@ states. This supplements existing owner and protocol rules.
 ## Whole-song health completion gate — October 25, 2026
 
 For lyric, beat, stem, Living Light, shader or Director changes, use [Song Health Topview](docs/ECHO_SONG_HEALTH.md). Feature-local success cannot establish a Healthy song. Preserve exact written text, measured timing evidence, manual locks and append-only cuts; re-audit all affected requirement families and retain explicit unresolved reasons. Do not infer whole-album compliance from historical feature acceptance or a completed Atlas run.
+
+## Hell Week document-to-Card pipeline — October 29, 2026
+
+Read [HELL_WEEK_BUILDER.md](docs/HELL_WEEK_BUILDER.md) before changing native Hell Week generation. Builder owns the new OpenAI creation lane; Dev Proto retains its existing library and handoff ownership. UI and CLI share the durable engine; keep raw sources and credentials private, preserve exact source spans, and never automatically replay ambiguous paid requests or resume saved runs. Explicit one-step recovery requires acknowledgement of possible duplicate billing, preserves the original attempt, and pauses after recovery. Cards remain human-review candidates with origin custody and the existing outbox contract.
+
+Hell Week Avatar foundations freeze trusted owner profile/image snapshots at preparation. Preserve selected-versus-used attribution, validate source pixel digests before image dispatch, use only the per-Card reference subset, and keep accepted-response recovery independent of reference availability. No input-media copies or automatic active-Avatar attachment.
+
+New Hell Week runs use semantic v2: preserve whole-source incremental coverage, zero/many Card discovery and continuation pages independently of illustration allowances. Never reintroduce one-Card-per-chunk or a hidden total Card cap. V1 runs retain their engine and IDs. Keep source files in place, accepted-page/receipt recovery idempotent, per-Card records external and paged, and image batch limits explicit per continuation. No paid canary is implied by implementation verification.

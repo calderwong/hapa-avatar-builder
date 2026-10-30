@@ -1,3 +1,4 @@
+import HellWeekForge from "./HellWeekForge.jsx";
 import { useEffect, useState, useRef } from "react";
 import {
   Flame,
@@ -17,7 +18,7 @@ import { useOvercardPlacement, useOvercardResponsibility, useOvercardStore } fro
 import { commitPlacementCommand, createAttachCommand } from "@hapa/overcard/core";
 import { transitionHellWeekBinding } from "../overcard/hellWeekResponsibility.js";
 
-export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
+function DevProtoHellWeekLibrary({ onExpand, onPreview, onPreviewHide }) {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -689,4 +690,15 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
       </aside>
     </div>
   );
+}
+
+export default function HellWeekView(props) {
+  const [lane, setLane] = useState("create");
+  return <div style={{height:"100%", minHeight:0, display:"flex", flexDirection:"column"}}>
+    <nav className="hw-tabs" aria-label="Hell Week workspace">
+      <button className="hapa-btn" aria-pressed={lane === "create"} onClick={() => setLane("create")}>Create Hapa Cards</button>
+      <button className="hapa-btn" aria-pressed={lane === "library"} onClick={() => setLane("library")}>Dev Proto library</button>
+    </nav>
+    <div style={{flex:1,minHeight:0}}>{lane === "create" ? <HellWeekForge /> : <DevProtoHellWeekLibrary {...props} />}</div>
+  </div>;
 }

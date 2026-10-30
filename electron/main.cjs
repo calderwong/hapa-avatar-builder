@@ -1,4 +1,6 @@
-const { app, BrowserWindow, ipcMain, safeStorage, session } = require("electron");
+const { createHellWeekAvatarReferences } = require('./hell-week-avatars.cjs');
+const { createHellWeekStorage } = require('./hell-week-storage.cjs');
+const { app, BrowserWindow, ipcMain, safeStorage, session, nativeImage } = require("electron");
 const http = require("node:http");
 const { resolveBuilderLocalUiUrl, desktopApiBase } = require("./builder-local-ui.cjs");
 const path = require("node:path");
@@ -7,6 +9,8 @@ const fs = require("node:fs");
 const crypto = require("node:crypto");
 const { ensureLocalOvercardHost, probeOvercardHost } = require("@hapa/overcard/host");
 const { createProviderCredentialStore } = require("./provider-credential-store.cjs");
+const { createHellWeekGeneration, safeError: hellWeekError } = require("./hell-week-generation.cjs");
+const { createHellWeekRegistrar } = require("./hell-week-registration.cjs");
 const { createEchoReferenceIntelligence } = require("./echo-reference-intelligence.cjs");
 const { createEchoTarotImageGeneration, MAIN_COUPLE_PROFILE, MAIN_MAN_PROFILE } = require("./echo-tarot-image-generation.cjs");
 const {
@@ -51,6 +55,7 @@ let operatorConsoleServer = null;
 let windowCreationPromise = null;
 let providerCredentialStore = null;
 let echoReferenceIntelligence = null;
+let hellWeekGeneration = null;
 let echoTarotImageGeneration = null;
 let echoTarotManImageGeneration = null;
 let echoTarotCoupleImageGeneration = null;
@@ -628,6 +633,25 @@ if (HAS_SINGLE_INSTANCE_LOCK) {
       repositoryRoot: ROOT,
       safeStorage,
     });
+    hellWeekGeneration = createHellWeekGeneration({ avatarReferences: createHellWeekAvatarReferences({ repositoryRoot: ROOT, apiBase: () => process.env.HAPA_AVATAR_API_BASE || desktopUrl }), mediaStore: createHellWeekStorage({ configFile: path.join(app.getPath("userData"), "hell-week-storage.json") }),
+      previewImage: bytes => {
+        const source = nativeImage.createFromBuffer(bytes);
+        if (source.isEmpty()) throw Error('Artwork could not be decoded.');
+        const preview = source.resize({ height: 512 }).toJPEG(78);
+        if (preview.length > 256 * 1024) throw Error('Artwork preview exceeded its 256 KiB limit.');
+        return `data:image/jpeg;base64,${preview.toString('base64')}`;
+      },
+      userDataPath: app.getPath("userData"), credentialStore: providerCredentialStore,
+      registerCard: createHellWeekRegistrar({ repositoryRoot: ROOT,
+        apiBase: () => process.env.HAPA_AVATAR_API_BASE || desktopUrl, nativeSession: true }),
+    });
+    for (const operation of ["create", "start", "pause", "status", "asset", "reconcile", "avatars", "avatarOptions", "prepareMore"]) {
+      ipcMain.handle(`hapa-hell-week:${operation}`, async (event, payload) => {
+        if (!isTrustedCredentialSender(event)) return { ok: false, message: "Hell Week access denied for this window." };
+        try { return { ok: true, ...await hellWeekGeneration[operation](payload) }; }
+        catch (error) { return { ok: false, message: hellWeekError(error) }; }
+      });
+    }
     echoReferenceIntelligence = createEchoReferenceIntelligence({
       userDataPath: app.getPath("userData"),
       credentialStore: providerCredentialStore,
