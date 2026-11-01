@@ -3760,6 +3760,7 @@ export default function App({ overcardAdapter }) {
           <section className="builder-view">
             <AvatarVoicePanel avatarId={selectedAvatar.id} label={selectedAvatar.primaryName} />
             <WriterCharacterPanel avatarId={selectedAvatar.id} label={selectedAvatar.primaryName} />
+            <div className="builder-media-workspace">
             <div className="panel hapa-panel intake-panel" data-variant="resting">
               <div className="section-head hapa-panel-head">
                 <span><Upload size={15} /> Media Intake</span>
@@ -3951,6 +3952,7 @@ export default function App({ overcardAdapter }) {
                 <DeferredJsonPre value={attachPack} placeholder="Preparing avatar pack..." />
               </div>
             </aside>
+            </div>
           </section>
         )}
 

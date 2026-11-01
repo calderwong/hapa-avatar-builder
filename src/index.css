@@ -3748,15 +3748,34 @@ h1 {
   background: rgba(34, 211, 238, 0.08);
 }
 
+/* Voice and shared-character forms own full-width rows. The media inspector
+   belongs to the bounded media workspace below, never the entire viewport. */
 .builder-view {
-  display: grid;
-  grid-template-columns: 245px minmax(0, 1fr) 355px;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   min-width: 0;
   min-height: 0;
   height: 100%;
-  overflow: hidden;
+  overflow: auto;
 }
+
+.builder-view > .avatar-voice-panel,
+.builder-view > .writer-character-panel { flex-shrink: 0; }
+
+.builder-media-workspace {
+  display: grid;
+  grid-template-columns: 245px minmax(0, 1fr) 355px;
+  gap: 14px;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 480px;
+  height: calc(100dvh - 106px);
+  overflow: hidden;
+  scroll-margin-top: 92px;
+}
+
+.builder-media-workspace > .inspector { scroll-margin-top: 92px; }
 
 .route-pending {
   position: fixed;
@@ -3909,16 +3928,6 @@ h1 {
     right: 0;
   }
 
-  .builder-view > .inspector {
-    position: fixed;
-    top: 92px;
-    right: 14px;
-    bottom: 14px;
-    width: 355px;
-    height: auto;
-    max-height: none;
-    z-index: 24;
-  }
 }
 
 .search-box {
@@ -20883,7 +20892,7 @@ h1 {
     max-height: 58vh;
   }
 
-  .builder-view {
+  .builder-media-workspace {
     grid-template-columns: 220px minmax(0, 1fr);
     height: auto;
     overflow: visible;
@@ -21042,7 +21051,7 @@ h1 {
 @media (max-width: 900px) {
   .topbar,
   .workspace,
-  .builder-view,
+  .builder-media-workspace,
   .protocol-view,
   .mind-view,
   .lore-reader-view,
