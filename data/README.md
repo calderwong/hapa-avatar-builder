@@ -26,10 +26,10 @@ Important local files:
 - `avatar-likeness/profiles.json` - per-Avatar likeness profiles (Avatar Likeness Assignment, layer L2): weighted visual signature + text channel + content-hash fingerprints. Sidecar data, never mutates `avatar-store.json`; rebuilt at any time by `node cli/avatar-builder.mjs avatar-likeness-profile --apply` and served read-only at `GET /api/avatars/likeness` (admin-gated).
 - `avatar-likeness/media-signatures.json` - Human Enricher accepted-media likeness signatures (layer L3): content-hash keyed, signer-versioned L1 visual signature + enrichment text channels + deterministic palette color words. Written by `node scripts/avatar-likeness-match.mjs --apply`.
 - `avatar-likeness/verdicts.json` - likeness matcher verdict receipts (layer L3): gated primary/secondary Avatar proposals + top-5 candidate tables, one per accepted media. Proposals for the human likeness lane (layer L4); the batch never writes the enricher ledger.
-- `backups/` - pre-merge and pre-heal store snapshots.
+- `backups/` - pre-change recovery material. Legacy timestamped snapshots still need qualified consolidation; new and changed writers follow the one-generation [retention policy](../docs/BACKUP_RETENTION.md).
 - `merge-reports/` - JSON reports from repeatable data merge scripts.
 
-Before making direct store edits, back up the touched JSON files under `data/backups/`.
+Before changing stores, verify a complete pre-change recovery point. Once the change is confirmed, retain one full rollback generation for its declared recovery scope, retire superseded payloads, and keep compact receipts. Unconfirmed/failed changes retain their recovery material. Do not treat the newest individual JSON file as a complete project backup. See [Backup Retention](../docs/BACKUP_RETENTION.md) for the consistency, verification and cleanup gates; publication of this policy does not retrofit legacy writers.
 
 ## Current Avatar Store
 

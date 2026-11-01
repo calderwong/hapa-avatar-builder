@@ -94,7 +94,7 @@ Universal Hapa Card Plane v1 is released. Avatar/Item JSON stores remain authori
 - Preserve the Tarot Library management surface when merging from the Pinokio app copy.
 - Do not overwrite Avatar IDs when duplicate app copies diverge. If an incoming ID points to a different identity, import it under a provenance-marked replacement ID.
 - Keep generated media, backups, subscriber logs, Overwind projections, build output, dependency folders, secrets, and local runtime stores out of Git.
-- Before changing stores, create a backup under `data/backups/`.
+- Before changing stores, establish a complete, verified pre-change recovery point. After the change is confirmed, retain exactly one full rollback generation for the declared recovery scope and retire superseded payloads; keep compact history receipts. Do not accumulate timestamped snapshots indefinitely. Follow [Backup Retention](docs/BACKUP_RETENTION.md), including pending-change protection and legacy migration qualification. `data/backups/` is the local metadata/store backup route, not permission to copy full media onto the SSD.
 - Prefer repeatable scripts for data merges and audits. Record merge reports under `data/merge-reports/`.
 - Maintain UI/API/CLI parity when adding new cards, tarot, media, song, or world-store behavior.
 
