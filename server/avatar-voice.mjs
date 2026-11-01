@@ -7,6 +7,17 @@ import {createOmniVoiceProvider,voiceChild} from './avatar-voice-provider.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const id=kind=>`${kind}-${randomUUID()}`;
 const now=()=>new Date().toISOString();
+export function decodeVoiceCaptureAudio(dataUrl){
+  // FileReader preserves MediaRecorder MIME parameters (webm;codecs=opus).
+  const match=typeof dataUrl==='string'&&/^data:audio\/[a-z0-9!#$&^_.+-]+(?:;[a-z0-9!#$&^_.+-]+=(?:[a-z0-9!#$&^_.+:-]+|"[^"\r\n]*"))*;base64,([A-Za-z0-9+/\r\n]*={0,2})$/i.exec(dataUrl);
+  if(!match)throw new Error('The audio clip could not be read. Keep this take and try saving again.');
+  const encoded=match[1].replace(/[\r\n]/g,'');
+  if(encoded.length>4*Math.ceil(15*1024*1024/3))throw new Error('Audio must be between 44 bytes and 15 MB.');
+  const bytes=Buffer.from(encoded,'base64');
+  if(bytes.toString('base64')!==encoded)throw new Error('The audio clip encoding is incomplete. Keep this take and try saving again.');
+  if(bytes.length<44||bytes.length>15*1024*1024)throw new Error('Audio must be between 44 bytes and 15 MB.');
+  return bytes;
+}
 export function voiceWavDuration(wav){
   if(wav.length<44||wav.toString('ascii',0,4)!=='RIFF'||wav.toString('ascii',8,12)!=='WAVE')throw new Error('Invalid WAV audio.');
   let rate=0,size=0;
@@ -40,9 +51,7 @@ export function createAvatarVoiceService({root,custody,resolveAvatar,listSpeaker
     const speakerAvatarId=input.speakerAvatarId||avatarId,speakerAvatar=await avatar(speakerAvatarId),speaker=voiceText(speakerAvatar.primaryName,'CMS speaker',120);
     if(input.replacesVoiceCardId){const previous=(await load()).cards.find(c=>c.id===input.replacesVoiceCardId&&c.avatarId===avatarId&&!c.deletedAt);if(!previous)throw new Error('The capture to re-record is no longer available.');}
     if(input.consent!==true)throw new Error('Confirm permission to use this voice for generated speech.');
-    const match=/^data:audio\/[\w.+;-]+;base64,([A-Za-z0-9+/=\r\n]+)$/.exec(input.dataUrl||'');
-    if(!match)throw new Error('Upload or record an audio clip.');
-    const bytes=Buffer.from(match[1],'base64');if(bytes.length<44||bytes.length>15*1024*1024)throw new Error('Audio must be between 44 bytes and 15 MB.');
+    const bytes=decodeVoiceCaptureAudio(input.dataUrl);
     const cardId=id('voice'),temp=path.join(dir,`${cardId}.input`),output=path.join(dir,`${cardId}.wav`);
     await mkdir(dir,{recursive:true,mode:0o700});await writeFile(temp,bytes,{mode:0o600});
     let committed=false;

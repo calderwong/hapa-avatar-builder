@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,readFile,writeFile,copyFile,rm,mkdir} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {createAvatarVoiceService} from '../server/avatar-voice.mjs';
+import {createAvatarVoiceService,decodeVoiceCaptureAudio} from '../server/avatar-voice.mjs';
 import {openAvatarCardCustodyService} from '../server/card-custody-service.mjs';
 import {validateVoiceScript,voiceStyleCoverage} from '../src/domain/avatar-voice.js';
 import {voiceChild,createOmniVoiceProvider} from '../server/avatar-voice-provider.mjs';
@@ -26,6 +26,26 @@ test('Voice Card custody, Avatar isolation, automatic scripts, generation proven
     const source=await service.audio('red',result.cards[0].file);await writeFile(source,wav(5));await service.generate('red',{scriptId:result.scripts[0].id,voiceCardId:result.cards[0].id});
     for(let i=0;i<100;i++){if((await service.inspect('red')).clips.at(-1).state==='failed')break;await new Promise(r=>setTimeout(r,20));}
     assert.match((await service.inspect('red')).clips.at(-1).error,/source changed/);assert.equal(calls,2);
+  }finally{await service.close();await rm(root,{recursive:true,force:true});}
+});
+test('Capture data URLs preserve bytes with browser codec parameters and reject invalid input',()=>{
+  const bytes=wav(),encoded=bytes.toString('base64');
+  for(const mime of ['audio/wav','audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/mp4;codecs=mp4a.40.2','audio/webm;codecs="opus"','audio/webm;codecs="opus,vorbis"'])
+    assert.deepEqual(decodeVoiceCaptureAudio('data:'+mime+';base64,'+encoded),bytes);
+  for(const input of [undefined,{},'data:text/html;base64,'+encoded,'data:video/webm;base64,'+encoded,'data:audio/webm;codecs=opus,'+encoded,'data:audio/wav;base64,'+encoded+'!','data:audio/wav;base64,AAAA'])assert.throws(()=>decodeVoiceCaptureAudio(input));
+});
+test('MediaRecorder WebM Opus take saves to its Avatar and survives service reload',async()=>{
+  const root=await mkdtemp(path.join(os.tmpdir(),'avatar-voice-recorder-'));
+  const custody=openAvatarCardCustodyService({root:path.join(root,'custody')});
+  const make=()=>createAvatarVoiceService({root,custody,resolveAvatar:async id=>({id,primaryName:id}),provider:{status:async()=>({ready:false,error:'Fixture: no inference'})}});
+  let service=make();
+  try{
+    const input=path.join(root,'source.wav'),recorded=path.join(root,'recorded.webm');await writeFile(input,wav());
+    await voiceChild('/opt/homebrew/bin/ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-i',input,'-c:a','libopus',recorded],{timeout:10000});
+    const capture=await service.capture('red',{style:'natural',transcript:'Synthetic test fixture.',provenance:'Synthetic silence; recording-format regression only',syntheticSource:true,consent:true,autoGenerate:false,dataUrl:'data:audio/webm;codecs=opus;base64,'+(await readFile(recorded)).toString('base64')});
+    assert.equal(capture.cards.length,1);assert.equal(capture.cards[0].avatarId,'red');assert.equal(capture.cards[0].custodyState,'verified');assert.equal(capture.cards[0].duration,4);
+    await service.close();service=make();const saved=await service.inspect('red');assert.equal(saved.cards[0].id,capture.cards[0].id);
+    assert.equal((await readFile(await service.audio('red',saved.cards[0].file))).toString('ascii',0,4),'RIFF');assert.equal((await service.inspect('blue')).cards.length,0);
   }finally{await service.close();await rm(root,{recursive:true,force:true});}
 });
 test('Scripts reject unsupported performance directions',()=>{assert.throws(()=>validateVoiceScript({title:'Test',text:'Hi',gesture:'wave'}),/Unsupported/);});
