@@ -84,6 +84,7 @@ function createHellWeekRegistrar({ repositoryRoot, apiBase, fetchImpl = globalTh
     const existing = store.cards.find(c => c.id === card.id);
     const expectedAvatarLineage = require('./hell-week-avatars.cjs').cardAvatarLineage(run.avatars, card.design.avatar_uses);
     if (existing) {
+      if (card.reviewedDesign && existing.cardRecord?.hellWeek?.reviewedDesign?.source?.digest !== card.reviewedDesign.source.digest) throw Error('Card ID exists with different reviewed-design provenance.');
       if (run.avatars?.length && JSON.stringify(existing.cardRecord?.hellWeek?.avatarLineage) !== JSON.stringify(expectedAvatarLineage)) throw Error('Card ID exists with different Avatar provenance.');
       if (existing.cardRecord?.hellWeek?.sourceHash !== run.sourceHash || existing.cardRecord?.hellWeek?.imageSha256 !== card.image.sha256) throw Error('Card ID exists with different provenance.');
       const attached = existing.mediaAssets?.find(a => a.id === `${card.id}-art` && a.uri && a.metadata?.hellWeek?.imageSha256 === card.image.sha256);
@@ -121,7 +122,7 @@ function createHellWeekRegistrar({ repositoryRoot, apiBase, fetchImpl = globalTh
       preview.recipe = { sourceSha256: card.image.sha256, sha256: hash(pixels), bytes: pixels.length, height: 512, recipe: 'electron-nativeimage-jpeg78-v1' };
     }
     const avatarLineage = expectedAvatarLineage;
-    const lineage = { sourceDigestAlgorithm: run.sourceDigestAlgorithm || 'sha256-utf8-v1', ...(run.schema === 'hapa.builder-hell-week.v2' ? { discovery: { conceptKey: card.design.concept_key, originCallId: card.originCallId, relatedSourceCount: card.relatedSourceCount || 0, occurrenceIndexUri: `hapa-builder-hell-week://${run.id}/occurrences/${card.id}` } } : {}), avatarLineage, schema: run.schema, runId: run.id, chunkId: chunk.id, sourceHash: run.sourceHash,
+    const lineage = { ...(card.reviewedDesign ? { reviewedDesign: card.reviewedDesign, flavorText: card.design.flavor_text, parameters: card.design.parameters } : {}), sourceDigestAlgorithm: run.sourceDigestAlgorithm || 'sha256-utf8-v1', ...(run.schema === 'hapa.builder-hell-week.v2' ? { discovery: { conceptKey: card.design.concept_key, originCallId: card.originCallId, relatedSourceCount: card.relatedSourceCount || 0, occurrenceIndexUri: `hapa-builder-hell-week://${run.id}/occurrences/${card.id}` } } : {}), avatarLineage, schema: run.schema, runId: run.id, chunkId: chunk.id, sourceHash: run.sourceHash,
       spans: chunk.spans.map(({ text, ...span }) => span), imageSha256: card.image.sha256,
       models: run.config, reviewStatus: 'candidate-pending-human-review', sourceOwner: 'operator supplied',
       adaptedFrom: 'hapa-dev-proto:LEO/Thor', imagePrompt: card.imagePrompt,
@@ -147,6 +148,7 @@ function createHellWeekRegistrar({ repositoryRoot, apiBase, fetchImpl = globalTh
     store = await (await request('POST', '/api/items/cards', { card: record })).json();
     const saved = store.cards.find(c => c.id === card.id);
     if (JSON.stringify(saved?.cardRecord?.hellWeek?.avatarLineage) !== JSON.stringify(avatarLineage)) throw Error('Owner did not preserve Avatar lineage.');
+    if (card.reviewedDesign && saved?.cardRecord?.hellWeek?.reviewedDesign?.source?.digest !== card.reviewedDesign.source.digest) throw Error('Owner did not preserve the exact reviewed design.');
     if (!saved || saved.cardRecord?.hellWeek?.imageSha256 !== card.image.sha256 || !saved.mediaAssets?.some(a => a.id === mediaId && a.uri === media.uri && (!preview || a.thumbnailUri === preview.uri))) throw Error('Card registration could not be verified.');
     return { cardId: saved.id, uri: media.uri, custody: custody.receipt, reviewStatus: 'candidate-pending-human-review' };
   }

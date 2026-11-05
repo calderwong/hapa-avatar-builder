@@ -102,3 +102,9 @@ test('Avatar origins and used relationships survive owner normalization and prec
  const birth=JSON.parse(requests.find(r=>r.route==='/api/cards/custody/ensure').request.body).card;assert.deepEqual(birth.cardRecord.hellWeek.avatarLineage,lineage);
  cards[0].cardRecord.hellWeek.avatarLineage.used=[];await assert.rejects(()=>register(input),/different Avatar provenance/);
 });
+
+
+test('reviewed Dreamer six-field source survives native normalization and custody preparation',async t=>{
+ const f=await fixture(t);f.input.card.reviewedDesign={adapter:'hapa.builder.reviewed-designs.v1',source:{id:'record:fixture',revision:1,digest:'a'.repeat(64)},recordJson:'exact reviewed source',promptSha256:hash(f.input.card.imagePrompt)};f.input.card.design.flavor_text='An attributed flavor';f.input.card.design.parameters=[{name:'facets',type:'integer',value:6}];
+ await f.register(f.input);const saved=f.cards[0].cardRecord.hellWeek;assert.deepEqual(saved.reviewedDesign,f.input.card.reviewedDesign);assert.equal(saved.flavorText,'An attributed flavor');assert.equal(saved.parameters[0].value,6);
+});

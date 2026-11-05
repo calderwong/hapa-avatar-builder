@@ -25,6 +25,7 @@ function createSemanticHellWeek({root,atomic,safeError,lock,worker,credentialSto
  const paid=require('./hell-week-transport.cjs').createHellWeekTransport({root,dir,atomic,save,journal,credentialStore,fetchImpl,mediaStore,avatarReferences,now,textTimeoutMs,imageTimeoutMs,admitRecords:admission,persistReceipts:true});
  function request(model,spec){return{model,store:false,instructions:spec.instructions,input:spec.input,max_output_tokens:16000,text:{format:{type:'json_schema',name:'hapa_semantic_stage',strict:true,schema:spec.schema}}};}
  function parsed(result){if(result.body?.status!=='completed')throw Error('Incomplete agent output retained for review.');const content=(result.body.output||[]).flatMap(o=>o.content||[]);if(content.some(c=>c.type==='refusal'))throw Error('Agent declined this section. Saved response retained.');try{return JSON.parse(content.filter(c=>c.type==='output_text').map(c=>c.text).join(''))}catch{throw Error('Invalid structured response retained for review.')}}
+ async function importDesigns(raw){const {validate,prepareReviewed}=require('./hell-week-reviewed-designs.cjs');const spec=validate(raw);if(active)throw Error('A Hell Week run is active.');const unlock=await lock(spec.id);try{return await prepareReviewed(raw,{atomic,root,local,dir,save,read,admission,now});}finally{await unlock();}}
  async function create(input){
   // Validate credentials-free options first. The legacy limit is not part of this plan.
   const config={...prepare({...input,text:'Configuration validation',name:'configuration.txt',format:'text',maxCards:1}).config};delete config.maxCards;
@@ -71,7 +72,7 @@ function createSemanticHellWeek({root,atomic,safeError,lock,worker,credentialSto
   return page;
  }
  async function execute(id,unlock,{mode='all',imageLimit=null,recoveryOnly=false}={}){let run;try{
-  const loaded=await read(id);run=loaded.run;const plan=loaded.plan;await admission();if(run.phase==='prepare')throw Error('Finish source preparation before starting agent work.');
+  const loaded=await read(id);run=loaded.run;const plan=loaded.plan;await admission();if(['prepare','reviewed-design-import'].includes(run.phase))throw Error('Finish source/design preparation before starting artwork.');
   const deadline=now()+leaseMs,startImages=run.imageCount,startAttempts=run.attempts;
   run.state='running';run.error=null;await save(run);
   async function admit(stage,millis){const control=await optional(path.join(local(id),'control.json'));const recovered=run.recoveryCall&&(await optional(path.join(dir(id),run.recoveryCall+'.receipt.json')))?.state==='complete';const reason=control?.pauseRequested?'operator':recovered||recoveryOnly&&run.attempts>startAttempts?'recovery':now()+millis+30000>deadline?'lease':null;
@@ -103,6 +104,7 @@ function createSemanticHellWeek({root,atomic,safeError,lock,worker,credentialSto
     if(!await admit(`Artwork · ${run.imageCursor+1}/${run.totalCards}`,imageTimeoutMs))return;await registerCard.preflight?.({run});
     const used=(card.design.avatar_uses||[]).map(use=>({use,avatar:plan.avatars.find(a=>a.avatarId===use.avatar_id)}));if(used.some(x=>!x.avatar))throw Error('Unknown Avatar in saved design.');const references=used.filter(x=>x.avatar.image);
     card.imagePrompt=`${card.design.image_prompt}\n\n${AESTHETIC}`+(used.length?'\n\nCreative Avatar references:\n'+used.map(({avatar,use})=>`${avatar.name}: ${use.role}. ${use.reason} ${avatar.image?`Reference image ${references.findIndex(x=>x.avatar.avatarId===avatar.avatarId)+1}; preserve recognizable identity.`:'Text profile only: '+JSON.stringify(avatar.context)}`).join('\n')+'\nPreserve the adventurous scene; do not copy a reference sheet.':'');
+    if(plan.reviewedDesigns?.exactPrompt){if(card.reviewedDesign?.promptSha256!==hash(card.design.image_prompt))throw Error('Reviewed prompt changed; prepare an explicit new branch.');card.imagePrompt=card.design.image_prompt;}
     card.image=await paid(run,`image-${run.imageCursor}`,'image',{model:plan.config.imageModel,prompt:card.imagePrompt,quality:plan.config.quality,size:plan.config.size,output_format:'png',n:1,...(references.length?{referenceImages:references.map(x=>x.avatar.image)}:{})});card.state='illustrated';await atomic(cardFile,card);
    }
    // Derive counts from the sequential durable ordinal, including cursor/receipt recovery gaps.
@@ -114,7 +116,7 @@ function createSemanticHellWeek({root,atomic,safeError,lock,worker,credentialSto
  }catch(error){if(run){run.state='blocked';run.error=safeError(error);await save(run);}else throw error;}finally{await unlock();}}
  async function start({id,mode='all',imageLimit=null,retryUnknownCallId=null,acknowledgePossibleDuplicateCharge=false,retryRejected=false,repairThorEvidence=false,repairLeoWindow=null}={}){
   if(repairThorEvidence||repairLeoWindow!==null)throw Error('Legacy repair options do not apply to this discovery run. Saved responses are retained for review.');if(active)throw Error('A Hell Week run is active.');if(!['all','design','images'].includes(mode))throw Error('Choose discovery, images or the complete workflow.');if(imageLimit!==null&&(!Number.isSafeInteger(imageLimit)||imageLimit<1))throw Error('Image batch size must be a positive whole number, or empty for all.');
-  const unlock=await lock(id);try{const{run}=await read(id);if(run.state==='complete'){await unlock();return status({id});}await admission();
+  const unlock=await lock(id);try{const{run}=await read(id);if(run.phase==='reviewed-design-import')throw Error('Resume the exact reviewed-design import before artwork.');if(run.state==='complete'){await unlock();return status({id});}await admission();
    if(retryUnknownCallId&&retryRejected)throw Error('Choose one recovery action.');
    let recoveryOnly=false;
    for(const[callId,receipt]of Object.entries(run.calls)){
@@ -135,6 +137,6 @@ function createSemanticHellWeek({root,atomic,safeError,lock,worker,credentialSto
  async function pause({id}){await read(id);await atomic(path.join(local(id),'control.json'),{pauseRequested:true});return{id,pauseRequested:true};}
  async function asset({id,cardId}){await read(id);await mediaStore.access();if(typeof cardId!=='string'||!new RegExp('^'+id+'-card-[a-f0-9]{20}$').test(cardId))throw Error('Invalid Card identity.');const {ordinal}=await json(path.join(dir(id),'card-ids',cardId+'.json'));const card=await json(path.join(dir(id),'cards',numbered(ordinal)+'.json'));if(!card.image)throw Error('Artwork pending.');const bytes=await mediaStore.read(card.image.storage);return{dataUrl:previewImage?await previewImage(bytes):`data:image/png;base64,${bytes.toString('base64')}`};}
  async function reconcile(){throw Error('Resume this run to reconcile its next saved artwork without repeating generation. Completed Cards retain their owner links.');}
- return{create,prepareMore,start,pause,status,asset,reconcile,_active:()=>active};
+ return{create,importDesigns,prepareMore,start,pause,status,asset,reconcile,_active:()=>active};
 }
 module.exports={createSemanticHellWeek,SCHEMA};

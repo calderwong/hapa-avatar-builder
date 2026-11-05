@@ -237,3 +237,10 @@ The final registered-store preflight passed with 296,484,864 accounted bytes und
 After the implementation handoff, Calder explicitly requested committing this work and changing the repository rules to fix failing tests or commit new work with failures recorded. AGENTS.md now permits scoped development commits despite remaining failures, requires honest verification/causality/follow-up notes, and preserves separate publication/release gates. This supersedes the earlier completion-commit blocker statements above without rewriting their historical evidence.
 
 This Hell Week checkpoint includes the native LEO/Thor pipeline, Avatar foundations, semantic discovery, external storage and recovery hardening, tests and owner documentation. The current evidence remains: 55 focused Hell Week checks and 54 Overcard checks passed; production build and no-spend native/CLI acceptance passed; full suite 3,296 passed / 11 failed / one skipped; Tarot smoke fails Echo preview readiness. The 11 failures are the previously observed Echo/Director checks listed above; no clean-baseline causality proof is claimed. Follow-up: repair those Echo/Director assertions/runtime contracts and Echo preview readiness in their owning scope, then rerun affected broad gates before claiming a clean release. No tests were weakened, unrelated dirty changes were included, or paid calls made for this commit.
+
+
+## Reviewed Dreamer design intake — November 4, 2026
+
+[Reviewed-design import](REVIEWED_DESIGN_IMPORT.md) sends exact authored Cards
+into this existing artwork engine without rediscovery. The separate no-spend
+CLI prepares designs and reads receipts; native artwork controls remain explicit.

@@ -283,6 +283,7 @@ function createHellWeekGeneration(options = {}) {
   }
   return { ...legacy,
     create: input => semantic.create(input),
+    importDesigns: raw => semantic.importDesigns(raw),
     prepareMore: input => semantic.prepareMore(input),
     start: async input => (await owner(input.id)).start(input),
     pause: async input => (await owner(input.id)).pause(input),
