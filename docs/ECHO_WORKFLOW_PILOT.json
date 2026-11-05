@@ -3673,5 +3673,25 @@
     ],
     "requirementsClosed": [],
     "postmortem": "docs/postmortems/2026-11-05-echo-dust-campfire-repair.md"
+  },
+  "campfireRecording20261105": {
+    "status": "scoped-native-verification-complete",
+    "supersedes": "Campfire preview-only restriction in dustCampfireRepair20261105",
+    "focusedTests": {
+      "passed": 66,
+      "failed": 0
+    },
+    "build": "passed",
+    "nativeRecordingId": "f4520e91-b8b6-47e8-8678-e6d7914cfc7b",
+    "audio": "non-silent stereo AAC 48 kHz, 10.237458 seconds",
+    "video": "H.264 1080x1920, 10.232767 seconds",
+    "sizeBytes": 23693861,
+    "limitations": [
+      "Live preview resolution and visible catch-up holds",
+      "Pre-existing Campfire UI integration remains uncommitted",
+      "No whole-song or deterministic export acceptance"
+    ],
+    "requirementsClosed": [],
+    "postmortem": "docs/postmortems/2026-11-05-echo-dust-campfire-repair.md"
   }
 }

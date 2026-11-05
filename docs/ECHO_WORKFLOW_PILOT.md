@@ -1286,3 +1286,8 @@ and 23 stale recommended cuts. No whole-album health claim is made. See
 ## 2026-11-05 — Dust recording and album-wide Campfire toggle
 
 Scoped native verification: a nine-second Luna live recording contains Dust and exposes Download; Campfire renders using the selected song on Luna and Write Home and restores the cut when disabled. 63 focused checks, build and receipt check pass. An exact-decoder-frame capture attempt was rejected because it stalled live playback; the repair reuses the visible Dust canvas. Existing Electron drafts remain untouched. Campfire remains preview-only; its pre-existing uncommitted prototype and the scoped repair are preserved separately from the Dust commit. No whole-song health, human acceptance or requirement closure claimed. [Evidence and ownership boundary](postmortems/2026-11-05-echo-dust-campfire-repair.md).
+
+
+## 2026-11-05 follow-up — Campfire live recording
+
+Calder clarified that Campfire must record. The current local build captures the presented Campfire canvas with the song's audio and lyrics, waits for readiness and exposes Download. A ten-second Luna take was played back; file inspection verifies non-silent stereo AAC and H.264 picture. 66 focused checks and build/receipt pass. This supersedes the preceding preview-only limitation for live capture. The independent painter/tests are committed; UI wiring remains with the pre-existing uncommitted Campfire prototype to preserve ownership. No whole-song or requirement closure claimed. [Follow-up evidence](postmortems/2026-11-05-echo-dust-campfire-repair.md#follow-up--campfire-live-recording-enabled).

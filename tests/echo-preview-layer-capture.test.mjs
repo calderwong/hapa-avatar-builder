@@ -33,5 +33,5 @@ test('the real recorder wires the layer after Living Light and before lyrics and
   assert.ok(composite.indexOf('scoreDustLayerRecordingRef.current')>composite.indexOf('livingLightRecordingRef.current'));
   assert.ok(composite.indexOf('scoreDustLayerRecordingRef.current')<composite.indexOf('paintEchoLyricSurfaceToCanvas'));
   assert.match(source,/captureRef=\{scoreDustLayerRecordingRef\}/);
-  assert.match(source,/\['living_light_capture_waiting', 'score_dust_capture_waiting'\]/);
+  assert.match(source,/\['living_light_capture_waiting', 'score_dust_capture_waiting'/);
 });
