@@ -1291,3 +1291,17 @@ Scoped native verification: a nine-second Luna live recording contains Dust and 
 ## 2026-11-05 follow-up — Campfire live recording
 
 Calder clarified that Campfire must record. The current local build captures the presented Campfire canvas with the song's audio and lyrics, waits for readiness and exposes Download. A ten-second Luna take was played back; file inspection verifies non-silent stereo AAC and H.264 picture. 66 focused checks and build/receipt pass. This supersedes the preceding preview-only limitation for live capture. The independent painter/tests are committed; UI wiring remains with the pre-existing uncommitted Campfire prototype to preserve ownership. No whole-song or requirement closure claimed. [Follow-up evidence](postmortems/2026-11-05-echo-dust-campfire-repair.md#follow-up--campfire-live-recording-enabled).
+
+
+## 2026-11-05 — Campfire systemic choreography review
+
+Shared scene development now uses each song's own measured score, retains
+formations through section boundaries and reuses the later renderer's motion,
+framing and lifecycle support. Luna completed a continuous4:17 expanded preview;
+209 measured song plans compiled with finite controls, and65 focused checks
+plus build/receipt verification pass. Thirsty also played with its valid saved direction and toggled off. The initial
+API fingerprint mismatch was a missing-lyrics comparison error; strict binding
+validation stays in place. Source media,
+lyrics and the original Electron draft are untouched. Song-specific generated
+image integration, human creative acceptance and whole-song health remain
+separate. [Review and learning delta](postmortems/2026-11-05-campfire-systemic-review.md).

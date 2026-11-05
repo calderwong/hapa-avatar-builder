@@ -3693,5 +3693,35 @@
     ],
     "requirementsClosed": [],
     "postmortem": "docs/postmortems/2026-11-05-echo-dust-campfire-repair.md"
+  },
+  "campfireSystemicReview20261105": {
+    "status": "scoped-whole-song-playback-and-album-control-audit",
+    "focusedTests": {
+      "passed": 65,
+      "failed": 0
+    },
+    "measuredSongsAudited": 209,
+    "luna": {
+      "sourceCues": 13,
+      "scenes": 65,
+      "durationSeconds": 257.2,
+      "finalPresentedFrame": 7715,
+      "fullPlayback": "completed"
+    },
+    "build": "passed",
+    "limitations": [
+      "209 score/control plans audited; only Luna full GPU playback qualified",
+      "No generated-art integration or human creative acceptance",
+      "Pre-existing prototype integration remains uncommitted; scoped recovery patch retained",
+      "No whole-album health claim"
+    ],
+    "requirementsClosed": [],
+    "postmortem": "docs/postmortems/2026-11-05-campfire-systemic-review.md",
+    "bindingAuditCorrection": "Initial no-lyrics API projection differed; lyricLines=project matches saved Thirsty direction. Strict binding validation retained.",
+    "thirsty": {
+      "savedDirection": "valid",
+      "presentedFrame": 1023,
+      "toggleOff": "verified"
+    }
   }
 }
