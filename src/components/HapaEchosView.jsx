@@ -2844,6 +2844,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   // storage, no minting pipeline). If the upload fails, the blob is saved as
   // a local download so the capture is never silently dropped.
   const livingLightRecordingRef = useRef(null);
+  const scoreDustLayerRecordingRef = useRef(null);
   const previewRecordingStagingCanvasRef = useRef(null);
   const livingLightRecordingWaitRef = useRef(null);
   const livingLightRecordingPausedMsRef = useRef(0);
@@ -2990,6 +2991,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
       if(!source)throw Error('The Living Light capture surface is unavailable.');
       source.draw(context,t,width,height);
     }
+    if (project?.score_dust_layer) {
+      const source = scoreDustLayerRecordingRef.current;
+      if (!source) throw new Error('The Score Dust capture surface is unavailable. Open Preview and wait for the layer.');
+      source.draw(context, t, width, height);
+    }
     echoLyricPresentationRef.current?.(t);
     paintEchoLyricSurfaceToCanvas(context, echoLyricCaptureSurfaceRef.current, { width, height });
     // Commit only complete pictures; a waiting Journey must never expose its underlying shot.
@@ -3012,12 +3018,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
             previewRecordingFailureMessageRef.current='Incomplete take: '+error.message;
             void stopPreviewRecording();
           });
-          setAudioDiagnostics('Living Light frame ready; capture resumed');
+          setAudioDiagnostics('Preview picture ready; capture resumed');
         }
       } catch (error) {
-        if(activeProjectRef.current?.living_light_cues?.length){
+        {
           let waiting=livingLightRecordingWaitRef.current;
-          if(error.code==='living_light_capture_waiting'&&(!waiting||performance.now()-waiting.startedAt<15000)){
+          if(['living_light_capture_waiting', 'score_dust_capture_waiting'].includes(error.code)&&(!waiting||performance.now()-waiting.startedAt<15000)){
             if(!waiting){
               const audio=audioRef.current;
               waiting={startedAt:performance.now(),resumeAudio:!!audio&&!audio.paused};
@@ -3025,10 +3031,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
               const recorder=previewRecordingSessionRef.current?.recorder;
               if(recorder?.state==='recording')recorder.pause();
               if(audio){audio.pause();currentTimeRef.current=audio.currentTime;setCurrentTime(audio.currentTime);}
-              setIsPlaying(false);setAudioDiagnostics('Waiting for the exact Living Light picture; capture and song paused');
+              setIsPlaying(false);setAudioDiagnostics(`${error.message} Capture and song paused.`);
             }
           }else{
-            previewRecordingFailureMessageRef.current='Incomplete take: '+(error.message||'Living Light frame failed.');
+            previewRecordingFailureMessageRef.current='Incomplete take: '+(error.message||'Preview frame failed.');
             audioRef.current?.pause();setIsPlaying(false);void stopPreviewRecording();return;
           }
         }
@@ -3224,6 +3230,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         source.start();
         probeCanvas.width=16;probeCanvas.height=16;
         source.draw(probeCanvas.getContext('2d'),Number(audioRef.current?.currentTime??currentTimeRef.current),16,16);
+      }
+      if (project?.score_dust_layer) {
+        const source = scoreDustLayerRecordingRef.current;
+        if (!source) throw new Error('Open Preview and wait for the Score Dust layer before recording.');
+        probeCanvas.width = 16; probeCanvas.height = 16;
+        source.draw(probeCanvas.getContext('2d'), Number(audioRef.current?.currentTime ?? currentTimeRef.current), 16, 16);
       }
       const timeline = project?.timeline || [];
       const playhead = Number(currentTimeRef.current || 0);
@@ -7858,7 +7870,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                   {/* Score Dust layer: over media, shaders and Living Light, under the lyrics — the export's order. */}
                                   {activeProject.score_dust_layer&&<Suspense fallback={null}><EchoScoreDustLayerOverlay project={activeProject} audioRef={audioRef} clockRef={currentTimeRef}
                                     active={activeWorkbenchTab==='preview'&&powerMode!=='hidden'} clean={cleanPreviewMode} apiBase={API_BASE} resolveUri={resolveMediaUri}
-                                    outputProfile={activeOutputProfile} editingDisabled={directorEditingLocked||!activeDirectionVariant}
+                                    outputProfile={activeOutputProfile} captureRef={scoreDustLayerRecordingRef} editingDisabled={directorEditingLocked||!activeDirectionVariant||previewRecordingActiveRef.current||previewRecordingStartingRef.current}
                                     onLayerChange={layer=>handleUpdateProjectSettings({score_dust_layer:layer})}/></Suspense>}
 
                                   {/* Neon HUD Overlay */}

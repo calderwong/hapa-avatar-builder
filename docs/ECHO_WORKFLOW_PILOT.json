@@ -3652,5 +3652,26 @@
       "currentDirections": 209,
       "heldTimingFork": "dear-papa-song-hey-sister: word-outside-line"
     }
+  },
+  "dustCampfireRepair20261105": {
+    "status": "scoped-native-verification-complete",
+    "focusedTests": {
+      "passed": 63,
+      "failed": 0
+    },
+    "build": "passed",
+    "nativeEvidence": [
+      "Luna 9.249-second Dust recording with Download",
+      "Luna and Write Home Campfire activation",
+      "Write Home visible fire and toggle-off restoration"
+    ],
+    "limitations": [
+      "Campfire preview only",
+      "Campfire prototype remains uncommitted with pre-existing ownership overlap",
+      "Existing Electron draft requires save before reload",
+      "No whole-song or album acceptance"
+    ],
+    "requirementsClosed": [],
+    "postmortem": "docs/postmortems/2026-11-05-echo-dust-campfire-repair.md"
   }
 }

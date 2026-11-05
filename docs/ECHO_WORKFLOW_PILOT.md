@@ -1281,3 +1281,8 @@ graphs. The final audit retains 39 written-text failures, 88 source-binding
 failures, 183 passage-review failures, 208 incomplete stem-clock qualifications
 and 23 stale recommended cuts. No whole-album health claim is made. See
 [contract](ECHO_SONG_HEALTH.md) and [postmortem](postmortems/2026-10-25-song-health-topview.md).
+
+
+## 2026-11-05 — Dust recording and album-wide Campfire toggle
+
+Scoped native verification: a nine-second Luna live recording contains Dust and exposes Download; Campfire renders using the selected song on Luna and Write Home and restores the cut when disabled. 63 focused checks, build and receipt check pass. An exact-decoder-frame capture attempt was rejected because it stalled live playback; the repair reuses the visible Dust canvas. Existing Electron drafts remain untouched. Campfire remains preview-only; its pre-existing uncommitted prototype and the scoped repair are preserved separately from the Dust commit. No whole-song health, human acceptance or requirement closure claimed. [Evidence and ownership boundary](postmortems/2026-11-05-echo-dust-campfire-repair.md).

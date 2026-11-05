@@ -12,6 +12,7 @@
 // bound the next time the layer is shown. A render published earlier for this
 // exact score is offered again instead of rendering anew.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { paintEchoScoreDustRecording } from "../domain/echo-score-dust-recording.js";
 import { prepareEchoScorePlayback } from "../domain/echo-visual-score.js";
 import { loadEchoScoreDustLayerScore } from "./echo-score-dust-layer-client.js";
 import { ensureEchoPreviewRecordingLocalSession } from "../domain/echo-preview-recording.js";
@@ -31,7 +32,7 @@ async function loadBoundPlayback({ apiBase, layer, signal }) {
   return { playback: prepareEchoScorePlayback(value.score, value.timeline, { pulse: settings.pulse }), settings };
 }
 
-export default function EchoScoreDustLayerOverlay({ project, audioRef, clockRef, active = true, clean = false, apiBase = "", resolveUri = (uri) => uri, outputProfile, onLayerChange, editingDisabled = false }) {
+export default function EchoScoreDustLayerOverlay({ project, audioRef, clockRef, active = true, clean = false, apiBase = "", resolveUri = (uri) => uri, outputProfile, onLayerChange, editingDisabled = false, captureRef }) {
   const layerKey = JSON.stringify(project?.score_dust_layer ?? null);
   const compiled = useMemo(() => {
     try { return { track: compileEchoScoreDustTrack({ song_id: project?.song_id, duration: project?.duration, score_dust_layer: JSON.parse(layerKey) }), error: null }; }
@@ -41,6 +42,16 @@ export default function EchoScoreDustLayerOverlay({ project, audioRef, clockRef,
   const width = render?.width || outputProfile?.width || 1920, height = render?.height || outputProfile?.height || 1080;
   const canvasRef = useRef(null), videoRef = useRef(null), stateRef = useRef("idle");
   const [playState, setPlayState] = useState("idle");
+  const captureSurfaceRef = useRef({ painted: false });
+  useEffect(() => {
+    if (!captureRef || !active) return undefined;
+    const source = { draw: (context, time, outputWidth, outputHeight) => {
+      if (compiled.error) throw new Error(`Score Dust layer is invalid: ${compiled.error}`);
+      return paintEchoScoreDustRecording(context, track, { ...captureSurfaceRef.current, canvas: canvasRef.current, error: videoRef.current?.error }, time, outputWidth, outputHeight);
+    } };
+    captureRef.current = source;
+    return () => { if (captureRef.current === source) captureRef.current = null; };
+  }, [captureRef, active, track, compiled.error]);
   const renderKey = echoScoreDustLayerRenderKey(track?.layer);
   const [job, setJob] = useState(() => echoScoreDustLayerRenderJob(renderKey));
   const [savedRender, setSavedRender] = useState(null);
@@ -83,16 +94,21 @@ export default function EchoScoreDustLayerOverlay({ project, audioRef, clockRef,
     if (!active || !render || !canvasRef.current || !videoRef.current) return undefined;
     const canvas = canvasRef.current, video = videoRef.current, ctx = canvas.getContext("2d");
     let raf = 0;
+    captureSurfaceRef.current = { painted: false };
     const publish = (next) => { if (stateRef.current !== next) { stateRef.current = next; setPlayState(next); } };
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const audio = audioRef?.current;
       const t = Number(audio?.currentTime ?? clockRef?.current ?? 0), playing = Boolean(audio) && !audio.paused && !audio.ended;
       const frame = echoScoreDustLayerFrame(track, t);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
       // The blend can change per section, so the browser compositor follows it frame by frame.
       if (frame.active && canvas.style.mixBlendMode !== frame.cssBlend) canvas.style.mixBlendMode = frame.cssBlend;
-      if (!frame.active) { if (!video.paused) video.pause(); publish("outside-window"); return; }
+      if (!frame.active) {
+        if (!video.paused) video.pause();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        captureSurfaceRef.current = { painted: false };
+        publish("outside-window"); return;
+      }
       // Follow the song clock: play along while the song plays; when paused,
       // seek to the export's exact frame target (the middle of the source frame).
       if (playing) {
@@ -104,10 +120,17 @@ export default function EchoScoreDustLayerOverlay({ project, audioRef, clockRef,
         if (!video.paused) video.pause();
         if (!video.seeking && !echoScoreDustLayerVideoAt(video, frame)) video.currentTime = frame.seekSeconds;
       }
-      publish(video.readyState >= 2 && paintEchoScoreDustLayer(ctx, video, frame, canvas.width, canvas.height) ? "painting" : "loading");
+      // Keep the last visible Dust picture during a decoder seek, as with the
+      // underlying preview media. Both Preview and live capture sample it.
+      if (video.readyState >= 2) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const painted = paintEchoScoreDustLayer(ctx, video, frame, canvas.width, canvas.height);
+        captureSurfaceRef.current = { painted, blend: frame.canvasComposite };
+        publish(painted ? "painting" : "loading");
+      } else publish("loading");
     };
     raf = requestAnimationFrame(tick);
-    return () => { cancelAnimationFrame(raf); video.pause(); ctx.clearRect(0, 0, canvas.width, canvas.height); };
+    return () => { cancelAnimationFrame(raf); video.pause(); captureSurfaceRef.current = { painted: false }; ctx.clearRect(0, 0, canvas.width, canvas.height); };
   }, [active, track, render, audioRef, clockRef]);
 
   const renderLayer = () => {
