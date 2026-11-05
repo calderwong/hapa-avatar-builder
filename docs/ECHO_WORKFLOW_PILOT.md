@@ -1305,3 +1305,7 @@ validation stays in place. Source media,
 lyrics and the original Electron draft are untouched. Song-specific generated
 image integration, human creative acceptance and whole-song health remain
 separate. [Review and learning delta](postmortems/2026-11-05-campfire-systemic-review.md).
+
+## Campfire controls and shader blending — 2026-11-05
+
+Transport now sits directly below the picture; direction/quality settings are collapsed underneath. Optional Always On light blending includes strength control and is captured in quick recordings. Foreground trees were inside the portrait camera envelope; forest placement now clears it. Luna at 44.6 seconds changed from a nearly black existing take to an unobstructed fire at frame 1338. A 22.98-second H264/AAC layered take saved with Download; 68 distinct focused checks and production build/receipt pass. Original Electron draft remains open and unreloaded. This is scoped visual/recording evidence, not whole-album or workflow acceptance. See the [postmortem](postmortems/2026-11-05-campfire-layout-and-layers.md).

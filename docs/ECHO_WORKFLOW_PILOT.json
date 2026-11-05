@@ -3723,5 +3723,22 @@
       "presentedFrame": 1023,
       "toggleOff": "verified"
     }
+  },
+  "campfireLayoutAndLayers20261105": {
+    "status": "scoped-ui-recording-and-matched-frame-verified",
+    "focusedTestsPassed": 68,
+    "matchedLunaSeconds": 44.6,
+    "presentedFrame": 1338,
+    "recordingId": "b433cd04-abb3-43df-9ce6-bfe9794bd2d8",
+    "recordingBytes": 59591279,
+    "build": "passed",
+    "requirementsClosed": [],
+    "limitations": [
+      "Original Electron draft not reloaded",
+      "Shared scene fix; no additional whole-album GPU qualification",
+      "Preview/quick-recording mode, not saved final-render contract",
+      "Pre-existing uncommitted integration retained"
+    ],
+    "postmortem": "docs/postmortems/2026-11-05-campfire-layout-and-layers.md"
   }
 }
