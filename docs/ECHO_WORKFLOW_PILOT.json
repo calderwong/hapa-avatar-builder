@@ -3740,5 +3740,16 @@
       "Pre-existing uncommitted integration retained"
     ],
     "postmortem": "docs/postmortems/2026-11-05-campfire-layout-and-layers.md"
+  },
+  "songLyricsPanel20261105": {
+    "status": "scoped-ui-verified",
+    "songsChecked": [
+      "Luna di Clara",
+      "Write Home"
+    ],
+    "testsPassed": 9,
+    "build": "passed",
+    "requirementsClosed": [],
+    "postmortem": "docs/postmortems/2026-11-05-echo-song-lyrics-panel.md"
   }
 }

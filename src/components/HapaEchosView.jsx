@@ -1,3 +1,4 @@
+import EchoSongLyricsPanel from "./EchoSongLyricsPanel.jsx";
 import EchoSongHealthPanel from './EchoSongHealthPanel.jsx';
 import {createLivingLightRecordVisit,loadLivingLightRecordDestination} from '../domain/living-light-record-visit.js';
 import { compareEchoSongs } from '../domain/echo-album-navigation.js';
@@ -8596,6 +8597,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
 
                           {/* Right Panel: Selected Shot/Shader Timeline Editor Form */}
                           <div className="hapa-panel" style={{ padding: '10px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '4px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {(activeWorkbenchTab === 'preview' || activeWorkbenchTab === 'lyrics') && (
+                              <EchoSongLyricsPanel project={activeProject} sourceText={activeLyricSourceText} currentTime={currentTime}
+                                onSeek={['preparing', 'recording', 'saving'].includes(previewRecordingState) ? undefined : handleReferenceSeek}
+                                onEditTiming={() => setActiveWorkbenchTab('lyrics')} />
+                            )}
                             {/* Track Tab Selectors */}
                             <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '6px', gap: '8px' }}>
                               <button
