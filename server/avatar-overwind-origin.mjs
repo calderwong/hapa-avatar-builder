@@ -55,7 +55,7 @@ export class AvatarOverwindOrigin {
     const eventId=`hapa-card-event:v1:${b64(this.originNode)}:${String(sequence).padStart(20,"0")}:${suffix}`;
     const event={schema:"hapa.card.event.v1",event_id:eventId,event_type:eventType,card_id:cardId,origin:{node:this.originNode,sequence},
       causality:{correlation_id:`avatar-builder:${kind}:${localId}`,causation_id:head?.event_id || null,lamport:sequence},actor:{id:this.originNode,type:"service"},
-      revision:{expected:revision-1,resulting:revision},digests:{previous_event:head?.event_digest || null,content:contentDigest,event:null},occurred_at:occurredAt,received_at:occurredAt,visibility:"fleet",payload:body};
+      revision:{expected:revision-1,resulting:revision},digests:{previous_event:head?.event_digest || null,content:contentDigest,event:null},occurred_at:occurredAt,received_at:occurredAt,visibility:String(record.visibility || "fleet"),payload:body};
     const unsigned=JSON.parse(canonical(event)); delete unsigned.digests.event; event.digests.event=sha(unsigned);
     this.db.prepare("INSERT INTO outbox(event_id,mutation_id,origin_sequence,card_id,revision,event_digest,event_json,state) VALUES(?,?,?,?,?,?,?,?)")
       .run(eventId,mutationId,sequence,cardId,revision,event.digests.event,canonical(event),mutationId ? "staged" : "pending");
@@ -133,6 +133,74 @@ export class AvatarOverwindOrigin {
       this.db.prepare("UPDATE mutations SET state='repair',detail=? WHERE id=?").run(error?.message || String(error), mutationId);
       throw error;
     }
+  }
+  stageCustodiedDesign(record) {
+    // The origin core and external reviewed design already own the Card. This
+    // transaction adds its exact private publication candidate, not a mint or
+    // mutable Items-store replacement. A retry can only reuse identical bytes.
+    const custody=record?.custody;
+    if (record?.visibility !== "private" || record?.sourceKind !== "reviewed_design" ||
+        custody?.schemaVersion !== "hapa.card-custody-receipt.v1" || custody.cardId !== record.id ||
+        custody.originNodeId !== this.originNode || custody.minted !== false || custody.canonical !== false ||
+        !["cardCoreKey","cardRecordDigest","originPublicKey"].every(k=>/^[a-f0-9]{64}$/.test(custody[k] || ""))) {
+      throw new Error("Exact private reviewed-design custody is required before staging");
+    }
+    if (Buffer.byteLength(canonical(record)) > 256*1024) throw new Error("Selected Card exceeds256KiB");
+    const cardId=cardIdFor(this.originNode,record.id),recordDigest=sha(record);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const row=this.db.prepare("SELECT event_json FROM outbox WHERE card_id=? ORDER BY origin_sequence DESC LIMIT 1").get(cardId);
+      if (row) {
+        const event=JSON.parse(row.event_json);
+        if(event.payload?.card?.content?.digest!==recordDigest)throw new Error("This native Card already has a different publication revision; explicit revision review is required");
+        this.db.exec("COMMIT");return {created:false,event,status:this.statusForRecord("item",record)};
+      }
+      const event=this.makeEvent("item",record,"card.created",null,record.createdAt,null);
+      this.db.exec("COMMIT");return {created:true,event,status:this.statusForRecord("item",record)};
+    } catch(error){this.db.exec("ROLLBACK");throw error;}
+  }
+  selectedDelivery(eventId, eventDigest) {
+    const row=this.db.prepare("SELECT event_id,event_digest,origin_sequence,state,revision,card_id,attempts,last_error,receipt_json FROM outbox WHERE event_id=?").get(eventId);
+    if(!row || row.event_digest!==eventDigest)throw new Error("Exact event ID/digest is missing or changed");
+    const prior=this.db.prepare("SELECT count(*) n,min(origin_sequence) first FROM outbox WHERE origin_sequence<? AND state!='acknowledged'").get(row.origin_sequence);
+    const receipt=row.receipt_json?JSON.parse(row.receipt_json):null;
+    const cursor=Number(receipt?.overwind_watermark||receipt?.ledger_position||receipt?.cursor||0);
+    const acknowledged=row.state==='acknowledged'&&receipt?.durable===true&&Number.isSafeInteger(cursor)&&cursor>0&&['accepted','idempotent_duplicate'].includes(receipt?.outcome)&&receipt?.event_id===row.event_id;
+    return {eventId:row.event_id,eventDigest:row.event_digest,cardId:row.card_id,revision:Number(row.revision),originSequence:Number(row.origin_sequence),
+      state:row.state,durableAcknowledgement:acknowledged,ledgerPosition:acknowledged?cursor:null,attempts:Number(row.attempts),
+      precedingUnacknowledged:Number(prior.n),firstUnacknowledgedSequence:prior.first===null?null:Number(prior.first),lastError:row.last_error||null};
+  }
+  async uploadExact(eventId,eventDigest,fetchImpl=fetch) {
+    // One immutable event, never the first250 pending events or an implicit drain.
+    const before=this.selectedDelivery(eventId,eventDigest);
+    if(before.durableAcknowledgement)return {ok:true,sent:0,status:before};
+    if(before.state!=='pending'||before.precedingUnacknowledged)return {ok:false,sent:0,held:before.state!=='pending'?'event_not_publishable':'preceding_origin_events_unacknowledged',status:before};
+    if(!this.token)throw new Error("Native Overwind credential is unavailable; no upload attempted");
+    const row=this.db.prepare("SELECT event_json FROM outbox WHERE event_id=? AND event_digest=?").get(eventId,eventDigest);
+    if(Buffer.byteLength(row.event_json)>512*1024)throw new Error("Selected event exceeds512KiB");
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);let result=null,error=null;
+    try {
+      const response=await fetchImpl(`${this.overwindUrl}/v1/cards/events/batch`,{method:'POST',redirect:'error',signal:controller.signal,
+        headers:{'content-type':'application/json',authorization:`Bearer ${this.token}`,'x-hapa-origin-node':this.originNode},body:JSON.stringify({events:[JSON.parse(row.event_json)]})});
+      const chunks=[];let bytes=0;for await(const chunk of response.body){bytes+=chunk.length;if(bytes>32768){controller.abort();throw new Error('Acknowledgement exceeds32KiB');}chunks.push(chunk);}
+      const body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if(!response.ok||body.results?.length!==1)throw new Error('One successful exact event acknowledgement is required');
+      result=body.results[0];const cursor=Number(result.overwind_watermark||result.ledger_position||result.cursor||0);
+      if(result.event_id!==eventId||result.durable!==true||!Number.isSafeInteger(cursor)||cursor<=0||!['accepted','idempotent_duplicate'].includes(result.outcome)||
+         (result.event_digest&&result.event_digest!==eventDigest))throw new Error('Exact durable event acknowledgement was not confirmed');
+      result={...result,ledger_position:cursor};
+    } catch(e){error=e?.name==='AbortError'?'Acknowledgement timed out; reconcile the same event':String(e?.message||'Acknowledgement unconfirmed').replace(/Bearer\s+[^\s"']+/gi,'Bearer [redacted]').slice(0,500);}
+    finally{clearTimeout(timer);}
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const current=this.selectedDelivery(eventId,eventDigest);
+      if(!current.durableAcknowledgement){
+        if(error)this.db.prepare("UPDATE outbox SET attempts=attempts+1,last_error=? WHERE event_id=? AND event_digest=?").run(error,eventId,eventDigest);
+        else this.db.prepare("UPDATE outbox SET state='acknowledged',attempts=attempts+1,receipt_json=?,acknowledged_at=?,last_error=NULL WHERE event_id=? AND event_digest=?").run(canonical(result),new Date().toISOString(),eventId,eventDigest);
+      }
+      this.db.exec('COMMIT');
+    }catch(e){this.db.exec('ROLLBACK');throw e;}
+    return {ok:!error,sent:1,error,status:this.selectedDelivery(eventId,eventDigest)};
   }
   pending(limit=250){return this.db.prepare("SELECT event_json FROM outbox WHERE state='pending' ORDER BY origin_sequence LIMIT ?").all(limit).map((row)=>JSON.parse(row.event_json));}
   async upload(fetchImpl=fetch,eventIds=null){const selected=eventIds?new Set(eventIds):null;const events=this.pending().filter((event)=>!selected||selected.has(event.event_id));if(!events.length)return{ok:true,sent:0,acknowledged:0};try{const response=await fetchImpl(`${this.overwindUrl}/v1/cards/events/batch`,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${this.token}`,"x-hapa-origin-node":this.originNode},body:JSON.stringify({events})});const body=await response.json();const results=new Map((body.results||[]).map((row)=>[row.event_id,row]));let acknowledged=0;this.db.exec("BEGIN IMMEDIATE");for(const event of events){const result=results.get(event.event_id);const cursor=Number(result?.overwind_watermark||result?.ledger_position||result?.cursor||0);if(result?.durable&&cursor>0&&["accepted","idempotent_duplicate"].includes(result.outcome)){this.db.prepare("UPDATE outbox SET state='acknowledged',receipt_json=?,acknowledged_at=?,last_error=NULL WHERE event_id=?").run(canonical({...result,ledger_position:cursor}),new Date().toISOString(),event.event_id);acknowledged++;}else this.db.prepare("UPDATE outbox SET attempts=attempts+1,last_error=? WHERE event_id=?").run(result?.outcome||(!cursor?"durable_cursor_missing":`http_${response.status}`),event.event_id);}this.db.exec("COMMIT");return{ok:acknowledged===events.length,sent:events.length,acknowledged};}catch(error){for(const event of events)this.db.prepare("UPDATE outbox SET attempts=attempts+1,last_error=? WHERE event_id=?").run(error?.message||String(error),event.event_id);return{ok:false,sent:events.length,acknowledged:0,error:error?.message||String(error)};}}
