@@ -213,6 +213,24 @@ Generated media is runtime state, not application source. Echo keyframes now def
 
 The canonical Electron app exposes **Provider API keys** from the key icon in the top-right header. OpenAI, FAL.com, and xAI credentials are encrypted with the operating system's credential protection and saved beneath Electron's machine-local application-data directory—not in album data, browser storage, or this repository. The UI can replace or remove a key and display only a one-way fingerprint; it cannot reveal a saved value. Storage fails closed if OS encryption is unavailable. See [`docs/LOCAL_PROVIDER_CREDENTIALS.md`](docs/LOCAL_PROVIDER_CREDENTIALS.md).
 
+## Audio Atlas: song analysis inside Echo Album
+
+Audio Atlas is built into this repository and opens from **Echos Album → Open
+audio workspace**. It shares Builder's Song Cards, server, desktop shell and
+command-line tools; it is not a separately installed app or repository.
+
+Use it to inspect waveforms and stems, transcribe vocals, align written lyrics,
+review beats, pitch, harmony and song structure, search sounds, and request local
+audio descriptions. Saved results retain source and model evidence; musical
+interpretations remain candidates until reviewed. Whole-song timing goes through
+the existing promotion and sync gates before reaching Song Cards and Director
+projects. The static public demo cannot run these local analysis workers.
+
+Start with the [Audio Atlas guide](docs/audio-atlas/README.md), the
+[whole-song lyric timing workflow](docs/audio-atlas/LYRIC_TIMING.md), or the
+[source integration map](docs/audio-atlas/integration-map.json). Local models,
+private configuration, source audio and generated analyses are not included in Git.
+
 ## Echo Album song notebook
 
 The Echo Album **References** surface includes a durable per-song notebook for free-text notes, marked research URLs, Hapa Avatar links, image/video creative anchors, anecdotes, lessons, and reasoned Tarot Card pairings. The complete supplied 78-card *Echoes from Other Eras* editorial mapping is available with its pairing arguments and lyric evidence; its proposal status is preserved. Agents can read one song or the complete album projection from `GET /api/echos/song-notebook`. See `docs/ECHO_SONG_NOTEBOOK.md`.

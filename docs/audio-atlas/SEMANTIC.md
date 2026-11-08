@@ -1,9 +1,68 @@
-# Audio descriptions — listener qualification in progress
+# Audio descriptions — integrated workflow, quality qualification open
 
-First-pass prototype, September28,2026. Card `atlas-gap-semantic` is In Progress.
-Source task: `01a0e4d5-31d6-74f0-ab17-f838cf3f0992`.
-This is an executed adapter probe and tested proposal contract. Description
-execution is **not yet connected to Builder's UI/API/CLI**.
+Source review: November 7, 2026. Description execution is connected to Builder's
+UI/API/CLI through `server/audio-atlas-descriptions.mjs`. It remains a first-pass
+prototype; integration is not musical or human-listening qualification.
+
+## Current operator workflow
+
+Open **Audio Atlas → Descriptions** on a completed analysis, choose the source
+and a range of up to 30 seconds, cue/listen, then explicitly select **Describe
+locally**. Opening the panel only reads saved history and capability status.
+The six fields are caption, style, production, lyrical meaning, perceived vocal
+delivery and musical mood. Each retains original output, cited input span,
+model cues/uncertainty, advisory flags and separate review history.
+
+Review requires a reviewer name and note. A person can flag, accept the original,
+accept an edited description or reject an axis. Decisions never replace written
+lyrics, measured timestamps or original model evidence. A completed job can
+contain an abstention; execution success does not mean its claims were accepted.
+
+## Setup and shared interfaces
+
+The ignored `data/audio-atlas/semantic-model.json` must name an existing pinned
+runtime with absolute `python`, `modelPath`, `code_root` and `ffmpeg` paths;
+`python_sha256`, `ffmpeg_sha256`, model `repository` and `revision`; and `sha256`
+and `code_sha256` maps for model files and runtime source. The repository is
+`mlx-community/Qwen3-Omni-30B-A3B-Instruct-4bit`. The executable validator is
+[`descriptionConfig`](../../server/audio-atlas-descriptions.mjs). Do not publish
+private path/configuration files. Missing configuration reports unavailable;
+requests do not install libraries or download weights. This listener requires
+macOS's offline process restriction.
+
+| Operation | Authenticated route under `/api/echos/audio-atlas` |
+| --- | --- |
+| Start explicit description | `POST /jobs/RUN/descriptions` with `{asset_id,start_sample,end_sample}` |
+| List saved jobs/capability | `GET /jobs/RUN/descriptions` |
+| Read one job/result | `GET /jobs/RUN/descriptions?id=DESCRIPTION_ID` |
+| Cancel owned running job | `DELETE /jobs/RUN/descriptions?id=DESCRIPTION_ID` |
+| Append axis review | `POST /jobs/RUN/descriptions/DESCRIPTION_ID/review` |
+
+Requests use integer source-sample bounds; the UI accepts seconds and converts
+using that source's sample rate. Review takes `revision`, `axis_id`, `state`,
+`reviewer`, `note` and optional `correction`; states are `needs_review`,
+`accepted_by_human` or `rejected`.
+
+```sh
+node cli/audio-atlas.mjs descriptions RUN_ID
+node cli/audio-atlas.mjs describe RUN_ID --asset=master --start=START_SAMPLE --end=END_SAMPLE
+node cli/audio-atlas.mjs descriptions RUN_ID --id=DESCRIPTION_ID
+node cli/audio-atlas.mjs review-description RUN_ID --id=DESCRIPTION_ID --file=review.json
+```
+
+The shared single-writer lock also covers analysis and text search. Matching
+intact results can be reused; original analysis is unchanged. Saved jobs live
+under ignored `data/audio-atlas/descriptions/`, capped at 256 attempts. New work
+refuses at that count; this is not an aggregate byte cap or automatic pruning.
+One explicit job has a 600-second owner deadline, bounded output, cancellation
+and no automatic retry/resumption. After connection loss, inspect saved history
+before retrying; a failed observation is not evidence the worker stopped.
+
+## Historical September 28 probe
+
+The following evidence belongs to the initial adapter probe, before integration.
+Its original task was `01a0e4d5-31d6-74f0-ab17-f838cf3f0992`; its card was recorded
+In Progress. It is preserved as historical evidence, not a current board reading.
 
 ## Actual result and limits
 
@@ -92,14 +151,14 @@ worker source, raw responses, model-input arrays, process receipts, verification
 and `REVIEW.md` with the listening excerpt. These private source/runtime artifacts
 are not application commit content.
 
-## Next work and learning delta
+## Remaining qualification and learning delta
 
-Reuse Atlas's existing lock, immutable supplemental-job history, bounded worker,
-cancellation, sample-range player and shared API/CLI owner to integrate explicit
-description requests. Save actual source observations alongside the audio citation;
-offer readable per-axis review and raw evidence without replacing accepted data.
-Qualify representative stems, speech and music; preserve human quality gates.
-The full card, broader/native acceptance and focused completion commit remain open.
+The integration originally proposed here now exists: it reuses Atlas's lock,
+supplemental job history, bounded worker, cancellation, source player and shared
+API/CLI, and presents per-axis review plus raw evidence. The November 7 source
+review establishes that wiring, not a new inference or native-app acceptance run.
+Representative stems, speech/music quality and human interpretation review still
+need their own evidence. No historical card is closed by this documentation edit.
 
 Lesson candidate: a fluent audio listener can invent sound in exact silence and
 ignore output constraints. Prompt instructions alone are insufficient. Preserve the

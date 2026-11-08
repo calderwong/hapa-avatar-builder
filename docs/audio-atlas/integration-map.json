@@ -9,8 +9,8 @@
   "cli": "cli/audio-atlas.mjs",
   "worker": "scripts/audio-atlas-worker.py",
   "docs": "docs/audio-atlas/README.md",
-  "status": "partial; repository acceptance blocked",
-  "second_brain": "README and test-song review indexed; exact README API readback and both revision checks passed",
+  "status": "integrated prototype; partial design-pack implementation; musical qualification remains feature-specific",
+  "second_brain": "Explicit article routes in second-brain-index.json; freshness requires an exact owner readback.",
   "source_preservation": "data/media/audio-atlas",
   "derived_runs": "data/audio-atlas/runs",
   "unsupported": [
@@ -18,7 +18,7 @@
     "syllables",
     "typed note observation/correction contract",
     "diarization",
-    "open-ended semantic narration"
+    "qualified unrestricted semantic narration"
   ],
   "workers": [
     "scripts/audio-atlas-worker.py",
@@ -34,7 +34,8 @@
     "request_contract": "src/domain/audio-atlas-alignment.js",
     "validation": "scripts/audio_atlas_word_alignment.py",
     "docs": "docs/audio-atlas/WORD_ALIGNMENT.md",
-    "scope": "explicit English excerpt, up to30seconds"
+    "scope": "Explicit English excerpts up to 30 seconds; whole-song orchestration uses source-bound windows.",
+    "whole_song_workflow": "scripts/atlas-lyric-timing.mjs plan/align/assemble; shared promotion/sync gates; see LYRIC_TIMING.md"
   },
   "timing_references": {
     "status": "workflow-verified; human-acoustic-qualification-pending",
@@ -134,10 +135,33 @@
     "quality_qualified": false
   },
   "semantic_descriptions": {
-    "status": "offline-listener-probed; validator-tested; execution-integration-pending",
-    "owner": "server/audio-atlas-semantic.mjs",
+    "status": "integrated-explicit-local-jobs; interpretation quality unqualified",
+    "owner": "server/audio-atlas-descriptions.mjs",
     "docs": "docs/audio-atlas/SEMANTIC.md",
     "quality_qualified": false,
-    "ui_api_cli_integrated": false
+    "ui_api_cli_integrated": true,
+    "validator": "server/audio-atlas-semantic.mjs",
+    "ui": "src/components/AtlasDescriptions.jsx",
+    "worker": "scripts/audio-atlas-describe.py"
+  },
+  "documentation_reviewed_at": "2026-11-07",
+  "verification_scope": "Source/documentation review; dated acceptance reports are historical, not current runtime or board status.",
+  "storage_policy": {
+    "current": "Digest-plus-extension source custody under data/media/audio-atlas; per-asset decode limits; no aggregate custody byte cap.",
+    "required": "Registered external full-size media/evidence and shared byte budgets under Hapa storage placement; implementation/migration qualification remains separate."
+  },
+  "lyric_timing": {
+    "owner": "scripts/atlas-lyric-timing.mjs",
+    "docs": "docs/audio-atlas/LYRIC_TIMING.md",
+    "models": [
+      "MLX Whisper large-v3",
+      "Qwen3-ForcedAligner MLX"
+    ],
+    "text_owner": "Song Card written lyrics",
+    "delivery": "Explicit promotion and sync; preserve manual locks, unresolved evidence and append-only saved cuts."
+  },
+  "downstream": {
+    "visual_score": "docs/ECHO_SCORE_DUST.md",
+    "song_health": "docs/ECHO_SONG_HEALTH.md"
   }
 }

@@ -126,3 +126,31 @@ have changed unrelated fields across200songs; preflight avoided that mutation.
 16focused checks and real backup/store/media comparison pass.139WAVs,12declared
 stems and62undeclared role inventories remain unavailable; no transcode or
 source-quality claim. See MISSING_MEDIA.md for commands and concurrency limits.
+
+
+## Documentation ownership and freshness — 2026-11-07
+
+Source: Calder's request in this Codex chat to identify Audio Atlas's repository,
+assess its documentation, update it and bring GitHub up to date with local Builder.
+Actor: current Codex task; no Avatar identity adopted.
+
+Reused the canonical Builder engine, UI, CLI and feature guides. Source review
+found the overview still denied notes, free-text search and description wiring
+that already existed, and omitted the current whole-song timing route. The
+GitHub lyric-timing guide also lacked the local written-text and multi-voice
+additions. Documentation now separates derived notes from the unsupported generic
+note contract, read-only CLAP lookup from explicit text encoding, and integrated
+descriptions from unqualified musical interpretation. Builder's README now links
+directly to the Atlas guide and timing workflow.
+
+The earlier total source-byte cap and fixed-English transcription statements
+were stale. The guide names the actual decoder bounds and configurable language,
+and distinguishes current path-based custody from adopted external-storage and
+aggregate-budget requirements. No storage migration or new enforcement is claimed.
+
+Verification scope: compare documented UI/API/CLI names and limits with source,
+check relative links and JSON, and inspect the scoped diff. Historical real-song
+tests and acceptance failures remain dated evidence; no new inference, listening
+approval or board closure is implied. Lesson candidate: update the overview and
+machine-readable integration map when feature ownership changes, and keep old
+verification reports explicitly historical rather than treating them as live state.
