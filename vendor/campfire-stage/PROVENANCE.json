@@ -1,0 +1,155 @@
+{
+  "schemaVersion": "hapa.campfire.stage-package.v1",
+  "description": "Locally adapted Procedural Fire and Echo source; prototype source package.",
+  "proceduralFire": "Leonxlnx/procedural-fire, MIT",
+  "echo": "Hapa.ai / Calder Wong",
+  "files": [
+    {
+      "path": "src/blackbody.js",
+      "sha256": "0fa2abda508b7b5f789f58bbfd31dca90d025cd1b55a3c46de33afbb11188b3f"
+    },
+    {
+      "path": "src/camera.js",
+      "sha256": "3df62c5008794b9096c54e4b88f61aac6c5861c88f6f3a4a264ad8e77d28babb"
+    },
+    {
+      "path": "src/echo/campfire-direction.js",
+      "sha256": "963a1ae83affc7b12dbd47442abb553502130e7b2346d41446ab650737bbce37"
+    },
+    {
+      "path": "src/echo/clock-stage-adapter.js",
+      "sha256": "da55a14cf5c860b35be4966b938491f405f51d198bc338c1e9e6506943203e70"
+    },
+    {
+      "path": "src/echo/fire-dust.js",
+      "sha256": "14f4e7d9d82e57f9f2b8f29887eb1611d021cb67ee33b96d16406cd6f80abc9a"
+    },
+    {
+      "path": "src/echo/motion-controls.js",
+      "sha256": "115f1fb23397310fdacefbc3da254a7be7bcf85de048be2b1864125c8f579468"
+    },
+    {
+      "path": "src/echo/musical-signals.js",
+      "sha256": "fe961814de69dc1755853c69317d4ff882e27760cf922d315746f8bfcbecc9e0"
+    },
+    {
+      "path": "src/echo/offline-stage.js",
+      "sha256": "aef9e5ff404ce3438188a7e0ec8afa2b59fce4a0bce47746295d829c4f660412"
+    },
+    {
+      "path": "src/echo/picture-targets.js",
+      "sha256": "96911676fb2bb2c896f2ddb96e25413d3e682fdb84d9b1d326ad283c7ae18e02"
+    },
+    {
+      "path": "src/echo/saved-campfire-direction.js",
+      "sha256": "29b9fd7d1fed539d6e6dceca6840b5e5ba3e8418fe62bdeda8a96439eadebcac"
+    },
+    {
+      "path": "src/echo/score-choreography.js",
+      "sha256": "e409fbf03ae645d60f5b639ec161037e326e104e6f4c8265429c8290ba92787c"
+    },
+    {
+      "path": "src/echo/song-exposure.js",
+      "sha256": "d7bf217ef097cfbbb45c4a69a126563c72334435e3f33395dd5d0cbcf1aa1b73"
+    },
+    {
+      "path": "src/echo/song-start.js",
+      "sha256": "7e973be294a02c92f10b200f4f0c52387cf4daae6c0543fec5c50edeac075127"
+    },
+    {
+      "path": "src/echo/stage-checkpoint.js",
+      "sha256": "c7c0fbe2de829dcc358bae45c6a21278905c28271f0909fd9f3485b595189fee"
+    },
+    {
+      "path": "src/echo/stage-environment.js",
+      "sha256": "393d9fc283c7242bcd74f3e165df36fa9f3528f94798eaceb40bc62f9ec98bb2"
+    },
+    {
+      "path": "src/echo/stage-lyric-playback.js",
+      "sha256": "884c39949d330e38355e04df6da6590663ebdf66d5cfbe0ee90a718453137990"
+    },
+    {
+      "path": "src/echo/stage-presentation.js",
+      "sha256": "ea72e801461ef65e32fd38873987541c7b35adf9a0c4a5ce71f7f454328871de"
+    },
+    {
+      "path": "src/echo/subject-framing.js",
+      "sha256": "78720518a1ec320f942426fd923a79ffd4f4f14654712904f89aa57c74f4c562"
+    },
+    {
+      "path": "src/echo/thirsty-campfire-direction.js",
+      "sha256": "075559cf2fc0cfbc6a8e7ae28f5e745266db3f9bd81ade3ec50777b6eacbfeb9"
+    },
+    {
+      "path": "src/echo/vendor/echo-campfire-direction.js",
+      "sha256": "963a1ae83affc7b12dbd47442abb553502130e7b2346d41446ab650737bbce37"
+    },
+    {
+      "path": "src/echo/vendor/echo-dust-swarm.js",
+      "sha256": "7e8fb9e66af55b66a741105ab33f8a2b07ceed06ea7e265e23a1991992ce0a47"
+    },
+    {
+      "path": "src/echo/vendor/echo-score-dust-colour.js",
+      "sha256": "14103cfdc7faaa2b4e6ef6bc8b8942a288992e244299d2a47b904101a065e43c"
+    },
+    {
+      "path": "src/echo/vendor/echo-score-dust-lyrics.js",
+      "sha256": "a2199e67fdcc7c167d2addc1365328780b3245b21bf06c0db17fe90c64db7381"
+    },
+    {
+      "path": "src/echo/vendor/echo-score-dust-performance.js",
+      "sha256": "f5bf535a5c940343cd5351f07b158bfc2e7b5e1cb3690618b08316dd2cc8f516"
+    },
+    {
+      "path": "src/echo/vendor/echo-score-dust-sections.js",
+      "sha256": "8df3d2779d922865e6cc4c83e0d4f46445166cb5d63768d8ee54ba8a95557154"
+    },
+    {
+      "path": "src/echo/vendor/echo-score-dust-stems.js",
+      "sha256": "7937d7a99818c39eaae9b4a7f169943969be59c4eeb9f2cc9d647ec29117af25"
+    },
+    {
+      "path": "src/echo/vendor/echo-visual-score.js",
+      "sha256": "76279de1aed60bbd00c0131a3afbb6f20f4fbedd8d0302631ae19c64738512f5"
+    },
+    {
+      "path": "src/echo/vendor/hyperframes-visualizer-runtime.js",
+      "sha256": "29f8ce3f20fbf231cfe2eb2716ca6c8fdb1e1ea7074d6a5dd487f7392ee0119a"
+    },
+    {
+      "path": "src/gpu.js",
+      "sha256": "8beb1418df6e2c1e5d2ec758950c9152575c1e7937d3c9414d2ab3dba33f420d"
+    },
+    {
+      "path": "src/noise.js",
+      "sha256": "3b7ffe6eacaed10677229bc2408cc9b4ff349af36edf27f097df7e5e1c6dff88"
+    },
+    {
+      "path": "src/renderer.js",
+      "sha256": "08c1690a65c50135ef7d29c553ee5457f1f1420518cd9b4b439f69f74e0b7ae3"
+    },
+    {
+      "path": "src/scene.js",
+      "sha256": "c6e291ce6be2e1e98e3cebb81e1cad766a36a018161a173b6ee2baa07ae15433"
+    },
+    {
+      "path": "src/shaders/lib.js",
+      "sha256": "71f3c04e9d47c159f61f35cd3b3dd9f0ad7e80fe07c98f998152c7e7db7b7c32"
+    },
+    {
+      "path": "src/shaders/scene.js",
+      "sha256": "0db7ecb1ecc64fbb541f51b98635944ffd732f1af0539abe92a8860304e48258"
+    },
+    {
+      "path": "src/sim.js",
+      "sha256": "a50267a2038a7ed6597ec7bb108deb1c7ee28984a51de84937618284587b346f"
+    },
+    {
+      "path": "src/sparks.js",
+      "sha256": "e2b73915d38fc6870b97658ae3c3846e7f06cf27119381f66c53ff44550ec601"
+    }
+  ],
+  "revision": "score-scenes-v1",
+  "adaptation": "2026-11-05: r34 motion/framing/lifecycle source support with album-wide score choreography; no Thirsty-only imagery/timeline imported. Source timing and saved extension remain owner inputs.",
+  "sourcePackagedAt": "2026-11-07"
+}

@@ -12,7 +12,7 @@ const ID = Object.freeze({
   Segment: 0x18538067, SeekHead: 0x114d9b74, Seek: 0x4dbb, SeekID: 0x53ab, SeekPosition: 0x53ac,
   Info: 0x1549a966, TimecodeScale: 0x2ad7b1, MuxingApp: 0x4d80, WritingApp: 0x5741, Duration: 0x4489,
   Tracks: 0x1654ae6b, TrackEntry: 0xae, TrackNumber: 0xd7, TrackUID: 0x73c5, TrackType: 0x83, CodecID: 0x86, CodecPrivate: 0x63a2,
-  CodecDelay: 0x56aa, SeekPreRoll: 0x56bb, Video: 0xe0, PixelWidth: 0xb0, PixelHeight: 0xba, Audio: 0xe1, SamplingFrequency: 0xb5, Channels: 0x9f,
+  CodecDelay: 0x56aa, SeekPreRoll: 0x56bb, Video: 0xe0, PixelWidth: 0xb0, PixelHeight: 0xba, Audio: 0xe1, SamplingFrequency: 0xb5, Channels: 0x9f, BitDepth: 0x6264,
   Cluster: 0x1f43b675, Timecode: 0xe7, SimpleBlock: 0xa3, AlphaMode: 0x53c0,
   BlockGroup: 0xa0, Block: 0xa1, ReferenceBlock: 0xfb, BlockAdditions: 0x75a1, BlockMore: 0xa6, BlockAddID: 0xee, BlockAdditional: 0xa5,
   Cues: 0x1c53bb6b, CuePoint: 0xbb, CueTime: 0xb3, CueTrackPositions: 0xb7, CueTrack: 0xf7, CueClusterPosition: 0xf1,
@@ -73,8 +73,12 @@ export function opusHead({ channels = 2, sampleRate = 48000, preSkip = 312 } = {
  * addVideoChunk({data, timestampUs, keyframe, alphaData?}); addAudioChunk({data, timestampUs});
  * finalize({durationUs}) → Uint8Array
  */
-export function createWebmMuxer({ video, audio = null, writingApp = "Hapa Echo Score Dust" } = {}) {
+export function createWebmMuxer({ video, audio = null, container = "webm", writingApp = "Hapa Echo Score Dust" } = {}) {
   if (!video?.width || !video?.height || !["V_VP8", "V_VP9"].includes(video.codec || "V_VP9")) throw new TypeError("A VP8/VP9 video track with width and height is required.");
+  if (!['webm','matroska'].includes(container)) throw new TypeError("Unsupported container.");
+  const pcm = audio?.codec === 'pcm_s16le';
+  if (pcm && (container !== 'matroska' || !Number.isSafeInteger(audio.sampleRate) || audio.sampleRate <= 0 || ![1,2].includes(audio.channels))) throw new TypeError("PCM requires a Matroska container, sample rate and one or two channels.");
+  if (audio?.codec && !['opus','pcm_s16le'].includes(audio.codec)) throw new TypeError("Unsupported audio codec.");
   const blocks = [];
   let lastVideoUs = -1, lastAudioUs = -1;
   let previousVideoMs = null;
@@ -98,13 +102,13 @@ export function createWebmMuxer({ video, audio = null, writingApp = "Hapa Echo S
     if (!ordered[0].keyframe || ordered.find((b) => b.track === 1)?.keyframe !== true) throw new Error("The first video chunk must be a keyframe.");
     const durationMs = (durationUs ?? Math.max(...ordered.map((b) => b.us))) / 1000;
     const header = element(ID.EBML, [elUint(ID.EBMLVersion, 1), elUint(ID.EBMLReadVersion, 1), elUint(ID.EBMLMaxIDLength, 4), elUint(ID.EBMLMaxSizeLength, 8),
-      elString(ID.DocType, "webm"), elUint(ID.DocTypeVersion, 4), elUint(ID.DocTypeReadVersion, 2)]);
+      elString(ID.DocType, container), elUint(ID.DocTypeVersion, 4), elUint(ID.DocTypeReadVersion, 2)]);
     const info = element(ID.Info, [elUint(ID.TimecodeScale, 1_000_000), elString(ID.MuxingApp, "hapa-webm-muxer"), elString(ID.WritingApp, writingApp), element(ID.Duration, float64(durationMs))]);
     const trackEntries = [element(ID.TrackEntry, [elUint(ID.TrackNumber, 1), elUint(ID.TrackUID, 1), elUint(ID.TrackType, 1), elString(ID.CodecID, video.codec || "V_VP9"),
       element(ID.Video, [elUint(ID.PixelWidth, video.width), elUint(ID.PixelHeight, video.height), ...(video.alpha ? [elUint(ID.AlphaMode, 1)] : [])])])];
-    if (audio) trackEntries.push(element(ID.TrackEntry, [elUint(ID.TrackNumber, 2), elUint(ID.TrackUID, 2), elUint(ID.TrackType, 2), elString(ID.CodecID, "A_OPUS"),
-      element(ID.CodecPrivate, audio.codecPrivate || opusHead(audio)), elUint(ID.CodecDelay, Math.round(audio.codecDelayNs ?? 6_500_000)), elUint(ID.SeekPreRoll, 80_000_000),
-      element(ID.Audio, [element(ID.SamplingFrequency, float64(audio.sampleRate || 48000)), elUint(ID.Channels, audio.channels || 2)])]));
+    if (audio) trackEntries.push(element(ID.TrackEntry, [elUint(ID.TrackNumber, 2), elUint(ID.TrackUID, 2), elUint(ID.TrackType, 2), elString(ID.CodecID, pcm ? "A_PCM/INT/LIT" : "A_OPUS"),
+      ...(pcm ? [] : [element(ID.CodecPrivate, audio.codecPrivate || opusHead(audio)), elUint(ID.CodecDelay, Math.round(audio.codecDelayNs ?? 6_500_000)), elUint(ID.SeekPreRoll, 80_000_000)]),
+      element(ID.Audio, [element(ID.SamplingFrequency, float64(audio.sampleRate || 48000)), elUint(ID.Channels, audio.channels || 2), ...(pcm ? [elUint(ID.BitDepth, 16)] : [])])]));
     const tracks = element(ID.Tracks, trackEntries);
     // Clusters open on each video keyframe (and before int16 timecode overflow).
     const clusters = [], cuePoints = [];

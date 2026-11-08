@@ -315,6 +315,8 @@ function ScoreDustSection({ dust, currentTime, onSeek, update }) {
   if (!cue) return null;
   const motif = score.motifs.find((m) => m.id === cue.motifId), group = score.motifs.find((m) => m.repeatGroup === motif.repeatGroup && !m.occurrenceOf) || motif;
   const patch = dust.direction.sections?.cues?.[cue.id] || {}, min = 0.5;
+  const campfire=dust.direction.campfire, campfireCue=campfire?.cues?.find(item=>item.cueId===cue.id);
+  const ring=(campfireCue?.settings?.motif ?? campfire?.defaults?.motif)==='open-ring';
   const sections = (fn) => update((current) => ({ sections: fn(current.sections || {}) }));
   const canSplit = currentTime - cue.start >= min && cue.end - currentTime >= min;
   const busy = (cue.busy[0] + cue.busy[1]) / 2;
@@ -334,6 +336,19 @@ function ScoreDustSection({ dust, currentTime, onSeek, update }) {
         <option value="">Same as group ({group.family})</option>
         {DUST_FORMATION_FAMILIES.map((f) => <option key={f} value={f}>{f}</option>)}
       </select></label>
+      {campfire && dust.saved && <>
+        <label>Campfire construction <select aria-label="Campfire construction for this section" disabled={!ring} value={campfireCue?.settings?.construction ?? ""} onChange={(event)=>{
+          const value=event.target.value;
+          update((current)=>{
+            const next=current.campfire, cues=[...(next.cues||[])], index=cues.findIndex(item=>item.cueId===cue.id), old=index<0?{cueId:cue.id,settings:{}}:cues[index], settings={...old.settings};
+            if(value)settings.construction=value;else delete settings.construction;
+            if(index<0){if(Object.keys(settings).length)cues.push({...old,settings});}
+            else if(Object.keys(settings).length)cues[index]={...old,settings};else cues.splice(index,1);
+            return {campfire:{...next,binding:{...next.binding,baseRevision:dust.saved.revision},cues}};
+          });
+        }}><option value="">Use song default</option><option value="contour">Contour</option><option value="shell">Shell</option><option value="volume">Filled cloud</option><option value="plume">Dispersed plume</option></select></label>
+        <span className="score-dust-hint">{ring?'Applies to this open-ring section; words and pictures retain their own form.':'Construction controls currently support open-ring sections.'} Changes are unsaved until you save the direction.</span>
+      </>}
       {dust.pictures?.options?.length > 0 && (
         <label>Picture here <select aria-label="Picture for this section" value={patch.image === null ? "none" : patch.image?.assetId || ""}
           onChange={(e) => { const v = e.target.value, option = dust.pictures.options.find((o) => o.assetId === v); sections((s) => editSectionCue(s, cue.id, { image: v === "" ? undefined : v === "none" ? null : { assetId: option.assetId, url: option.url, label: option.label, avatarId: option.avatarId, ...(option.kind ? { kind: option.kind } : {}) } })); }}>
@@ -656,6 +671,21 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
             </select></label>
             <span className="score-dust-hint">Flashes never exceed 3 per second. Reduced motion follows your system setting until you change it here.</span>
           </fieldset>
+          {direction?.campfire && dust.saved && <fieldset data-testid="campfire-reading-space">
+            <legend>Campfire reading space</legend>
+            <label>Clear smoke around words <select aria-label="Campfire reading space" value={direction.campfire.defaults?.reading?.clearance ?? ""} onChange={(event) => {
+              const value=event.target.value;
+              update((current) => {
+                const campfire=current.campfire, defaults={...(campfire.defaults || {})}, reading={...(defaults.reading || {})};
+                if(value==="")delete reading.clearance;else reading.clearance=Number(value);
+                if(Object.keys(reading).length)defaults.reading=reading;else delete defaults.reading;
+                return {campfire:{...campfire,binding:{...campfire.binding,baseRevision:dust.saved.revision},defaults}};
+              });
+            }}>
+              <option value="">Original appearance</option><option value="0">None</option><option value="0.25">Subtle</option><option value="0.5">Moderate</option><option value="0.75">Strong</option><option value="1">Maximum</option>
+            </select></label>
+            <span className="score-dust-hint">Applies to readable particle words. Section overrides take precedence. Edits are a draft until saved; Campfire preview rebuilds when the setting changes.</span>
+          </fieldset>}
           <fieldset data-testid="score-dust-instruments">
             <legend>Instruments</legend>
             {Object.entries(DUST_STEM_LABELS).map(([group, label]) => {
@@ -703,6 +733,8 @@ export default function EchoScoreDustPanel({ dust, currentTime = 0, onSeek, expo
               {dust.saveState.state === "saving" ? "Saving…" : `Save direction r${(dust.saved?.revision || 0) + 1}`}
             </button>
             <button type="button" className="hapa-btn" disabled={!dust.dirty} onClick={dust.discard}>Discard edits</button>
+            {dust.direction?.campfire && <button type="button" className="hapa-btn" onClick={() => dust.setDraft((current) => { const next = { ...current }; delete next.campfire; return next; })}>Remove Campfire from draft</button>}
+            {dust.direction?.campfire && <span className="score-dust-hint">Campfire stays in earlier saved revisions. If score edits change its timing, reauthor or remove it before saving.</span>}
           </>
         ) : <span className="score-dust-hint">Edits preview locally; saving needs an Audio Atlas run.</span>}
         {dust.saveState.message && <span role={dust.saveState.state === "error" ? "alert" : "status"}>{dust.saveState.message}</span>}

@@ -537,6 +537,8 @@ See `docs/SONG_CARD_MINTING.md` for custody, recovery, migration, timestamp prin
 - `data/avatar-store.json` contains the Red/Reaper scaffold.
 - `data/kanban.json` contains the filled delivery board.
 
+Campfire stage direction ownership and current integration limits: [Campfire direction](docs/CAMPFIRE_DIRECTION.md).
+
 ## Hell Week: documents and Avatar foundations
 
 In the desktop app, open **Hell Week → Create Hapa Cards**, drop Markdown/text/conversation JSON, optionally select up to eight **Avatar foundations**, review their images or select text-only context, then **Prepare run**. Preparation spends no API credit and indexes the original file incrementally. New runs have no fixed Card-count or file-byte ceiling: LEO prepares the source and Thor discovers zero or many Cards per section. Choose discovery-only review or discovery followed by artwork; an optional image allowance pauses illustration without limiting discovery. Saved progress, source evidence and each Card's used Avatar references survive resumes. See [Hell Week Builder](docs/HELL_WEEK_BUILDER.md) for recovery, CLI parity, limits and acceptance status.

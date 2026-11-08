@@ -103,7 +103,8 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
   const gapSteps = SCORE_DUST_RESET_GAP_SECONDS * SCORE_DUST_STEP_HZ;
   const phraseCache = new Map(), derived = new Float32Array(DUST_BAND_COUNT);
   // Comfort: reduced motion calms kicks, replaces shocks, stops spin and orbit.
-  const reduced = settings.reducedMotion === true, flashGate = createFlashGate(settings.flashLimitPerSecond ?? 3);
+  let reduced = settings.reducedMotion === true;
+  const flashGate = createFlashGate(settings.flashLimitPerSecond ?? 3);
   let simulated = null, formationKey = "", resets = 0, stepsRun = 0, lastDrumOnset = 0, drumHits = 0;
   // Vocal gate: fast attack, slow release, so a sung word snaps in and lingers.
   let vocalGate = 0, vocalWordOnsets = 0;
@@ -215,11 +216,33 @@ export function createScoreDustPerformance({ playback, settings = {}, count = nu
 
   /** Colour style at song time t (palette crossfade, gated flash, desaturation). */
   function style(t, state) {
-    return dustColourStyle(playback, state, t, { flash: flashGate.level });
+    return dustColourStyle(playback, state, t, { flash: reduced ? 0 : flashGate.level });
+  }
+
+  // This is only the score/controller portion of a checkpoint. A host must
+  // separately restore all swarm and stage state at the identical grid step.
+  function captureControlState() {
+    if (typeof playback.score.fingerprint !== "string" || !playback.score.fingerprint) throw new Error("Score fingerprint is required for a checkpoint.");
+    return { version: 1, scoreFingerprint: playback.score.fingerprint, seed: swarm.seed, count: swarm.count,
+      simulated, formationKey, resets, stepsRun, lastDrumOnset, drumHits, vocalGate, vocalWordOnsets, reduced, flash: flashGate.snapshot() };
+  }
+  function restoreControlState(state, { swarmRestored = false } = {}) {
+    const nonnegative = n => Number.isSafeInteger(n) && n >= 0;
+    if (!swarmRestored || !state || state.version !== 1 || typeof state.scoreFingerprint !== "string" || !state.scoreFingerprint || state.scoreFingerprint !== playback.score.fingerprint || state.seed !== swarm.seed || state.count !== swarm.count ||
+        !(state.simulated === null || nonnegative(state.simulated)) || typeof state.formationKey !== "string" ||
+        ![state.resets,state.stepsRun,state.drumHits,state.vocalWordOnsets].every(nonnegative) ||
+        !Number.isFinite(state.lastDrumOnset) || !Number.isFinite(state.vocalGate) || typeof state.reduced !== "boolean")
+      throw new Error("Invalid or incompatible score control checkpoint, or swarm state not restored.");
+    if (state.simulated !== null && (!Number.isFinite(swarm.time) || Math.abs(swarm.time - state.simulated / SCORE_DUST_STEP_HZ) > 1e-4))
+      throw new Error("Swarm time does not match score control checkpoint.");
+    flashGate.restore(state.flash);
+    ({ simulated, formationKey, resets, stepsRun, lastDrumOnset, drumHits, vocalGate, vocalWordOnsets, reduced } = state);
   }
 
   return {
-    swarm, motion, playback, advanceTo, camera, style, reducedMotion: reduced,
+    swarm, motion, playback, advanceTo, camera, style, captureControlState, restoreControlState,
+    setReducedMotion(value) { reduced = value === true; },
+    get reducedMotion() { return reduced; },
     diagnostics: () => ({ simulatedTime: simulated === null ? null : simulated / SCORE_DUST_STEP_HZ, resets, stepsRun, formation: swarm.formation, formationKey, particles: swarm.count, seed: swarm.seed, flashes: flashGate.stats(), reducedMotion: reduced, drumHits, vocalWordOnsets, vocalGate }),
   };
 }

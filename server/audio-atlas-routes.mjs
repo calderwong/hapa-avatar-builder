@@ -39,7 +39,7 @@ export async function handleAudioAtlas({req,res,url,atlas,uploads,requireAdmin,r
     else if(suffix==='/jobs'&&req.method==='GET')value={jobs:atlas.jobs(params.songId)};
     else if(suffix==='/jobs'&&req.method==='POST'){const body=await readBody(req);value=await atlas.start(body.songId,{alignmentBaseRunId:body.alignmentBaseRunId||null,transcriptionBaseRunId:body.transcriptionBaseRunId||null,transcriptionSourceId:body.transcriptionSourceId||null,transcriptionLanguage:body.transcriptionLanguage||'en',transcribe:body.transcribe===true,beats:body.beats===true,acoustic:body.acoustic===true,alignment:body.alignment,pitch:body.pitch});}
     else {
-      const match=suffix.match(/^\/jobs\/([a-zA-Z0-9_-]+)(?:\/(query|review|export|reference|text-search|noise-reference|descriptions|visual-score|visual-score-directions|visual-score-suggest|visual-score-cue|visual-score-lyrics))?$/);
+      const match=suffix.match(/^\/jobs\/([a-zA-Z0-9_-]+)(?:\/(query|review|export|reference|text-search|noise-reference|descriptions|visual-score|visual-score-directions|visual-score-suggest|visual-score-cue|visual-score-lyrics|campfire-spectrum))?$/);
       if(!match)throw Object.assign(new Error('Atlas route not found'),{statusCode:404});
       const [,id,action]=match;
       if(action==='descriptions'){
@@ -52,6 +52,9 @@ export async function handleAudioAtlas({req,res,url,atlas,uploads,requireAdmin,r
         else if(req.method==='GET')value=atlas.textSearches(id,params.id,params.limit);
         else if(req.method==='DELETE')value=await atlas.cancelTextSearch(id);
         else throw Object.assign(new Error('Method not allowed'),{statusCode:405});
+      }else if(action==='campfire-spectrum'){
+        if(req.method!=='GET')throw Object.assign(new Error('Method not allowed'),{statusCode:405});
+        sendJson(res,200,{ok:true,spectrum:atlas.campfireSpectrum(id)});return true;
       }else if(action==='visual-score-lyrics'){
         // Read-only verdict on the Song's lyric timing for this run, with the verified lines.
         if(req.method!=='GET')throw Object.assign(new Error('Method not allowed'),{statusCode:405});

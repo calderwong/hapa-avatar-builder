@@ -4,10 +4,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import {
   buildEchoMusicalTimelineFromAtlas, composeEchoVisualScore, validateEchoVisualScore, validateEchoScoreDirection,
   normalizeDustPlaySettings, ECHO_SCORE_DIRECTION_SCHEMA, echoAtlasRunShape, selectEchoScoreDustRun, verifyScoreDustLyricTiming,
 } from '../src/domain/echo-visual-score.js';
+import { validateCampfireDirection } from '../src/domain/echo-campfire-direction.js';
 import { DUST_LOOK_SCHEMA, dustLookSlug, validateDustLook, mergeDustLooks } from '../src/domain/echo-score-dust-looks.js';
 import { albumDustColour } from '../src/domain/echo-score-dust-album.js';
 import { suggestDustDirection, interpretDustCue } from '../src/domain/echo-score-dust-director.js';
@@ -171,10 +173,24 @@ export function atlasVisualScore(result,input={},{saved=null,songs=[]}={}){
 export function saveVisualScoreDirection(result,store,input={},{songs=[]}={}){
  const parsed=parseValue(input.direction,'direction');
  if(!parsed)throw fail('direction required');
- const direction=withAlbumColour(parsed,songs,result.song_id);
+ let direction=withAlbumColour(parsed,songs,result.song_id);
  if(!Number.isSafeInteger(input.baseRevision)||input.baseRevision<0)throw fail('baseRevision must be the latest revision you edited (0 for the first)');
  const projection=atlasVisualScore(result,{...input,direction,useSaved:false});
  if(!projection.validation.ok)throw fail(`composed score is invalid: ${projection.validation.errors.map(e=>e.code).join(', ')}`);
+ if(direction.campfire){
+  const stage=direction.campfire,b=stage.binding;
+  const check=validateCampfireDirection(stage,{durationSeconds:projection.timeline.durationSeconds,cueIds:projection.score.cues.map(c=>c.id)});
+  if(!check.ok)throw fail(`invalid campfire direction: ${check.errors.map(e=>e.path+': '+e.message).join('; ')}`);
+  if(b.songId!==result.song_id||b.masterSha256.toLowerCase()!==String(projection.timeline.source.sourceSha256).toLowerCase()||b.scoreFingerprint!==projection.score.fingerprint)throw fail('Campfire direction no longer matches the song, master or composed score. Reauthor it or remove it from this draft before saving.');
+  if(b.baseRevision!==input.baseRevision){
+   // An unchanged extension can follow an ordinary Echo edit only when its
+   // score remains identical. A new or modified extension must bind the base.
+   const latest=store.list(result.song_id).latest;
+   if(latest?.revision!==input.baseRevision||b.baseRevision!==input.baseRevision-1||!isDeepStrictEqual(stage,latest.direction?.campfire))
+    throw fail('Campfire binding does not match the base revision');
+   direction={...direction,campfire:{...stage,binding:{...b,baseRevision:input.baseRevision}}};
+  }
+ }
  const note=typeof input.note==='string'?input.note.slice(0,500):'';
  const author=typeof input.author==='string'&&input.author.trim()?input.author.trim().slice(0,80):'operator';
  return store.append(result.song_id,{baseRevision:input.baseRevision,author,note,runId:result.run_id,

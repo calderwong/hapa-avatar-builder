@@ -50,6 +50,47 @@ test("pausing holds the exact frame and short advances never restart", () => {
   assert.equal(performance.diagnostics().simulatedTime, Math.floor(51 * SCORE_DUST_STEP_HZ) / SCORE_DUST_STEP_HZ);
 });
 
+test("motion preference changes in place without resetting the score cursor or swarm", () => {
+  const performance = createScoreDustPerformance({ playback, settings });
+  performance.advanceTo(50);
+  const before = performance.diagnostics(), fingerprint = performance.swarm.fingerprint();
+  performance.setReducedMotion(true);
+  assert.equal(performance.reducedMotion, true);
+  assert.equal(performance.camera(50, playback.stateAt(50)).yaw, 0);
+  assert.equal(performance.swarm.fingerprint(), fingerprint);
+  assert.equal(performance.diagnostics().simulatedTime, before.simulatedTime);
+  assert.equal(performance.diagnostics().resets, before.resets);
+  performance.advanceTo(50.5);
+  assert.equal(performance.diagnostics().resets, before.resets);
+  performance.setReducedMotion(false);
+  assert.equal(performance.reducedMotion, false);
+  assert.equal(performance.diagnostics().simulatedTime, 50.5);
+});
+
+test("score controller checkpoint resumes crossings when the host restores matching swarm state", () => {
+  const fake = { count: 3, seed: 77, time: 0, formation: null, events: [],
+    reset(t) { this.time=t; this.events=[]; },
+    setFormation(spec) { this.formation=typeof spec === "string" ? spec : "points"; this.events.push(["formation",this.formation]); },
+    kick(v) { this.events.push(["kick",v]); }, shock(v) { this.events.push(["shock",v]); },
+    step(dt) { this.time+=dt; },
+  };
+  const performance=createScoreDustPerformance({playback,settings,createSwarm:()=>fake});
+  performance.advanceTo(50);
+  const checkpoint=JSON.parse(JSON.stringify(performance.captureControlState()));
+  const hostState={time:fake.time,formation:fake.formation,events:structuredClone(fake.events)};
+  performance.advanceTo(51);
+  const expectedEvents=structuredClone(fake.events),expected=performance.captureControlState();
+  assert.throws(()=>performance.restoreControlState(checkpoint),/swarm state not restored/);
+  assert.throws(()=>performance.restoreControlState({...checkpoint,scoreFingerprint:"wrong"},{swarmRestored:true}),/incompatible/);
+  Object.assign(fake,hostState); fake.events=structuredClone(hostState.events);
+  performance.restoreControlState(checkpoint,{swarmRestored:true});
+  performance.advanceTo(51);
+  assert.deepEqual(fake.events,expectedEvents);
+  assert.deepEqual(performance.captureControlState(),expected);
+  const invalid=structuredClone(expected); invalid.flash.level=5;
+  assert.throws(()=>performance.restoreControlState(invalid,{swarmRestored:true}),/flash-gate/);
+});
+
 test("closed-form spin and yaw are continuous and phrases face the viewer", () => {
   const motion = buildScoreDustMotion(score);
   for (const { start } of motion.segments.slice(1)) {

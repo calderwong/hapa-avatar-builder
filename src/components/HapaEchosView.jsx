@@ -1,4 +1,5 @@
 import EchoSongLyricsPanel from "./EchoSongLyricsPanel.jsx";
+import { campfireShaderCards, paintCampfireShaderOverlay } from "../domain/echo-campfire-layers.js";
 import EchoSongHealthPanel from './EchoSongHealthPanel.jsx';
 import {createLivingLightRecordVisit,loadLivingLightRecordDestination} from '../domain/living-light-record-visit.js';
 import { compareEchoSongs } from '../domain/echo-album-navigation.js';
@@ -30,6 +31,7 @@ import { createEchoProxySourcePrefetch } from "../domain/echo-proxy-frame-decode
 import { createEchoPreviewProxySchedule, applyEchoPreviewProjection, echoPreviewHistoryMediaCue, ECHO_PREVIEW_QUALITY_PRESETS, normalizeEchoPreviewQuality, echoPreviewShaderSize, echoPreviewShaderLayers } from "../domain/echo-preview-projection.js";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 const EchoLivingLightPreview = lazy(() => import("./EchoLivingLightPreview.jsx"));
+const EchoCampfirePreview = lazy(() => import("./EchoCampfirePreview.jsx"));
 const EchoScoreDustLayerOverlay = lazy(() => import("./EchoScoreDustLayerOverlay.jsx"));
 const EchoScoreDustLayerEditor = lazy(() => import("./EchoScoreDustLayerEditor.jsx"));
 const LivingLightWorkspace = lazy(() => import("./LivingLightWorkspace.jsx"));
@@ -2323,6 +2325,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   // Ingress: a cue can name Score Dust, or the preview toggle shows it over any
   // Song without editing the Director cut (it is not final-render ready).
   const [scoreDustPreview, setScoreDustPreview] = useState(false);
+  const [campfirePreview, setCampfirePreview] = useState(false);
+  const [campfireShaders, setCampfireShaders] = useState(false);
+  const [campfireShaderStrength, setCampfireShaderStrength] = useState(0.65);
+  const [campfireCaptureState, setCampfireCaptureState] = useState({ status: "loading" });
   const scoreDustPreviewRef = useRef(false);
   useEffect(() => { scoreDustPreviewRef.current = scoreDustPreview; }, [scoreDustPreview]);
   // The preview draws dust in place of the cut's shaders and media. A cut with
@@ -2330,7 +2336,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   // the preview would only hide the rest of the cut: it is switched off.
   const cutHasScoreDustLayer = Boolean(activeProject?.score_dust_layer);
   useEffect(() => { if (cutHasScoreDustLayer) setScoreDustPreview(false); }, [cutHasScoreDustLayer]);
-  const usesScoreDust = useMemo(() => scoreDustPreview || (activeProject?.visualizer_timeline || []).some((item) => item?.visualizer_id === "builtin:score-dust"), [activeProject, scoreDustPreview]);
+  useEffect(() => { setCampfirePreview(false); setCampfireShaders(false); }, [selectedProjectSongId, activeDirectionVariantSelection]);
+  const usesScoreDust = useMemo(() => scoreDustPreview || campfirePreview || (activeProject?.visualizer_timeline || []).some((item) => item?.visualizer_id === "builtin:score-dust"), [activeProject, scoreDustPreview, campfirePreview]);
   const scoreDust = useEchoScoreDust({
     // Lyric words come from the server-verified timing, not the cut's timed_lyrics.
     enabled: usesScoreDust, songId: selectedProjectSongId, apiBase: API_BASE, preparedPerformance: activePreparedPerformance,
@@ -2846,6 +2853,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
   // a local download so the capture is never silently dropped.
   const livingLightRecordingRef = useRef(null);
   const scoreDustLayerRecordingRef = useRef(null);
+  const campfireRecordingRef = useRef(null);
   const previewRecordingStagingCanvasRef = useRef(null);
   const livingLightRecordingWaitRef = useRef(null);
   const livingLightRecordingPausedMsRef = useRef(0);
@@ -2933,69 +2941,76 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
       ? Number(audio.currentTime || currentTimeRef.current)
       : currentTimeRef.current;
     const project = activeProjectRef.current || activeProject;
-    const timeline = previewTimelineRef.current;
-    const playheadShotIndex = timeline.findIndex((item) => t >= item.start_sec && t < item.end_sec);
-    const currentTimelineItem = playheadShotIndex !== -1 && playheadShotIndex !== undefined
-      ? timeline[playheadShotIndex]
-      : timeline[0];
-    const projected = activeDirectorPreviewSourceRef.current
-      ? projectEchoDirectorPreviewFrame({
-        source: activeDirectorPreviewSourceRef.current,
-        timeSeconds: t,
-        playing: Boolean(audio && !audio.paused && !audio.ended),
-        shaderTypeResolver: shaderTypeResolverRef.current,
-      })
-      : null;
-    const cameraDirectedItem = currentTimelineItem && projected?.camera
-      ? {
-        ...currentTimelineItem,
-        camera_motion: projected.camera.motion,
-        camera_intensity: projected.camera.intensity,
-        ...(projected.camera.speed === null ? {} : { camera_speed: projected.camera.speed }),
-      }
-      : currentTimelineItem;
-    const binding = resolvePresentedEchoMediaBinding(
-      directorPreviewFullscreenRef.current,
-      currentTimelineItem,
-      presentedMediaRef.current
-    );
-    const element = binding?.element || null;
-    const elementReady = element
-      ? (element.tagName === "VIDEO"
-        ? Number(element.readyState || 0) >= 2
-        : Boolean(element.complete) && Number(element.naturalWidth || 0) > 0)
-      : false;
-    let mediaDrawn = false;
-    if (element && elementReady) {
-      const keyframe = echoCameraKeyframeAt(activeShowGraphRef.current?.directorV2?.cameraKeyframes, t);
-      mediaDrawn = Boolean(drawEchoCameraFramedMediaInput({
-        canvas,
-        mediaElement: element,
-        shot: cameraDirectedItem,
-        timeSeconds: t,
-        shotIndex: Number.isInteger(playheadShotIndex) ? playheadShotIndex : 0,
-        cameraCrop: projected?.camera?.keyframe?.crop || keyframe?.crop || null,
-        outputWidth: width,
-        outputHeight: height,
-      }));
-    }
-    if (!mediaDrawn) {
-      context.fillStyle = "#020617";
-      context.fillRect(0, 0, width, height);
-    }
-    const shaderCanvas = canvasRef.current;
-    if (shaderCanvas && Number(shaderCanvas.width || 0) > 0) {
-      try { context.drawImage(shaderCanvas, 0, 0, width, height); } catch { /* shader layer unavailable */ }
-    }
-    if(project?.living_light_cues?.length){
-      const source=livingLightRecordingRef.current;
-      if(!source)throw Error('The Living Light capture surface is unavailable.');
-      source.draw(context,t,width,height);
-    }
-    if (project?.score_dust_layer) {
-      const source = scoreDustLayerRecordingRef.current;
-      if (!source) throw new Error('The Score Dust capture surface is unavailable. Open Preview and wait for the layer.');
+    if (campfirePreview) {
+      const source = campfireRecordingRef.current;
+      if (!source) throw new Error('The Campfire capture surface is unavailable.');
       source.draw(context, t, width, height);
+      if (campfireShaders) paintCampfireShaderOverlay(context, canvasRef.current, width, height, campfireShaderStrength);
+    } else {
+      const timeline = previewTimelineRef.current;
+      const playheadShotIndex = timeline.findIndex((item) => t >= item.start_sec && t < item.end_sec);
+      const currentTimelineItem = playheadShotIndex !== -1 && playheadShotIndex !== undefined
+        ? timeline[playheadShotIndex]
+        : timeline[0];
+      const projected = activeDirectorPreviewSourceRef.current
+        ? projectEchoDirectorPreviewFrame({
+          source: activeDirectorPreviewSourceRef.current,
+          timeSeconds: t,
+          playing: Boolean(audio && !audio.paused && !audio.ended),
+          shaderTypeResolver: shaderTypeResolverRef.current,
+        })
+        : null;
+      const cameraDirectedItem = currentTimelineItem && projected?.camera
+        ? {
+          ...currentTimelineItem,
+          camera_motion: projected.camera.motion,
+          camera_intensity: projected.camera.intensity,
+          ...(projected.camera.speed === null ? {} : { camera_speed: projected.camera.speed }),
+        }
+        : currentTimelineItem;
+      const binding = resolvePresentedEchoMediaBinding(
+        directorPreviewFullscreenRef.current,
+        currentTimelineItem,
+        presentedMediaRef.current
+      );
+      const element = binding?.element || null;
+      const elementReady = element
+        ? (element.tagName === "VIDEO"
+          ? Number(element.readyState || 0) >= 2
+          : Boolean(element.complete) && Number(element.naturalWidth || 0) > 0)
+        : false;
+      let mediaDrawn = false;
+      if (element && elementReady) {
+        const keyframe = echoCameraKeyframeAt(activeShowGraphRef.current?.directorV2?.cameraKeyframes, t);
+        mediaDrawn = Boolean(drawEchoCameraFramedMediaInput({
+          canvas,
+          mediaElement: element,
+          shot: cameraDirectedItem,
+          timeSeconds: t,
+          shotIndex: Number.isInteger(playheadShotIndex) ? playheadShotIndex : 0,
+          cameraCrop: projected?.camera?.keyframe?.crop || keyframe?.crop || null,
+          outputWidth: width,
+          outputHeight: height,
+        }));
+      }
+      if (!mediaDrawn) {
+        context.fillStyle = "#020617";
+        context.fillRect(0, 0, width, height);
+      }
+      const shaderCanvas = canvasRef.current;
+      if (shaderCanvas && Number(shaderCanvas.width || 0) > 0) {
+        try { context.drawImage(shaderCanvas, 0, 0, width, height); } catch { /* shader layer unavailable */ }
+      }
+      if(project?.living_light_cues?.length){
+        const source=livingLightRecordingRef.current;
+        if(!source)throw Error('The Living Light capture surface is unavailable.');
+        source.draw(context,t,width,height);
+      }
+      if (project?.score_dust_layer) {
+        const source = scoreDustLayerRecordingRef.current;
+        if (!source) throw new Error('The Score Dust capture surface is unavailable. Open Preview and wait for the layer.');
+        source.draw(context, t, width, height);
+      }
     }
     echoLyricPresentationRef.current?.(t);
     paintEchoLyricSurfaceToCanvas(context, echoLyricCaptureSurfaceRef.current, { width, height });
@@ -3024,7 +3039,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
       } catch (error) {
         {
           let waiting=livingLightRecordingWaitRef.current;
-          if(['living_light_capture_waiting', 'score_dust_capture_waiting'].includes(error.code)&&(!waiting||performance.now()-waiting.startedAt<15000)){
+          if(['living_light_capture_waiting', 'score_dust_capture_waiting', 'campfire_capture_waiting'].includes(error.code)&&(!waiting||performance.now()-waiting.startedAt<15000)){
             if(!waiting){
               const audio=audioRef.current;
               waiting={startedAt:performance.now(),resumeAudio:!!audio&&!audio.paused};
@@ -3225,14 +3240,20 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         throw new Error("This browser cannot capture the preview canvas (captureStream unavailable).");
       }
       const project = activeProjectRef.current || activeProject;
-      if(project?.living_light_cues?.length){
+      if (campfirePreview) {
+        const source = campfireRecordingRef.current;
+        if (!source) throw new Error('Wait for Campfire to finish preparing before recording.');
+        probeCanvas.width = 16; probeCanvas.height = 16;
+        source.draw(probeCanvas.getContext('2d'), Number(audioRef.current?.currentTime ?? currentTimeRef.current), 16, 16);
+      }
+      if(!campfirePreview && project?.living_light_cues?.length){
         const source=livingLightRecordingRef.current;
         if(!source)throw Error('Open Preview and wait for the saved Living Light scene before recording.');
         source.start();
         probeCanvas.width=16;probeCanvas.height=16;
         source.draw(probeCanvas.getContext('2d'),Number(audioRef.current?.currentTime??currentTimeRef.current),16,16);
       }
-      if (project?.score_dust_layer) {
+      if (!campfirePreview && project?.score_dust_layer) {
         const source = scoreDustLayerRecordingRef.current;
         if (!source) throw new Error('Open Preview and wait for the Score Dust layer before recording.');
         probeCanvas.width = 16; probeCanvas.height = 16;
@@ -3241,16 +3262,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
       const timeline = project?.timeline || [];
       const playhead = Number(currentTimeRef.current || 0);
       const currentItem = timeline.find((item) => playhead >= item.start_sec && playhead < item.end_sec) || timeline[0];
-      if (shotMediaType(currentItem) === "video" && !previewBufferState.ready) {
+      if (!campfirePreview && shotMediaType(currentItem) === "video" && !previewBufferState.ready) {
         throw new Error("Video is still buffering. Wait for the preview buffer to become ready.");
       }
 
       const audioElement = audioRef.current;
       const audioTrack = await acquirePreviewRecordingAudioTrack();
-      const identity = (project?.living_light_cues?.length || (audioVisualMode === "live" && captureLiveSignals)) ? await buildPreviewCaptureIdentity() : null;
+      const identity = ((!campfirePreview && project?.living_light_cues?.length) || (audioVisualMode === "live" && captureLiveSignals)) ? await buildPreviewCaptureIdentity() : null;
       const output = activeOutputProfile;
       previewCaptureContextRef.current = { identity, sourceKey: recordingSourceKey, mode: audioVisualMode, metadata: {
-        cutId: activeDirectionVariantSelection, songId: String(selectedProjectSongId || project.song_id || project.id || ""), songTitle: project.song_title || "", projectTitle: project.title || "", orientation: output.id, width: output.width, height: output.height,
+        cutId: activeDirectionVariantSelection, songId: String(selectedProjectSongId || project.song_id || project.id || ""), songTitle: project.song_title || "", projectTitle: campfirePreview ? `Campfire · ${project.title || project.song_title || ""}` : project.title || "", orientation: output.id, width: output.width, height: output.height,
       } };
       const canvas = globalThis.document.createElement("canvas");
       canvas.width = Math.max(320, Number(output?.width || 1280));
@@ -3309,7 +3330,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
       setPreviewRecordingError(`Recording did not start: ${String(error?.message || error)}`);
       setPreviewRecordingState("error");
     }
-  }, [activeOutputProfile, activeProject, audioLoading, audioPlaybackError, audioPlaybackReady, previewBufferState.ready, stopPreviewRecording, activeVisualSignalSolo, buildPreviewCaptureIdentity, recordingSourceKey, audioVisualMode, captureLiveSignals]);
+  }, [activeOutputProfile, activeProject, audioLoading, audioPlaybackError, audioPlaybackReady, previewBufferState.ready, stopPreviewRecording, activeVisualSignalSolo, buildPreviewCaptureIdentity, recordingSourceKey, audioVisualMode, captureLiveSignals, campfirePreview, campfireShaders, campfireShaderStrength]);
 
   useEffect(() => {
     const context = previewCaptureContextRef.current;
@@ -3740,7 +3761,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
       const paintObserver = globalThis.__HAPA_ECHO_ON_PAINT__;
       const paintedLayers = typeof paintObserver === "function" ? [] : null;
       const mediaAccentTarget = directorPreviewFrame?.primaryMediaCue;
-      if (mediaAccentTarget) accentReceipts.push(...EchoAccentPresentation.paint(ctx, accentState, width, height, { layer: "media-layer", primary: true, instanceId: mediaAccentTarget.id, cardId: mediaAccentTarget.id, trackId: mediaAccentTarget.trackId }));
+      if (!campfirePreview && mediaAccentTarget) accentReceipts.push(...EchoAccentPresentation.paint(ctx, accentState, width, height, { layer: "media-layer", primary: true, instanceId: mediaAccentTarget.id, cardId: mediaAccentTarget.id, trackId: mediaAccentTarget.trackId }));
       const projectedCueIndex = directorPreviewFrame?.primaryMediaCue?.sourceCueIndex;
       const playheadShotIndex = Number.isInteger(projectedCueIndex)
         ? projectedCueIndex
@@ -3820,16 +3841,19 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
         : [];
       // An image input is a binding requirement, not a quarantine. The verified
       // source loader and frame-intent adapter report actual unavailable inputs.
-      const graphActiveVisualizerCards = graphActiveVisualizerCardsIncludingQuarantine;
+      const graphActiveVisualizerCards = campfirePreview ? campfireShaderCards(graphActiveVisualizerCardsIncludingQuarantine) : graphActiveVisualizerCardsIncludingQuarantine;
       const graphVisualizerCards = hasDirectorShowGraph
-        ? visualizerLookaheadCards(directorShowGraph, t, 6)
+        ? (campfirePreview ? campfireShaderCards(visualizerLookaheadCards(directorShowGraph, t, 6)) : visualizerLookaheadCards(directorShowGraph, t, 6))
         : [];
       const graphVisualizerCard = graphActiveVisualizerCards[0]
         || graphVisualizerCards[0]
         || null;
 
       const budgetHoldsAllShaders = directorPreviewFrame?.visualBudget?.status === "within-budget" && directorPreviewFrame.visualizers.length === 0 && directorPreviewFrame.visualBudget.suppressedIds.length > 0;
-      if (scoreDustPreviewRef.current) {
+      if (campfirePreview && (!campfireShaders || !hasDirectorShowGraph || !graphActiveVisualizerCards.length)) {
+        pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
+        publishExactStatus({ status: "idle", sourceId: "", error: "" });
+      } else if (scoreDustPreviewRef.current) {
         // Preview toggle: Score Dust replaces the cut's visualizers on screen only.
         pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
         publishExactStatus({ status: "idle", sourceId: "", error: "" });
@@ -3848,10 +3872,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
           const missing = { status: "error", sourceId: "", error: "No executable shader card at this graph time" };
           publishExactStatus(missing);
           const heldCanvas = exactIsfLastPresentedCanvasRef.current;
-          if (heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
+          if (!campfirePreview && heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
         } else if (!pool) {
           const heldCanvas = exactIsfLastPresentedCanvasRef.current;
-          if (heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
+          if (!campfirePreview && heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
         } else {
           try {
             const masterAudio = audioRef.current;
@@ -4032,7 +4056,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                 outputHeight: height,
               })
               : null;
-            const mediaBaseDrawn = paintEchoPreviewMediaBase({
+            const mediaBaseDrawn = !campfirePreview && paintEchoPreviewMediaBase({
               context: ctx,
               framedMediaInput,
               width,
@@ -4245,7 +4269,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
               exactIsfLastPresentedCanvasRef.current = readyLayers[0].presentation.canvas;
               for (const layer of readyLayers) {
                 const { presentation, composition, audioEnvelope } = layer;
-                if (Number(composition.underlayDimAlpha) > 0) {
+                if (!campfirePreview && Number(composition.underlayDimAlpha) > 0) {
                   ctx.save();
                   ctx.globalAlpha = Math.max(0, Math.min(1, Number(composition.underlayDimAlpha)));
                   ctx.globalCompositeOperation = "source-over";
@@ -4255,7 +4279,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                 }
                 ctx.save();
                 ctx.globalAlpha = Math.max(0, Math.min(1, Number(composition.effectiveAlpha ?? (composition.opacity * composition.mix * composition.transitionAlpha)) || 0));
-                ctx.globalCompositeOperation = composition.canvasComposite || "source-over";
+                ctx.globalCompositeOperation = campfirePreview ? "screen" : composition.canvasComposite || "source-over";
                 ctx.filter = `brightness(${audioEnvelope.brightness.toFixed(3)}) saturate(${audioEnvelope.saturation.toFixed(3)}) contrast(${audioEnvelope.contrast.toFixed(3)})`;
                 ctx.translate(width / 2, height / 2);
                 ctx.scale(audioEnvelope.scale, audioEnvelope.scale);
@@ -4271,13 +4295,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
               }
             } else {
               const heldCanvas = exactIsfLastPresentedCanvasRef.current;
-              if (heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
+              if (!campfirePreview && heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
             }
           } catch (error) {
             const failed = { status: "error", sourceId: exactVisualizerSourceId(graphVisualizerCard), error: String(error?.message || error) };
             publishExactStatus(failed);
             const heldCanvas = exactIsfLastPresentedCanvasRef.current;
-            if (heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
+            if (!campfirePreview && heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
           }
         }
       } else {
@@ -4730,7 +4754,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
       exactIsfLastPresentedCanvasRef.current = null;
       exactIsfPrewarmSignatureRef.current = "";
     };
-  }, [activeDirectorPreviewSource, activeOutputProfile, previewTimeline, previewQuality, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activeRecordedSignalReplay, activePreparedPerformance, preparedModulationResult, diagnosticPreparedModulation, activeVisualSignalSolo, visualSignalIsolation]);
+  }, [campfirePreview, campfireShaders, activeDirectorPreviewSource, activeOutputProfile, previewTimeline, previewQuality, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activeRecordedSignalReplay, activePreparedPerformance, preparedModulationResult, diagnosticPreparedModulation, activeVisualSignalSolo, visualSignalIsolation]);
 
   const uniqueTags = useMemo(() => {
     if (!gapsReport?.videos) return [];
@@ -6825,15 +6849,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                     const activePersistentShaderSlots = normalizeEchoPersistentShaderSlots(activeProject);
                     const pendingPreviewProxyCount = previewTimeline.filter((item) => shotMediaType(item) === "video" && item.media_contract?.proxy?.status !== "ready").length;
                     const isVerticalOutput = activeOutputProfile.id === "vertical";
-                    const previewRecordingVideoBuffering = shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready;
+                    const previewRecordingVideoBuffering = !campfirePreview && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready;
                     const previewRecordingAudioFailed = Boolean(audioPlaybackError);
                     const previewRecordingAudioBuffering = !previewRecordingAudioFailed && (audioLoading || !audioPlaybackReady);
                     const previewPlaybackStartBlocked = audioLoading
-                      || (!previewRecordingAudioFailed && !isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready);
+                      || (!campfirePreview && !previewRecordingAudioFailed && !isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready);
+                    const campfirePicturePending = campfirePreview && !["ready", "catching-up"].includes(campfireCaptureState.status);
                     const previewRecordingBusy = previewRecordingState === "preparing" || previewRecordingState === "saving";
                     const previewRecordingStartBlocked = previewRecordingState !== "recording"
-                      && (Boolean(activeVisualSignalSolo) || previewRecordingBusy || (!previewRecordingAudioFailed && (previewRecordingAudioBuffering || previewRecordingVideoBuffering)));
-                    const previewRecordingReadinessLabel = activeVisualSignalSolo ? "RESTORE ALL VISUAL SIGNALS TO RECORD" : previewRecordingState === "preparing"
+                      && (campfirePicturePending || Boolean(activeVisualSignalSolo) || previewRecordingBusy || (!previewRecordingAudioFailed && (previewRecordingAudioBuffering || previewRecordingVideoBuffering)));
+                    const previewRecordingReadinessLabel = campfirePicturePending ? "RECORD · WAITING FOR CAMPFIRE" : activeVisualSignalSolo ? "RESTORE ALL VISUAL SIGNALS TO RECORD" : previewRecordingState === "preparing"
                       ? "STARTING RECORDING + PLAYBACK"
                       : previewRecordingState === "saving"
                         ? "SAVING RECORDING"
@@ -7856,20 +7881,24 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                       left: 0,
                                       width: '100%',
                                       height: '100%',
-                                      zIndex: 2,
+                                      zIndex: campfirePreview ? 4 : 2,
+                                      mixBlendMode: campfirePreview ? "screen" : "normal",
+                                      opacity: campfirePreview ? campfireShaderStrength : 1,
                                       pointerEvents: 'none',
-                                      background: currentTimelineItem && currentTimelineItem.media_uri !== "" ? 'transparent' : '#020617',
-                                      display: 'block'
+                                      background: campfirePreview ? 'transparent' : currentTimelineItem && currentTimelineItem.media_uri !== "" ? 'transparent' : '#020617',
+                                      display: campfirePreview && !campfireShaders ? 'none' : 'block'
                                     }}
                                   />
 
-                                  {activeProject.living_light_cues?.length>0&&<Suspense fallback={null}><EchoLivingLightPreview project={activeProject} clean={cleanPreviewMode} audioRef={audioRef} clockRef={currentTimeRef}
+                                  {campfirePreview && activeWorkbenchTab==='preview' && powerMode!=='hidden' && <Suspense fallback={null}><EchoCampfirePreview captureRef={campfireRecordingRef} onState={setCampfireCaptureState} songId={selectedProjectSongId} dust={scoreDust} audioReceipt={audioPlaybackReceipt} audioRef={audioRef} clockRef={currentTimeRef} apiBase={API_BASE} width={isVerticalOutput ? 360 : 640} height={isVerticalOutput ? 640 : 360}/></Suspense>}
+
+                                  {!campfirePreview&&activeProject.living_light_cues?.length>0&&<Suspense fallback={null}><EchoLivingLightPreview project={activeProject} clean={cleanPreviewMode} audioRef={audioRef} clockRef={currentTimeRef}
                                     currentTime={currentTime} active={activeWorkbenchTab==='preview'&&powerMode!=='hidden'}
                                     audioReceipt={audioPlaybackReceipt} preparedPerformance={activePreparedPerformance}
                                     mediaSources={livingLightMediaSources} captureRef={livingLightRecordingRef}/></Suspense>}
 
                                   {/* Score Dust layer: over media, shaders and Living Light, under the lyrics — the export's order. */}
-                                  {activeProject.score_dust_layer&&<Suspense fallback={null}><EchoScoreDustLayerOverlay project={activeProject} audioRef={audioRef} clockRef={currentTimeRef}
+                                  {!campfirePreview&&activeProject.score_dust_layer&&<Suspense fallback={null}><EchoScoreDustLayerOverlay project={activeProject} audioRef={audioRef} clockRef={currentTimeRef}
                                     active={activeWorkbenchTab==='preview'&&powerMode!=='hidden'} clean={cleanPreviewMode} apiBase={API_BASE} resolveUri={resolveMediaUri}
                                     outputProfile={activeOutputProfile} captureRef={scoreDustLayerRecordingRef} editingDisabled={directorEditingLocked||!activeDirectionVariant||previewRecordingActiveRef.current||previewRecordingStartingRef.current}
                                     onLayerChange={layer=>handleUpdateProjectSettings({score_dust_layer:layer})}/></Suspense>}
@@ -7903,80 +7932,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                     mediaTracks={activeShowGraph?.tracks}
                                     accentEvents={activeShowGraph?.directorV2?.accentTrack?.events}
                                     contract={directorPreviewFrame?.lyrics?.contract || activeLyricContract}
-                                    lines={scoreDustPreviewLyrics({ enabled: scoreDustPreview, currentLines: scoreDust.currentLyricLines, project: activeProject, graphLines: activeShowGraph?.song?.lyricOverlay?.lines })}
+                                    lines={scoreDustPreviewLyrics({ enabled: scoreDustPreview || campfirePreview, currentLines: scoreDust.currentLyricLines, project: activeProject, graphLines: activeShowGraph?.song?.lyricOverlay?.lines })}
                                     position={activeProject.lyric_position || "bottom-center"} themeId={activeProject.lyric_style || "neon-cyan"}
                                     outputProfile={activeOutputProfile} clockRef={currentTimeRef} audioRef={audioRef}
                                     initialTime={currentTime} playing={isPlaying} powerMode={powerMode} hidden={cleanPreviewMode}
                                   />
                                 </div>
 
-                                <div role="status" style={{ fontSize: 13, padding: 8 }}>
-                                  <label>Audio visuals <select aria-label="Audio visuals" value={audioVisualMode} disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current} onChange={event => setAudioVisualMode(event.target.value)}><option value="prepared">Prepared song timing</option><option value="live">Live monitoring</option>{recordedSignalReplay && <option value="replay">Recorded signals</option>}</select></label>{" "}
-                                  <label title={cutHasScoreDustLayer ? "This cut has its own Score Dust layer, which plays over its media, shaders and Living Light. The preview would replace those with dust only." : "Draws Score Dust in place of the cut's shaders and media to audition it. Prepares missing Atlas beats and sections locally, loads stems and chooses a song direction. Saved cuts stay unchanged."}><input type="checkbox" data-testid="echo-score-dust-toggle" checked={scoreDustPreview && !cutHasScoreDustLayer} disabled={previewRecordingActiveRef.current || cutHasScoreDustLayer} onChange={event => { setScoreDustPreview(event.target.checked); if (event.target.checked) setAudioVisualMode("prepared"); }} /> {cutHasScoreDustLayer ? "Score Dust preview (off: this cut has its own dust layer)" : "Score Dust preview (dust only)"}</label>{" "}
-                                  {audioVisualMode === "prepared" ? activePreparedPerformance ? "Prepared signals ready. Seeking reuses cached timing." : preparedAudio.message || "Loading prepared timing…" : audioVisualMode === "replay" ? activeRecordedSignalReplay ? `Recorded signals: ${activeRecordedSignalReplay.startSeconds.toFixed(2)}–${activeRecordedSignalReplay.endSeconds.toFixed(2)}s. Outside this interval signals are silent.` : "Select the original song and cut to replay these signals." : "Live monitoring depends on playback history."}
-                                  {audioVisualMode === "live" && <label><input type="checkbox" checked={captureLiveSignals} disabled={previewRecordingActiveRef.current} onChange={event => setCaptureLiveSignals(event.target.checked)} /> Save replayable signals with recording (64 MB limit)</label>}
-                                  {activePreparedPerformance?.missingData?.unverifiedOrigins?.length > 0 && <span> Stem alignment pending review.</span>}
-                                  {scoreDustPreview && scoreDust.kind === "atlas" ? <span> Score Dust follows {scoreDust.timeline.beats.length} Atlas-detected beats across {scoreDust.timeline.sections.length} sections; listening review remains open.</span> : activePreparedPerformance?.missingData?.measuredBeats && <span> Beat grid not verified.</span>}
-                                  {audioVisualMode === "prepared" && !activePreparedPerformance && <button type="button" className="hapa-btn" onClick={() => setPreparedAudioRetry(value => value + 1)}>Retry prepared audio</button>}
-                                  {audioVisualMode === "prepared" && <EchoPerformancePreparationControl key={preparedAudioKey} apiBase={API_BASE} songId={selectedProjectSongId} variantId={activeDirectionVariantSelection} ready={Boolean(activePreparedPerformance)} onReady={() => setPreparedAudioRetry(value => value + 1)} />}
-                                  {preparedModulationResult.error && <span role="alert">{preparedModulationResult.error}</span>}
-                                  <details data-testid="echo-visual-signal-diagnostics" style={{ marginTop: 8 }}>
-                                    <summary>Inspect stem influence</summary>
-                                    <label>Visual signal solo <select aria-label="Visual signal solo" value={activeVisualSignalSolo}
-                                      disabled={!activePreparedPerformance || ["preparing", "recording", "saving"].includes(previewRecordingState)}
-                                      onChange={event => setVisualSignalSolo({ key: preparedAudioKey, role: event.target.value })}>
-                                      <option value="">All visual signals</option>
-                                      <option value="__silence__">Mute audio influence</option>
-                                      {visualSignalRoles.map(role => <option key={role} value={role}>{role === "master" ? "Master mix" : role === "vocals" ? "Lead vocals" : role.replaceAll("-", " ")}</option>)}
-                                    </select></label>
-                                    <p>Temporary preview diagnostic. Song audio, lyric timing and saved cuts stay unchanged. Time-based animation continues. Restore all signals before recording.</p>
-                                    {activeVisualSignalSolo && <button type="button" onClick={() => setVisualSignalSolo({ key: preparedAudioKey, role: "" })}>Restore all visual signals</button>}
-                                    <span data-testid="echo-visual-signal-summary">{activeVisualSignalSolo === "__silence__" ? "All audio influence muted." : activeVisualSignalSolo ? `Only ${activeVisualSignalSolo.replaceAll("-", " ")} drives audio-reactive channels.` : "All prepared buses drive their assigned channels."}</span>
-                                  </details>
-                                </div>
-                                {/* Add, adjust or remove the cut's Score Dust layer (working copy). */}
-                                {activeProject && <Suspense fallback={null}><EchoScoreDustLayerEditor project={activeProject} apiBase={API_BASE} currentTime={currentTime}
-                                  editingDisabled={directorEditingLocked} onChange={layer=>handleUpdateProjectSettings({score_dust_layer:layer})}/></Suspense>}
-                                {usesScoreDust && (
-                                  <EchoScoreDustPanel dust={scoreDust} currentTime={currentTime} sessionControls={{
-                                    playing: isPlaying, playPause: handlePlayPause,
-                                    getActual: () => audioRef.current?.currentTime ?? currentTimeRef.current,
-                                    seek: (seconds) => { currentTimeRef.current = seconds; echoPlaybackEngineRef.current?.seek(seconds); setCurrentTime(seconds); if (audioRef.current) audioRef.current.currentTime = seconds; },
-                                  }} exportContext={{
-                                    apiBase: API_BASE, songId: selectedProjectSongId, songTitle: activeProject?.song_title || activeProject?.title || "",
-                                    shots: activeProject?.timeline || [], resolveUri: resolveMediaUri,
-                                    // Place a Score Dust render on the shots it fully covers (working copy of the cut).
-                                    placeInCut: (render) => {
-                                      if (directorEditingLocked || !activeProject) return { placed: 0, skipped: [], error: "The cut is busy or locked; try again when it is idle." };
-                                      const { placements, skipped } = scoreDustShotPlacements(activeProject.timeline || [], render);
-                                      for (const { index, patch } of placements) handleUpdateShot(index, patch);
-                                      return { placed: placements.length, skipped };
-                                    },
-                                    // Atlas master bytes when the score came from Atlas; otherwise the player's current source.
-                                    audioUrl: scoreDust.kind === "atlas" && scoreDust.runId ? `${API_BASE}/api/echos/audio-atlas/jobs/${encodeURIComponent(scoreDust.runId)}/audio/master` : (audioRef.current?.currentSrc || audioBlobUrl || ""),
-                                  }} onSeek={(seconds) => {
-                                    currentTimeRef.current = seconds;
-                                    echoPlaybackEngineRef.current?.seek(seconds);
-                                    setCurrentTime(seconds);
-                                    if (audioRef.current) audioRef.current.currentTime = seconds;
-                                  }} />
-                                )}
-                                <fieldset data-testid="echo-preview-quality" disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current}
-                                  style={{ margin: '8px 0', padding: '8px 12px', border: '1px solid rgba(255,255,255,.18)', borderRadius: 6, minWidth: 0, fontSize: 13 }}>
-                                  <legend>Preview quality</legend>
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-                                    <label>Preset <select aria-label="Preview quality preset" value={previewQualityPreset} onChange={event => {
-                                      const preset = event.target.value;
-                                      if (!ECHO_PREVIEW_QUALITY_PRESETS[preset]) return;
-                                      setPreviewQualityPreset(preset); setPreviewQuality({ ...ECHO_PREVIEW_QUALITY_PRESETS[preset] });
-                                    }}><option value="full">Full detail</option><option value="balanced">Balanced</option><option value="responsive">Responsive</option>{previewQualityPreset === 'custom' && <option value="custom">Custom</option>}</select></label>
-                                    <label>Shader resolution <select aria-label="Preview shader resolution" value={previewQuality.shaderScale} onChange={event => setPreviewQualityControl('shaderScale', event.target.value)}><option value="1">100%</option><option value="0.75">75%</option><option value="0.5">50%</option></select></label>
-                                    <label>Shader layers <select aria-label="Preview shader layers" value={previewQuality.layerLimit} onChange={event => setPreviewQualityControl('layerLimit', event.target.value)}><option value="0">All scheduled</option><option value="4">Up to 4</option><option value="2">Up to 2</option></select></label>
-                                    <label>Prepared media size <select aria-label="Preview media size" value={previewQuality.mediaDimension} onChange={event => setPreviewQualityControl('mediaDimension', event.target.value)}><option value="1280">1280 px</option><option value="960">960 px</option><option value="640">640 px</option></select></label>
-                                  </div>
-                                  <p style={{ margin: '6px 0 0', color: '#cbd5e1' }}>Lyrics stay crisp. Final export uses the saved cut and original media. Quick recordings use the current preview appearance.</p>
-                                  <p style={{ margin: '4px 0 0', color: '#94a3b8' }}>Lower layer limits show the first scheduled layers. Use Prepare selected-cut preview to apply a new video size; still images choose available renditions at the selected size; originals remain in use until ready. Changing shader resolution rebuilds effect history.</p>
-                                </fieldset>
                                 {/* Player Controls */}
                                 <div data-testid="echo-director-preview-controls" style={{ display: 'flex', gap: '12px', rowGap: '8px', alignItems: 'center', alignSelf: directorPreviewExpanded ? 'center' : 'stretch', width: directorPreviewExpanded ? directorPreviewWidth : 'auto', maxWidth: '100%', flexWrap: 'wrap', flexShrink: 0, boxSizing: 'border-box', background: 'rgba(0,0,0,0.2)', padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
                                   <button 
@@ -8196,6 +8158,86 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                   )}
                                 </div>
 
+                                <div data-testid="echo-campfire-controls" style={{display:'flex',flexWrap:'wrap',alignItems:'center',gap:12,fontSize:13,padding:'8px 0'}}>
+                                  <label title="Campfire uses this song’s master, measured timing and direction. It temporarily replaces the cut’s picture, including Dust and Living Light. Switch it off to restore the cut. Record + Play captures Campfire with the song audio and lyrics."><input type="checkbox" data-testid="echo-campfire-toggle" checked={campfirePreview} disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current} onChange={event => { setCampfirePreview(event.target.checked); if (event.target.checked) { setScoreDustPreview(false); setAudioVisualMode("prepared"); } }} /> Campfire preview</label>{" "}
+                                  {campfirePreview && <>
+                                    <label><input type="checkbox" aria-label="Blend Always On shaders with Campfire" checked={campfireShaders} disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current} onChange={event=>setCampfireShaders(event.target.checked)}/> Blend Always On shaders</label>
+                                    {campfireShaders && <label>Shader strength <input type="range" aria-label="Campfire shader strength" min="0" max="1" step="0.05" value={campfireShaderStrength} disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current} onChange={event=>setCampfireShaderStrength(Number(event.target.value))}/> {Math.round(campfireShaderStrength*100)}%</label>}
+                                    {campfireShaders && <span>{activePersistentShaderSlots.filter(slot=>slot.enabled).length} enabled Always On slots · light blend · included in recordings</span>}
+                                  </>}
+                                </div>
+                                <details data-testid="echo-visual-settings" style={{width:'100%',minWidth:0}}>
+                                  <summary style={{cursor:'pointer',padding:'8px 0'}}>Visual settings · Campfire / Score Dust direction and preview quality</summary>
+                                <div role="status" style={{ fontSize: 13, padding: 8 }}>
+                                  <label>Audio visuals <select aria-label="Audio visuals" value={audioVisualMode} disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current} onChange={event => setAudioVisualMode(event.target.value)}><option value="prepared">Prepared song timing</option><option value="live">Live monitoring</option>{recordedSignalReplay && <option value="replay">Recorded signals</option>}</select></label>{" "}
+                                  <label title={cutHasScoreDustLayer ? "This cut has its own Score Dust layer, which plays over its media, shaders and Living Light. The preview would replace those with dust only." : "Draws Score Dust in place of the cut's shaders and media to audition it. Prepares missing Atlas beats and sections locally, loads stems and chooses a song direction. Saved cuts stay unchanged."}><input type="checkbox" data-testid="echo-score-dust-toggle" checked={scoreDustPreview && !cutHasScoreDustLayer} disabled={previewRecordingActiveRef.current || cutHasScoreDustLayer} onChange={event => { setScoreDustPreview(event.target.checked); if (event.target.checked) { setCampfirePreview(false); setAudioVisualMode("prepared"); } }} /> {cutHasScoreDustLayer ? "Score Dust preview (off: this cut has its own dust layer)" : "Score Dust preview (dust only)"}</label>{" "}
+
+                                  {audioVisualMode === "prepared" ? activePreparedPerformance ? "Prepared signals ready. Seeking reuses cached timing." : preparedAudio.message || "Loading prepared timing…" : audioVisualMode === "replay" ? activeRecordedSignalReplay ? `Recorded signals: ${activeRecordedSignalReplay.startSeconds.toFixed(2)}–${activeRecordedSignalReplay.endSeconds.toFixed(2)}s. Outside this interval signals are silent.` : "Select the original song and cut to replay these signals." : "Live monitoring depends on playback history."}
+                                  {audioVisualMode === "live" && <label><input type="checkbox" checked={captureLiveSignals} disabled={previewRecordingActiveRef.current} onChange={event => setCaptureLiveSignals(event.target.checked)} /> Save replayable signals with recording (64 MB limit)</label>}
+                                  {activePreparedPerformance?.missingData?.unverifiedOrigins?.length > 0 && <span> Stem alignment pending review.</span>}
+                                  {scoreDustPreview && scoreDust.kind === "atlas" ? <span> Score Dust follows {scoreDust.timeline.beats.length} Atlas-detected beats across {scoreDust.timeline.sections.length} sections; listening review remains open.</span> : activePreparedPerformance?.missingData?.measuredBeats && <span> Beat grid not verified.</span>}
+                                  {audioVisualMode === "prepared" && !activePreparedPerformance && <button type="button" className="hapa-btn" onClick={() => setPreparedAudioRetry(value => value + 1)}>Retry prepared audio</button>}
+                                  {audioVisualMode === "prepared" && <EchoPerformancePreparationControl key={preparedAudioKey} apiBase={API_BASE} songId={selectedProjectSongId} variantId={activeDirectionVariantSelection} ready={Boolean(activePreparedPerformance)} onReady={() => setPreparedAudioRetry(value => value + 1)} />}
+                                  {preparedModulationResult.error && <span role="alert">{preparedModulationResult.error}</span>}
+                                  <details data-testid="echo-visual-signal-diagnostics" style={{ marginTop: 8 }}>
+                                    <summary>Inspect stem influence</summary>
+                                    <label>Visual signal solo <select aria-label="Visual signal solo" value={activeVisualSignalSolo}
+                                      disabled={!activePreparedPerformance || ["preparing", "recording", "saving"].includes(previewRecordingState)}
+                                      onChange={event => setVisualSignalSolo({ key: preparedAudioKey, role: event.target.value })}>
+                                      <option value="">All visual signals</option>
+                                      <option value="__silence__">Mute audio influence</option>
+                                      {visualSignalRoles.map(role => <option key={role} value={role}>{role === "master" ? "Master mix" : role === "vocals" ? "Lead vocals" : role.replaceAll("-", " ")}</option>)}
+                                    </select></label>
+                                    <p>Temporary preview diagnostic. Song audio, lyric timing and saved cuts stay unchanged. Time-based animation continues. Restore all signals before recording.</p>
+                                    {activeVisualSignalSolo && <button type="button" onClick={() => setVisualSignalSolo({ key: preparedAudioKey, role: "" })}>Restore all visual signals</button>}
+                                    <span data-testid="echo-visual-signal-summary">{activeVisualSignalSolo === "__silence__" ? "All audio influence muted." : activeVisualSignalSolo ? `Only ${activeVisualSignalSolo.replaceAll("-", " ")} drives audio-reactive channels.` : "All prepared buses drive their assigned channels."}</span>
+                                  </details>
+                                </div>
+                                {/* Add, adjust or remove the cut's Score Dust layer (working copy). */}
+                                {activeProject && <Suspense fallback={null}><EchoScoreDustLayerEditor project={activeProject} apiBase={API_BASE} currentTime={currentTime}
+                                  editingDisabled={directorEditingLocked} onChange={layer=>handleUpdateProjectSettings({score_dust_layer:layer})}/></Suspense>}
+                                {usesScoreDust && (
+                                  <EchoScoreDustPanel dust={scoreDust} currentTime={currentTime} sessionControls={{
+                                    playing: isPlaying, playPause: handlePlayPause,
+                                    getActual: () => audioRef.current?.currentTime ?? currentTimeRef.current,
+                                    seek: (seconds) => { currentTimeRef.current = seconds; echoPlaybackEngineRef.current?.seek(seconds); setCurrentTime(seconds); if (audioRef.current) audioRef.current.currentTime = seconds; },
+                                  }} exportContext={{
+                                    apiBase: API_BASE, songId: selectedProjectSongId, songTitle: activeProject?.song_title || activeProject?.title || "",
+                                    shots: activeProject?.timeline || [], resolveUri: resolveMediaUri,
+                                    // Place a Score Dust render on the shots it fully covers (working copy of the cut).
+                                    placeInCut: (render) => {
+                                      if (directorEditingLocked || !activeProject) return { placed: 0, skipped: [], error: "The cut is busy or locked; try again when it is idle." };
+                                      const { placements, skipped } = scoreDustShotPlacements(activeProject.timeline || [], render);
+                                      for (const { index, patch } of placements) handleUpdateShot(index, patch);
+                                      return { placed: placements.length, skipped };
+                                    },
+                                    // Atlas master bytes when the score came from Atlas; otherwise the player's current source.
+                                    audioUrl: scoreDust.kind === "atlas" && scoreDust.runId ? `${API_BASE}/api/echos/audio-atlas/jobs/${encodeURIComponent(scoreDust.runId)}/audio/master` : (audioRef.current?.currentSrc || audioBlobUrl || ""),
+                                  }} onSeek={(seconds) => {
+                                    currentTimeRef.current = seconds;
+                                    echoPlaybackEngineRef.current?.seek(seconds);
+                                    setCurrentTime(seconds);
+                                    if (audioRef.current) audioRef.current.currentTime = seconds;
+                                  }} />
+                                )}
+                                <fieldset data-testid="echo-preview-quality" disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current}
+                                  style={{ margin: '8px 0', padding: '8px 12px', border: '1px solid rgba(255,255,255,.18)', borderRadius: 6, minWidth: 0, fontSize: 13 }}>
+                                  <legend>Preview quality</legend>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                                    <label>Preset <select aria-label="Preview quality preset" value={previewQualityPreset} onChange={event => {
+                                      const preset = event.target.value;
+                                      if (!ECHO_PREVIEW_QUALITY_PRESETS[preset]) return;
+                                      setPreviewQualityPreset(preset); setPreviewQuality({ ...ECHO_PREVIEW_QUALITY_PRESETS[preset] });
+                                    }}><option value="full">Full detail</option><option value="balanced">Balanced</option><option value="responsive">Responsive</option>{previewQualityPreset === 'custom' && <option value="custom">Custom</option>}</select></label>
+                                    <label>Shader resolution <select aria-label="Preview shader resolution" value={previewQuality.shaderScale} onChange={event => setPreviewQualityControl('shaderScale', event.target.value)}><option value="1">100%</option><option value="0.75">75%</option><option value="0.5">50%</option></select></label>
+                                    <label>Shader layers <select aria-label="Preview shader layers" value={previewQuality.layerLimit} onChange={event => setPreviewQualityControl('layerLimit', event.target.value)}><option value="0">All scheduled</option><option value="4">Up to 4</option><option value="2">Up to 2</option></select></label>
+                                    <label>Prepared media size <select aria-label="Preview media size" value={previewQuality.mediaDimension} onChange={event => setPreviewQualityControl('mediaDimension', event.target.value)}><option value="1280">1280 px</option><option value="960">960 px</option><option value="640">640 px</option></select></label>
+                                  </div>
+                                  <p style={{ margin: '6px 0 0', color: '#cbd5e1' }}>Lyrics stay crisp. Final export uses the saved cut and original media. Quick recordings use the current preview appearance.</p>
+                                  <p style={{ margin: '4px 0 0', color: '#94a3b8' }}>Lower layer limits show the first scheduled layers. Use Prepare selected-cut preview to apply a new video size; still images choose available renditions at the selected size; originals remain in use until ready. Changing shader resolution rebuilds effect history.</p>
+                                </fieldset>
+                                </details>
+
                                 {(activeShowGraph || previewBufferState.error || exactIsfBindingDiagnostics.rendererTruth) && (
                                   <div
                                     data-testid="echo-director-preview-diagnostics"
@@ -8383,7 +8425,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active", 
                                     />
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', justifyContent: 'space-between' }}>
                                       <span style={{ fontSize: '9.5px', fontWeight: 'bold', color: '#e2e8f0' }}>
-                                        {recording.captureStatus === "incomplete" ? "Incomplete take · " : ""}{recording.songTitle || recording.songId || "Untitled song"}
+                                        {recording.captureStatus === "incomplete" ? "Incomplete take · " : ""}{recording.projectTitle?.startsWith("Campfire · ") ? "Campfire · " : ""}{recording.songTitle || recording.songId || "Untitled song"}
                                       </span>
                                       <span style={{ fontFamily: 'monospace', fontSize: '8.5px', color: '#94a3b8' }}>
                                         {recording.createdAt ? new Date(recording.createdAt).toLocaleString() : ""} · {formatEchoPreviewRecordingElapsed(recording.durationMs)} · {recording.width}×{recording.height} · {recording.fps ? `${recording.fps}fps` : ""} · {Math.max(1, Math.round(Number(recording.sizeBytes || 0) / 1024 / 1024))} MB

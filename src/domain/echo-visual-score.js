@@ -10,6 +10,7 @@
 // Play settings (seed, particle count, pulse choice) are kept apart from the
 // score so one score can be replayed with controlled variation.
 
+import { validateCampfireDirection } from "./echo-campfire-direction.js";
 import { DUST_FORMATION_FAMILIES, seedFromString, hashUnit } from "./echo-dust-swarm.js";
 import { applySectionEdits, validateSectionEdits } from "./echo-score-dust-sections.js";
 import { normalizeLyricControl, validateLyricControl, chosenLyricPhrases, wordByWordPhrases, styleLyricPhrase, lyricTimingRefusal } from "./echo-score-dust-lyrics.js";
@@ -574,7 +575,7 @@ export function imageRefProblem(ref) {
 /** Text and inline SVG logos carry their own pixels; no asset lookup is needed. */
 const selfContainedImage = (ref) => ref?.kind === "text" || ref?.kind === "svg";
 
-const DIRECTION_KEYS = new Set(["colour", "background", "sections", "lyrics", "stemResponses", "families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision"]);
+const DIRECTION_KEYS = new Set(["colour", "background", "sections", "lyrics", "stemResponses", "families", "palettes", "baseHue", "maxDensity", "images", "phrases", "lyricPhrases", "eventResponses", "cameraMoves", "playSettings", "author", "revision", "campfire"]);
 
 /** Strict check for a saved or submitted direction (the human intent, not the composed score). */
 export function validateEchoScoreDirection(direction) {
@@ -606,6 +607,7 @@ export function validateEchoScoreDirection(direction) {
   for (const message of validateSectionEdits(direction.sections)) error("sections", message);
   for (const message of validateLyricControl(direction.lyrics)) error("lyrics", message);
   if (!validateDustBackground(direction.background)) error("background", "background allows kind black|solid|gradient|palette, #rrggbb colour/colour2 and shape linear|radial.");
+  if (direction.campfire !== undefined) for (const issue of validateCampfireDirection(direction.campfire).errors) error("campfire", `${issue.path}: ${issue.message}`);
   return { ok: errors.length === 0, errors };
 }
 

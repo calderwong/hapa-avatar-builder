@@ -128,6 +128,14 @@ export function createFlashGate(limitPerSecond = DUST_FLASH_LIMIT_PER_SECOND) {
     decay(dt) { level *= Math.exp(-dt / 0.12); if (level < 0.002) level = 0; },
     reset() { last = -Infinity; level = 0; allowed = 0; blocked = 0; },
     get level() { return level; },
+    snapshot() { return { version: 1, limitPerSecond: limit, last: Number.isFinite(last) ? last : null, level, allowed, blocked }; },
+    restore(state) {
+      if (!state || state.version !== 1 || state.limitPerSecond !== limit ||
+          !(state.last === null || Number.isFinite(state.last)) || !Number.isFinite(state.level) || state.level < 0 || state.level > 1 ||
+          !Number.isSafeInteger(state.allowed) || state.allowed < 0 || !Number.isSafeInteger(state.blocked) || state.blocked < 0)
+        throw new Error("Invalid or incompatible flash-gate state.");
+      last = state.last === null ? -Infinity : state.last; level = state.level; allowed = state.allowed; blocked = state.blocked;
+    },
     stats: () => ({ allowed, blocked, limitPerSecond: limit }),
   };
 }
